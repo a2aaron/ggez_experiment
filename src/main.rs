@@ -10,10 +10,8 @@ const WHITE: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
 
 struct MainState {
-    pos_x: f32,
-    pos_y: f32,
-    goal_x: f32,
-    goal_y: f32,
+    pos: Point2,
+    goal: Point2,
     speed: f32,
     arrow: Arrow,
     keyboard: KeyboardState,
@@ -26,24 +24,23 @@ impl MainState {
     }
 
     fn handle_boundaries(&mut self, height: f32, width: f32) {
-        if self.pos_y > height {
-            self.pos_y = height;
-        } else if self.pos_y < 0.0 {
-            self.pos_y = 0.0;
+        if self.pos[1] > height {
+            self.pos[1] = height;
+        } else if self.pos[1] < 0.0 {
+            self.pos[1] = 0.0;
         }
 
-        if self.pos_x < 0.0 {
-            self.pos_x = width;
-        } else if self.pos_x > width {
-            self.pos_x = 0.0;
+        if self.pos[0] < 0.0 {
+            self.pos[0] = width;
+        } else if self.pos[0] > width {
+            self.pos[0] = 0.0;
         }
     }
 }
 
 impl event::EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
-        self.pos_x = interpolate(self.pos_x, self.goal_x, self.speed);
-        self.pos_y = interpolate(self.pos_y, self.goal_y, self.speed);
+        self.pos = interpolate(self.pos, self.goal, self.speed);
 
         self.handle_boundaries(
             ctx.conf.window_mode.height as f32,
@@ -64,10 +61,10 @@ impl event::EventHandler for MainState {
     ) {
         use Keycode::*;
         match keycode {
-            Left => self.goal_x += -40.0,
-            Right => self.goal_x += 40.0,
-            Up => self.goal_y += -40.0,
-            Down => self.goal_y += 40.0,
+            Left => self.goal[0] += -40.0,
+            Right => self.goal[0] += 40.0,
+            Up => self.goal[1] += -40.0,
+            Down => self.goal[1] += 40.0,
             _ => (),
         }
 
@@ -93,7 +90,7 @@ impl event::EventHandler for MainState {
         graphics::circle(
             ctx,
             DrawMode::Fill,
-            Point2::new(self.pos_x, self.pos_y),
+            self.pos,
             10.0,
             2.0,
         )?;
@@ -101,7 +98,7 @@ impl event::EventHandler for MainState {
         graphics::circle(
             ctx,
             DrawMode::Fill,
-            Point2::new(self.goal_x, self.goal_y),
+            self.goal,
             3.0,
             2.0,
         )?;
@@ -115,10 +112,8 @@ impl event::EventHandler for MainState {
 impl Default for MainState {
     fn default() -> Self {
         MainState {
-            pos_x: 0.0,
-            pos_y: 0.0,
-            goal_x: 0.0,
-            goal_y: 0.0,
+            pos: Point2::new(0.0, 0.0),
+            goal: Point2::new(0.0, 0.0),
             speed: 0.0,
             keyboard: Default::default(),
             arrow: Default::default(),
@@ -182,7 +177,7 @@ impl Default for Arrow {
     }
 }
 
-pub fn interpolate(current: f32, goal: f32, time: f32) -> f32 {
+pub fn interpolate(current: Point2, goal: Point2, time: f32) -> Point2 {
     current + (goal - current) * time
 }
 
