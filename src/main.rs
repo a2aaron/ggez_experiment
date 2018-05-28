@@ -1,8 +1,11 @@
 extern crate ggez;
-use ggez::event::{Keycode, Mod};
-use ggez::graphics::{Color, DrawMode, Point2, Rect, Mesh, DrawParam};
-use ggez::*;
 
+mod keyboard;
+
+use ggez::event::{Keycode, Mod};
+use ggez::graphics::{Color, DrawMode, Point2, Mesh};
+use ggez::*;
+use keyboard::{KeyboardState, Direction};
 const WHITE: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
 
@@ -14,139 +17,6 @@ struct MainState {
     speed: f32,
     arrow: Arrow,
     keyboard: KeyboardState,
-}
-
-impl Default for MainState {
-    fn default() -> Self {
-        MainState {
-            pos_x: 0.0,
-            pos_y: 0.0,
-            goal_x: 0.0,
-            goal_y: 0.0,
-            speed: 0.0,
-            keyboard: Default::default(),
-            arrow: Default::default(),
-        }
-    }
-}
-
-struct Arrow {
-    direction: Direction,
-    opacity: f32,
-    x: f32,
-    y: f32,
-}
-
-#[derive(PartialEq, Debug)]
-enum Direction {
-    Left,
-    Right,
-    Up,
-    Down,
-    LeftUp,
-    LeftDown,
-    RightUp,
-    RightDown,
-    None,
-}
-
-impl Direction {
-    fn to_direction(keyboard: &KeyboardState) -> Result<Direction, &'static str> {
-        match (keyboard.left, keyboard.right, keyboard.up, keyboard.down, ) {
-            (true, false, false, false) => Ok(Direction::Left),
-            (false, true, false, false) => Ok(Direction::Right),
-            (false, false, true, false) => Ok(Direction::Up),
-            (false, false, false, true) => Ok(Direction::Down),
-            (true, false, true, false) => Ok(Direction::LeftUp),
-            (true, false, false, true) => Ok(Direction::LeftDown),
-            (false, true, true, false) => Ok(Direction::RightUp),
-            (false, true, false, true) => Ok(Direction::RightDown),
-            _ => Err("Not a direction!")
-        }
-    }
-}
-
-impl Arrow {
-    fn update(&mut self) {
-        self.opacity -= 0.03;
-        if self.opacity < 0.0 {
-            self.opacity = 0.0
-        }
-    }
-
-    fn draw(&self, ctx: &mut Context) {
-        use DrawMode::*;
-        use Direction::*;
-
-        if self.direction == None {
-            return
-        }
-
-        let prev_color = graphics::get_color(ctx);
-
-        graphics::set_color(ctx, Color::new(1.0, 1.0, 1.0, self.opacity)).expect("Couldn't set color");
-        let angle: f32 = match self.direction {
-            Right => 0.0f32,
-            RightDown => 45.0f32,
-            Down => 90.0f32,
-            LeftDown => 135.0f32,
-            Left => 180.0f32,
-            LeftUp => 225.0f32,
-            Up => 270.0f32,
-            RightUp => 315.0f32,
-            None => unreachable!(),
-        }.to_radians();
-
-        let points = [Point2::new(0.0, 0.0), Point2::new(100.0, 0.0), Point2::new(100.0, 10.0), Point2::new(0.0, 10.0)];
-        let rect = Mesh::new_polygon(ctx, Fill, &points).expect("Couldn't male rectangle");
-        graphics::draw(ctx, &rect, Point2::new(self.x, self.y), angle).expect("Couldn't draw");
-        graphics::set_color(ctx, prev_color).expect("Couldn't set color");
-    }
-}
-
-impl Default for Arrow {
-    fn default() -> Self {
-        Arrow {
-            direction: Direction::None,
-            opacity: 0.0,
-            x: 400.0,
-            y: 400.0,
-        }
-    }
-}
-
-struct KeyboardState {
-    left: bool,
-    right: bool,
-    up: bool,
-    down: bool,
-    space: bool,
-}
-
-impl KeyboardState {
-    fn update(&mut self, keycode: Keycode, is_down: bool) {
-        use Keycode::*;
-        match keycode {
-            Left => self.left = is_down,
-            Right => self.right = is_down,
-            Up => self.up = is_down,
-            Down => self.down = is_down,
-            Space => self.space = is_down,
-            _ => (),
-        }
-    }
-}
-
-impl Default for KeyboardState {
-    fn default() -> Self {
-        KeyboardState {
-            left: false,
-            right: false,
-            up: false,
-            down: false,
-            space: false,
-        }
-    }
 }
 
 impl MainState {
@@ -213,7 +83,6 @@ impl event::EventHandler for MainState {
         self.keyboard.update(keycode, false);
         if let Ok(direction) = Direction::to_direction(&self.keyboard) {
             self.arrow.direction = direction;
-            self.arrow.opacity = 1.0;
             println!("{:?}", self.arrow.direction);
         }
     }
@@ -240,6 +109,76 @@ impl event::EventHandler for MainState {
         self.arrow.draw(ctx);
         graphics::present(ctx);
         Ok(())
+    }
+}
+
+impl Default for MainState {
+    fn default() -> Self {
+        MainState {
+            pos_x: 0.0,
+            pos_y: 0.0,
+            goal_x: 0.0,
+            goal_y: 0.0,
+            speed: 0.0,
+            keyboard: Default::default(),
+            arrow: Default::default(),
+        }
+    }
+}
+
+struct Arrow {
+    direction: Direction,
+    opacity: f32,
+    x: f32,
+    y: f32,
+}
+
+impl Arrow {
+    fn update(&mut self) {
+        self.opacity -= 0.03;
+        if self.opacity < 0.0 {
+            self.opacity = 0.0
+        }
+    }
+
+    fn draw(&self, ctx: &mut Context) {
+        use DrawMode::*;
+        use Direction::*;
+
+        if self.direction == None {
+            return
+        }
+
+        let prev_color = graphics::get_color(ctx);
+
+        graphics::set_color(ctx, Color::new(1.0, 1.0, 1.0, self.opacity)).expect("Couldn't set color");
+        let angle: f32 = match self.direction {
+            Right => 0.0f32,
+            RightDown => 45.0f32,
+            Down => 90.0f32,
+            LeftDown => 135.0f32,
+            Left => 180.0f32,
+            LeftUp => 225.0f32,
+            Up => 270.0f32,
+            RightUp => 315.0f32,
+            None => unreachable!(),
+        }.to_radians();
+
+        let points = [Point2::new(0.0, 0.0), Point2::new(100.0, 0.0), Point2::new(100.0, 10.0), Point2::new(0.0, 10.0)];
+        let rect = Mesh::new_polygon(ctx, Fill, &points).expect("Couldn't male rectangle");
+        graphics::draw(ctx, &rect, Point2::new(self.x, self.y), angle).expect("Couldn't draw");
+        graphics::set_color(ctx, prev_color).expect("Couldn't set color");
+    }
+}
+
+impl Default for Arrow {
+    fn default() -> Self {
+        Arrow {
+            direction: Direction::None,
+            opacity: 0.0,
+            x: 400.0,
+            y: 400.0,
+        }
     }
 }
 
