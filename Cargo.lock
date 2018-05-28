@@ -319,6 +319,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ggez_experiment"
+version = "0.1.0"
+dependencies = [
+ "ggez 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "gif"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -880,13 +887,6 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "visual"
-version = "0.1.0"
-dependencies = [
- "ggez 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
