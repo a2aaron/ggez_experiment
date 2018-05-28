@@ -2,9 +2,11 @@ extern crate ggez;
 
 mod keyboard;
 
+use std::collections::VecDeque;
 use ggez::event::{Keycode, Mod};
 use ggez::graphics::{Color, DrawMode, Point2, Mesh};
 use ggez::*;
+
 use keyboard::{KeyboardState, Direction};
 const WHITE: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
@@ -12,6 +14,7 @@ const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
 struct MainState {
     pos: Point2,
     goal: Point2,
+    keyframes: VecDeque<Point2>,
     speed: f32,
     arrow: Arrow,
     keyboard: KeyboardState,
@@ -40,7 +43,13 @@ impl MainState {
 
 impl event::EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
-        self.pos = interpolate(self.pos, self.goal, self.speed);
+        if let Some(goal) = self.keyframes.pop_front() {
+            let speed = (self.speed * (self.keyframes.len() + 1) as f32).min(1.0);
+            self.pos = interpolate(self.pos, goal, speed);
+            if distance(self.pos, goal) > 0.01 {
+                self.keyframes.push_front(goal);
+            }
+        }
 
         self.handle_boundaries(
             ctx.conf.window_mode.height as f32,
@@ -67,7 +76,7 @@ impl event::EventHandler for MainState {
             Down => self.goal[1] += 40.0,
             _ => (),
         }
-
+        self.keyframes.push_back(self.goal.clone());
         self.keyboard.update(keycode, true);
         if let Ok(direction) = Direction::to_direction(&self.keyboard) {
             self.arrow.direction = direction;
@@ -114,6 +123,7 @@ impl Default for MainState {
         MainState {
             pos: Point2::new(0.0, 0.0),
             goal: Point2::new(0.0, 0.0),
+            keyframes: VecDeque::new(),
             speed: 0.0,
             keyboard: Default::default(),
             arrow: Default::default(),
@@ -179,6 +189,10 @@ impl Default for Arrow {
 
 pub fn interpolate(current: Point2, goal: Point2, time: f32) -> Point2 {
     current + (goal - current) * time
+}
+
+pub fn distance(a: Point2, b: Point2) -> f32 {
+    ((a[0] - b[0]).powf(2.0) + (a[1] - b[1]).powf(2.0)).sqrt()
 }
 
 pub fn main() {
