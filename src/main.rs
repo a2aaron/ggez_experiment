@@ -45,7 +45,7 @@ impl event::EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
         if let Some(goal) = self.keyframes.pop_front() {
             let speed = (self.speed * (self.keyframes.len() + 1) as f32).min(1.0);
-            self.pos = interpolate(self.pos, goal, speed);
+            self.pos = lerp(self.pos, goal, speed);
             if distance(self.pos, goal) > 0.01 {
                 self.keyframes.push_front(goal);
             }
@@ -78,7 +78,7 @@ impl event::EventHandler for MainState {
         }
         self.keyframes.push_back(self.goal.clone());
         self.keyboard.update(keycode, true);
-        if let Ok(direction) = Direction::to_direction(&self.keyboard) {
+        if let Ok(direction) = Direction::from_keyboard(&self.keyboard) {
             self.arrow.direction = direction;
             self.arrow.opacity = 1.0;
             println!("{:?}", self.arrow.direction);
@@ -87,7 +87,7 @@ impl event::EventHandler for MainState {
 
     fn key_up_event(&mut self, _ctx: &mut Context, keycode: Keycode, _keymod: Mod, _repeat: bool) {
         self.keyboard.update(keycode, false);
-        if let Ok(direction) = Direction::to_direction(&self.keyboard) {
+        if let Ok(direction) = Direction::from_keyboard(&self.keyboard) {
             self.arrow.direction = direction;
             println!("{:?}", self.arrow.direction);
         }
@@ -187,7 +187,7 @@ impl Default for Arrow {
     }
 }
 
-pub fn interpolate(current: Point2, goal: Point2, time: f32) -> Point2 {
+pub fn lerp(current: Point2, goal: Point2, time: f32) -> Point2 {
     current + (goal - current) * time
 }
 

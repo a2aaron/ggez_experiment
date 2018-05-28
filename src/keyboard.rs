@@ -14,7 +14,7 @@ pub enum Direction {
 }
 
 impl Direction {
-    pub fn to_direction(keyboard: &KeyboardState) -> Result<Direction, &'static str> {
+    pub fn from_keyboard(keyboard: &KeyboardState) -> Result<Direction, &'static str> {
         match (keyboard.left, keyboard.right, keyboard.up, keyboard.down, ) {
             (true, false, false, false) => Ok(Direction::Left),
             (false, true, false, false) => Ok(Direction::Right),
