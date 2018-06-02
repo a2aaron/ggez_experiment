@@ -4,9 +4,13 @@ mod keyboard;
 
 use ggez::event::{Keycode, Mod};
 use ggez::graphics::{Color, DrawMode, Mesh, Point2};
+use ggez::audio::{Source};
 use ggez::*;
 use std::collections::VecDeque;
 use std::time::Duration;
+use std::path::PathBuf;
+use std::env;
+
 use keyboard::{Direction, KeyboardState};
 
 const WHITE: Color = Color {
@@ -22,7 +26,8 @@ const RED: Color = Color {
     a: 1.0,
 };
 
-const BPM: f64 = 145.0;
+const BPM: f64 = 170.0;
+const MUSIC_PATH: &str = "/bbkkbkk.ogg";
 
 struct MainState {
     pos: Point2,
@@ -34,15 +39,28 @@ struct MainState {
     time: Duration,
     background: Color,
     bpm: Duration,
+    music: Source
 }
 
 impl MainState {
-    fn new(_ctx: &mut Context) -> GameResult<MainState> {
-        let s = MainState::default();
+    fn new(ctx: &mut Context) -> GameResult<MainState> {
+        let s = MainState {
+            pos: Point2::new(0.0, 0.0),
+            goal: Point2::new(0.0, 0.0),
+            keyframes: VecDeque::new(),
+            speed: 0.0,
+            keyboard: Default::default(),
+            arrow: Default::default(),
+            time: Duration::new(0, 0),
+            background: Color::new(0.0, 0.0, 0.0, 1.0),
+            bpm: bpm_to_duration(BPM),
+            music: audio::Source::new(ctx, MUSIC_PATH)?,
+        };
+        s.music.play();
         Ok(s)
     }
 
-    fn beat(&mut self, ctx: &mut Context) {
+    fn beat(&mut self, _ctx: &mut Context) {
         print!("Beat!");
     }
 
@@ -111,6 +129,8 @@ impl event::EventHandler for MainState {
             Right => self.goal[0] += 40.0,
             Up => self.goal[1] += -40.0,
             Down => self.goal[1] += 40.0,
+            P => drop(self.music.resume()),
+            S => drop(self.music.pause()),
             _ => (),
         }
 
@@ -142,22 +162,6 @@ impl event::EventHandler for MainState {
         self.arrow.draw(ctx);
         graphics::present(ctx);
         Ok(())
-    }
-}
-
-impl Default for MainState {
-    fn default() -> Self {
-        MainState {
-            pos: Point2::new(0.0, 0.0),
-            goal: Point2::new(0.0, 0.0),
-            keyframes: VecDeque::new(),
-            speed: 0.0,
-            keyboard: Default::default(),
-            arrow: Default::default(),
-            time: Duration::new(0, 0),
-            background: Color::new(0.0, 0.0, 0.0, 1.0),
-            bpm: bpm_to_duration(BPM),
-        }
     }
 }
 
@@ -236,8 +240,21 @@ pub fn bpm_to_duration(bpm: f64) -> Duration {
 }
 
 pub fn main() {
-    let c = conf::Conf::new();
-    let ctx = &mut Context::load_from_conf("super_simple", "ggez", c).unwrap();
+    let mut cb = ContextBuilder::new("visual", "ggez")
+        .window_setup(conf::WindowSetup::default().title("Rythym"))
+        .window_mode(conf::WindowMode::default().dimensions(640, 480));
+    if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        let mut path = PathBuf::from(manifest_dir);
+        path.push("resources");
+        println!("Adding path {:?}", path);
+        // We need this re-assignment alas, see
+        // https://aturon.github.io/ownership/builders.html
+        // under "Consuming builders"
+        cb = cb.add_resource_path(path);
+    } else {
+        println!("Not building from cargo");
+    }
+    let ctx = &mut cb.build().unwrap();
     let state = &mut MainState::new(ctx).unwrap();
     event::run(ctx, state).unwrap();
 }
