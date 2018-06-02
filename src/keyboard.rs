@@ -1,6 +1,6 @@
 use ggez::event::Keycode;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Direction {
     Left,
     Right,

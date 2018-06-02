@@ -2,14 +2,27 @@ extern crate ggez;
 
 mod keyboard;
 
-use std::collections::VecDeque;
 use ggez::event::{Keycode, Mod};
-use ggez::graphics::{Color, DrawMode, Point2, Mesh};
+use ggez::graphics::{Color, DrawMode, Mesh, Point2};
 use ggez::*;
+use std::collections::VecDeque;
+use std::time::Duration;
+use keyboard::{Direction, KeyboardState};
 
-use keyboard::{KeyboardState, Direction};
-const WHITE: Color = Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-const RED: Color = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+const WHITE: Color = Color {
+    r: 1.0,
+    g: 1.0,
+    b: 1.0,
+    a: 1.0,
+};
+const RED: Color = Color {
+    r: 1.0,
+    g: 0.0,
+    b: 0.0,
+    a: 1.0,
+};
+
+const BPM: f64 = 145.0;
 
 struct MainState {
     pos: Point2,
@@ -18,12 +31,28 @@ struct MainState {
     speed: f32,
     arrow: Arrow,
     keyboard: KeyboardState,
+    time: Duration,
+    background: Color,
+    bpm: Duration,
 }
 
 impl MainState {
     fn new(_ctx: &mut Context) -> GameResult<MainState> {
         let s = MainState::default();
         Ok(s)
+    }
+
+    fn beat(&mut self, ctx: &mut Context) {
+        print!("Beat!");
+    }
+
+    fn interbeat_update(&mut self, time_in_beat: Duration) {
+        fn rev_quad(n: f64) -> f64 {
+            (1.0 - n) * (1.0 - n)
+        }
+        let beat_percent = timer::duration_to_f64(time_in_beat)/timer::duration_to_f64(self.bpm);
+        let color = rev_quad(beat_percent) as f32;
+        self.background = Color::new(color, color, color, 1.0);
     }
 
     fn handle_boundaries(&mut self, height: f32, width: f32) {
@@ -58,6 +87,14 @@ impl event::EventHandler for MainState {
 
         self.arrow.update();
         self.speed = if self.keyboard.space { 0.01 } else { 0.2 };
+
+        let time_in_beat = timer::get_time_since_start(ctx) - self.time;
+        self.interbeat_update(time_in_beat);
+        if time_in_beat > self.bpm {
+            self.beat(ctx);
+            self.time = timer::get_time_since_start(ctx);
+        }
+        
         Ok(())
     }
 
@@ -76,12 +113,13 @@ impl event::EventHandler for MainState {
             Down => self.goal[1] += 40.0,
             _ => (),
         }
-        self.keyframes.push_back(self.goal.clone());
+
         self.keyboard.update(keycode, true);
         if let Ok(direction) = Direction::from_keyboard(&self.keyboard) {
             self.arrow.direction = direction;
             self.arrow.opacity = 1.0;
             println!("{:?}", self.arrow.direction);
+            self.keyframes.push_back(self.goal.clone());
         }
     }
 
@@ -95,22 +133,11 @@ impl event::EventHandler for MainState {
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         graphics::clear(ctx);
+        graphics::set_background_color(ctx, self.background);
         graphics::set_color(ctx, WHITE).expect("Couldn't set color");
-        graphics::circle(
-            ctx,
-            DrawMode::Fill,
-            self.pos,
-            10.0,
-            2.0,
-        )?;
+        graphics::circle(ctx, DrawMode::Fill, self.pos, 10.0, 2.0)?;
         graphics::set_color(ctx, RED).expect("Couldn't set color");
-        graphics::circle(
-            ctx,
-            DrawMode::Fill,
-            self.goal,
-            3.0,
-            2.0,
-        )?;
+        graphics::circle(ctx, DrawMode::Fill, self.goal, 3.0, 2.0)?;
 
         self.arrow.draw(ctx);
         graphics::present(ctx);
@@ -127,6 +154,9 @@ impl Default for MainState {
             speed: 0.0,
             keyboard: Default::default(),
             arrow: Default::default(),
+            time: Duration::new(0, 0),
+            background: Color::new(0.0, 0.0, 0.0, 1.0),
+            bpm: bpm_to_duration(BPM),
         }
     }
 }
@@ -147,16 +177,17 @@ impl Arrow {
     }
 
     fn draw(&self, ctx: &mut Context) {
-        use DrawMode::*;
         use Direction::*;
+        use DrawMode::*;
 
         if self.direction == None {
-            return
+            return;
         }
 
         let prev_color = graphics::get_color(ctx);
 
-        graphics::set_color(ctx, Color::new(1.0, 1.0, 1.0, self.opacity)).expect("Couldn't set color");
+        graphics::set_color(ctx, Color::new(1.0, 1.0, 1.0, self.opacity))
+            .expect("Couldn't set color");
         let angle: f32 = match self.direction {
             Right => 0.0f32,
             RightDown => 45.0f32,
@@ -169,7 +200,12 @@ impl Arrow {
             None => unreachable!(),
         }.to_radians();
 
-        let points = [Point2::new(0.0, 0.0), Point2::new(100.0, 0.0), Point2::new(100.0, 10.0), Point2::new(0.0, 10.0)];
+        let points = [
+            Point2::new(0.0, 0.0),
+            Point2::new(100.0, 0.0),
+            Point2::new(100.0, 10.0),
+            Point2::new(0.0, 10.0),
+        ];
         let rect = Mesh::new_polygon(ctx, Fill, &points).expect("Couldn't male rectangle");
         graphics::draw(ctx, &rect, Point2::new(self.x, self.y), angle).expect("Couldn't draw");
         graphics::set_color(ctx, prev_color).expect("Couldn't set color");
@@ -193,6 +229,10 @@ pub fn lerp(current: Point2, goal: Point2, time: f32) -> Point2 {
 
 pub fn distance(a: Point2, b: Point2) -> f32 {
     ((a[0] - b[0]).powf(2.0) + (a[1] - b[1]).powf(2.0)).sqrt()
+}
+
+pub fn bpm_to_duration(bpm: f64) -> Duration {
+    timer::f64_to_duration(60.0/bpm)
 }
 
 pub fn main() {
