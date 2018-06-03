@@ -56,7 +56,7 @@ impl MainState {
             self.enemies.push(Enemy::spawn(
                 ctx.conf.window_mode.width as f32,
                 ctx.conf.window_mode.height as f32,
-                Wall::rand(),
+                Direction4::rand(),
             ));
         }
     }
@@ -93,11 +93,10 @@ impl event::EventHandler for MainState {
             self.beat(ctx);
             self.time = timer::get_time_since_start(ctx);
         }
+
         if let Ok(direction) = self.keyboard.direction() {
             self.ball.key_down_event(direction);
-
-            self.arrow.direction = direction;
-            self.arrow.opacity = 1.0;
+            self.arrow.key_down_event(direction);
             println!("{:?}", direction);
         }
 
@@ -124,7 +123,7 @@ impl event::EventHandler for MainState {
     fn key_up_event(&mut self, _ctx: &mut Context, keycode: Keycode, _keymod: Mod, _repeat: bool) {
         self.keyboard.update(keycode, false);
         if let Ok(direction) = self.keyboard.direction() {
-            self.arrow.direction = direction;
+            self.arrow.direction = Some(direction);
             println!("{:?}", self.arrow.direction);
         }
     }
@@ -143,7 +142,7 @@ impl event::EventHandler for MainState {
 }
 
 struct Arrow {
-    direction: Direction,
+    direction: Option<Direction8>,
     opacity: f32,
     x: f32,
     y: f32,
@@ -157,8 +156,13 @@ impl Arrow {
         }
     }
 
+    fn key_down_event(&mut self, direction: Direction8) {
+        self.direction = Some(direction);
+        self.opacity = 1.0;
+    }
+
     fn draw(&self, ctx: &mut Context) -> GameResult<()> {
-        use Direction::*;
+        use Direction8::*;
         use DrawMode::*;
 
         if self.direction == None {
@@ -168,7 +172,7 @@ impl Arrow {
         let prev_color = graphics::get_color(ctx);
 
         graphics::set_color(ctx, Color::new(1.0, 1.0, 1.0, self.opacity))?;
-        let angle: f32 = match self.direction {
+        let angle: f32 = match self.direction.unwrap() {
             Right => 0.0f32,
             RightDown => 45.0f32,
             Down => 90.0f32,
@@ -177,7 +181,6 @@ impl Arrow {
             LeftUp => 225.0f32,
             Up => 270.0f32,
             RightUp => 315.0f32,
-            None => unreachable!(),
         }.to_radians();
 
         let points = [
@@ -196,7 +199,7 @@ impl Arrow {
 impl Default for Arrow {
     fn default() -> Self {
         Arrow {
-            direction: Direction::None,
+            direction: None,
             opacity: 0.0,
             x: 400.0,
             y: 400.0,

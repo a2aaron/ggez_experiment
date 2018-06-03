@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use ggez::event::Keycode;
 
-use util::Direction;
+use util::Direction8;
 
 // If a key was pressed since however many nanoseconds ago, cound it as having been pressed now
 // This allows for
@@ -30,21 +30,21 @@ impl KeyboardState {
         }
     }
 
-    pub fn direction(&self) -> Result<Direction, &'static str> {
+    pub fn direction(&self) -> Result<Direction8, &'static str> {
         let left = self.left.pressed();
         let right = self.right.pressed();
         let up = self.up.pressed();
         let down = self.down.pressed();
-        // println!("{} {} {} {}", left, right, up, down);
+        use Direction8::*;
         match (left, right, up, down) {
-            (true, false, false, false) => Ok(Direction::Left),
-            (false, true, false, false) => Ok(Direction::Right),
-            (false, false, true, false) => Ok(Direction::Up),
-            (false, false, false, true) => Ok(Direction::Down),
-            (true, false, true, false) => Ok(Direction::LeftUp),
-            (true, false, false, true) => Ok(Direction::LeftDown),
-            (false, true, true, false) => Ok(Direction::RightUp),
-            (false, true, false, true) => Ok(Direction::RightDown),
+            (true, false, false, false) => Ok(Left),
+            (false, true, false, false) => Ok(Right),
+            (false, false, true, false) => Ok(Up),
+            (false, false, false, true) => Ok(Down),
+            (true, false, true, false) => Ok(LeftUp),
+            (true, false, false, true) => Ok(LeftDown),
+            (false, true, true, false) => Ok(RightUp),
+            (false, true, false, true) => Ok(RightDown),
             _ => Err("Not a direction!"),
         }
     }

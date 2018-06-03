@@ -51,17 +51,17 @@ impl Ball {
         Ok(())
     }
 
-    pub fn key_down_event(&mut self, direction: Direction) {
-        use Direction::*;
+    pub fn key_down_event(&mut self, direction: Direction8) {
+        use Direction8::*;
         match direction {
             Left | LeftDown | LeftUp => self.goal[0] += -40.0,
             Right | RightDown | RightUp => self.goal[0] += 40.0,
-            Up | Down | None => (),
+            Up | Down => (),
         }
         match direction {
             Up | LeftUp | RightUp => self.goal[1] += -40.0,
             Down | LeftDown | RightDown => self.goal[1] += 40.0,
-            Left | Right | None => (),
+            Left | Right => (),
         }
         self.keyframes.push_back(self.goal.clone());
     }

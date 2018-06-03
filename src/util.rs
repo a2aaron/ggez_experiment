@@ -20,7 +20,7 @@ pub const RED: Color = Color {
 };
 
 #[derive(PartialEq, Debug, Clone, Copy)]
-pub enum Direction {
+pub enum Direction8 {
     Left,
     Right,
     Up,
@@ -29,19 +29,18 @@ pub enum Direction {
     LeftDown,
     RightUp,
     RightDown,
-    None,
 }
 
-pub enum Wall {
+pub enum Direction4 {
     Left,
     Right,
     Up,
     Down,
 }
 
-impl Wall {
-    pub fn rand() -> Wall {
-        use Wall::*;
+impl Direction4 {
+    pub fn rand() -> Direction4 {
+        use Direction4::*;
         match thread_rng().gen_range(0, 4) {
             0 => Left,
             1 => Right,

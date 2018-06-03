@@ -31,10 +31,10 @@ impl Enemy {
         self.time += 0.01;
     }
 
-    pub fn spawn(width: f32, height: f32, wall: Wall) -> Enemy {
+    pub fn spawn(width: f32, height: f32, direction: Direction4) -> Enemy {
         use rand::thread_rng;
-        use Wall::*;
-        let (pos_x, end_pos_x) = match wall {
+        use Direction4::*;
+        let (pos_x, end_pos_x) = match direction {
             Left => (0.0, width),
             Right => (width, 0.0),
             Up => (
@@ -47,7 +47,7 @@ impl Enemy {
             ),
         };
 
-        let (pos_y, end_pos_y) = match wall {
+        let (pos_y, end_pos_y) = match direction {
             Left => (
                 thread_rng().gen_range(0.0, height),
                 thread_rng().gen_range(0.0, height),
