@@ -30,10 +30,7 @@ const BPM: f64 = 170.0;
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
 
 struct MainState {
-    pos: Point2,
-    goal: Point2,
-    keyframes: VecDeque<Point2>,
-    speed: f32,
+    ball: Ball,
     arrow: Arrow,
     keyboard: KeyboardState,
     time: Duration,
@@ -42,37 +39,14 @@ struct MainState {
     music: Source
 }
 
-impl MainState {
-    fn new(ctx: &mut Context) -> GameResult<MainState> {
-        let s = MainState {
-            pos: Point2::new(0.0, 0.0),
-            goal: Point2::new(0.0, 0.0),
-            keyframes: VecDeque::new(),
-            speed: 0.0,
-            keyboard: Default::default(),
-            arrow: Default::default(),
-            time: Duration::new(0, 0),
-            background: Color::new(0.0, 0.0, 0.0, 1.0),
-            bpm: bpm_to_duration(BPM),
-            music: audio::Source::new(ctx, MUSIC_PATH)?,
-        };
-        s.music.play();
-        Ok(s)
-    }
+struct Ball {
+    pos: Point2,
+    goal: Point2,
+    speed: f32,
+    keyframes: VecDeque<Point2>,
+}
 
-    fn beat(&mut self, _ctx: &mut Context) {
-        print!("Beat!");
-    }
-
-    fn interbeat_update(&mut self, time_in_beat: Duration) {
-        fn rev_quad(n: f64) -> f64 {
-            (1.0 - n) * (1.0 - n)
-        }
-        let beat_percent = timer::duration_to_f64(time_in_beat)/timer::duration_to_f64(self.bpm);
-        let color = rev_quad(beat_percent) as f32;
-        self.background = Color::new(color, color, color, 1.0);
-    }
-
+impl Ball {
     fn handle_boundaries(&mut self, height: f32, width: f32) {
         if self.pos[1] > height {
             self.pos[1] = height;
@@ -86,10 +60,8 @@ impl MainState {
             self.pos[0] = 0.0;
         }
     }
-}
 
-impl event::EventHandler for MainState {
-    fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
+    fn update(&mut self, ctx: &mut Context) {
         if let Some(goal) = self.keyframes.pop_front() {
             let speed = (self.speed * (self.keyframes.len() + 1) as f32).min(1.0);
             self.pos = lerp(self.pos, goal, speed);
@@ -102,9 +74,75 @@ impl event::EventHandler for MainState {
             ctx.conf.window_mode.height as f32,
             ctx.conf.window_mode.width as f32,
         );
+    }
 
+    fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
+        graphics::set_color(ctx, WHITE)?;
+        graphics::circle(ctx, DrawMode::Fill, self.pos, 10.0, 2.0)?;
+        graphics::set_color(ctx, RED)?;
+        graphics::circle(ctx, DrawMode::Fill, self.goal, 3.0, 2.0)?;
+        Ok(())
+    }
+
+    fn key_down_event(&mut self, direction: Direction) {
+        use Direction::*;
+        match direction {
+            Left => self.goal[0] += -40.0,
+            Right => self.goal[0] += 40.0,
+            Up => self.goal[1] += -40.0,
+            Down => self.goal[1] += 40.0,
+            _ => (), // TODO: implement diagonal detection
+        }
+        self.keyframes.push_back(self.goal.clone());
+    }
+}
+
+impl Default for Ball {
+    fn default() -> Self {
+        Ball {
+            pos: Point2::new(0.0, 0.0),
+            goal: Point2::new(0.0, 0.0),
+            speed: 0.0,
+            keyframes: VecDeque::new(),
+        }
+    }
+}
+
+impl MainState {
+    fn new(ctx: &mut Context) -> GameResult<MainState> {
+        let s = MainState {
+            ball: Default::default(),
+            keyboard: Default::default(),
+            arrow: Default::default(),
+            time: Duration::new(0, 0),
+            background: Color::new(0.0, 0.0, 0.0, 1.0),
+            bpm: bpm_to_duration(BPM),
+            music: audio::Source::new(ctx, MUSIC_PATH)?,
+        };
+        s.music.play()?;
+        Ok(s)
+    }
+
+    fn beat(&mut self, _ctx: &mut Context) {
+        println!("Beat!");
+    }
+
+    fn interbeat_update(&mut self, time_in_beat: Duration) {
+        fn rev_quad(n: f64) -> f64 {
+            (1.0 - n) * (1.0 - n)
+        }
+        let beat_percent = timer::duration_to_f64(time_in_beat)/timer::duration_to_f64(self.bpm);
+        let color = rev_quad(beat_percent) as f32;
+        self.background = Color::new(color, color, color, 1.0);
+    }
+}
+
+impl event::EventHandler for MainState {
+    fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
+        self.ball.update(ctx);
         self.arrow.update();
-        self.speed = if self.keyboard.space { 0.01 } else { 0.2 };
+
+        self.ball.speed = if self.keyboard.space { 0.01 } else { 0.2 };
 
         let time_in_beat = timer::get_time_since_start(ctx) - self.time;
         self.interbeat_update(time_in_beat);
@@ -125,21 +163,20 @@ impl event::EventHandler for MainState {
     ) {
         use Keycode::*;
         match keycode {
-            Left => self.goal[0] += -40.0,
-            Right => self.goal[0] += 40.0,
-            Up => self.goal[1] += -40.0,
-            Down => self.goal[1] += 40.0,
             P => drop(self.music.resume()),
             S => drop(self.music.pause()),
             _ => (),
         }
 
+        
+
         self.keyboard.update(keycode, true);
         if let Ok(direction) = Direction::from_keyboard(&self.keyboard) {
+            self.ball.key_down_event(direction);
+
             self.arrow.direction = direction;
             self.arrow.opacity = 1.0;
             println!("{:?}", self.arrow.direction);
-            self.keyframes.push_back(self.goal.clone());
         }
     }
 
@@ -154,12 +191,8 @@ impl event::EventHandler for MainState {
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         graphics::clear(ctx);
         graphics::set_background_color(ctx, self.background);
-        graphics::set_color(ctx, WHITE).expect("Couldn't set color");
-        graphics::circle(ctx, DrawMode::Fill, self.pos, 10.0, 2.0)?;
-        graphics::set_color(ctx, RED).expect("Couldn't set color");
-        graphics::circle(ctx, DrawMode::Fill, self.goal, 3.0, 2.0)?;
-
-        self.arrow.draw(ctx);
+        self.ball.draw(ctx)?;
+        self.arrow.draw(ctx)?;
         graphics::present(ctx);
         Ok(())
     }
@@ -180,18 +213,17 @@ impl Arrow {
         }
     }
 
-    fn draw(&self, ctx: &mut Context) {
+    fn draw(&self, ctx: &mut Context) -> GameResult<()> {
         use Direction::*;
         use DrawMode::*;
 
         if self.direction == None {
-            return;
+            return Ok(());
         }
 
         let prev_color = graphics::get_color(ctx);
 
-        graphics::set_color(ctx, Color::new(1.0, 1.0, 1.0, self.opacity))
-            .expect("Couldn't set color");
+        graphics::set_color(ctx, Color::new(1.0, 1.0, 1.0, self.opacity))?;
         let angle: f32 = match self.direction {
             Right => 0.0f32,
             RightDown => 45.0f32,
@@ -210,9 +242,10 @@ impl Arrow {
             Point2::new(100.0, 10.0),
             Point2::new(0.0, 10.0),
         ];
-        let rect = Mesh::new_polygon(ctx, Fill, &points).expect("Couldn't male rectangle");
-        graphics::draw(ctx, &rect, Point2::new(self.x, self.y), angle).expect("Couldn't draw");
-        graphics::set_color(ctx, prev_color).expect("Couldn't set color");
+        let rect = Mesh::new_polygon(ctx, Fill, &points)?;
+        graphics::draw(ctx, &rect, Point2::new(self.x, self.y), angle)?;
+        graphics::set_color(ctx, prev_color)?;
+        Ok(())
     }
 }
 
