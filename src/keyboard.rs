@@ -1,22 +1,12 @@
-use ggez::event::Keycode;
 use std::time::{Duration, Instant};
 
-// If a key was pressed since however many nanoseconds ago, cound it as having been pressed now
-// This allows for 
-static NANOS_KEYPRESS_TOLERANCE: u32 = 3_000_000; // 3 milliseconds
+use ggez::event::Keycode;
 
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub enum Direction {
-    Left,
-    Right,
-    Up,
-    Down,
-    LeftUp,
-    LeftDown,
-    RightUp,
-    RightDown,
-    None,
-}
+use util::Direction;
+
+// If a key was pressed since however many nanoseconds ago, cound it as having been pressed now
+// This allows for
+static NANOS_KEYPRESS_TOLERANCE: u32 = 3_000_000; // 3 milliseconds
 
 #[derive(Default, Debug)]
 pub struct KeyboardState {
@@ -55,7 +45,7 @@ impl KeyboardState {
             (true, false, false, true) => Ok(Direction::LeftDown),
             (false, true, true, false) => Ok(Direction::RightUp),
             (false, true, false, true) => Ok(Direction::RightDown),
-            _ => Err("Not a direction!")
+            _ => Err("Not a direction!"),
         }
     }
 }

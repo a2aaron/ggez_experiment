@@ -2,30 +2,23 @@ extern crate ggez;
 extern crate rand;
 
 mod keyboard;
+mod player;
+mod util;
+mod enemy;
 
-use ggez::event::{Keycode, Mod};
-use ggez::graphics::{Color, DrawMode, Mesh, Point2, Vector2};
-use ggez::audio::{Source};
-use ggez::*;
-use std::collections::VecDeque;
-use std::time::Duration;
-use std::path::PathBuf;
 use std::env;
-use rand::{Rng, thread_rng};
-use keyboard::{Direction, KeyboardState};
+use std::path::PathBuf;
+use std::time::Duration;
 
-const WHITE: Color = Color {
-    r: 1.0,
-    g: 1.0,
-    b: 1.0,
-    a: 1.0,
-};
-const RED: Color = Color {
-    r: 1.0,
-    g: 0.0,
-    b: 0.0,
-    a: 1.0,
-};
+use ggez::audio::Source;
+use ggez::event::{Keycode, Mod};
+use ggez::graphics::{Color, DrawMode, Mesh, Point2};
+use ggez::*;
+
+use keyboard::KeyboardState;
+use player::Ball;
+use util::*;
+use enemy::Enemy;
 
 const BPM: f64 = 170.0;
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
@@ -39,78 +32,6 @@ struct MainState {
     bpm: Duration,
     music: Source,
     enemies: Vec<Enemy>,
-}
-
-struct Ball {
-    pos: Point2,
-    goal: Point2,
-    speed: f32,
-    keyframes: VecDeque<Point2>,
-}
-
-impl Ball {
-    fn handle_boundaries(&mut self, width: f32, height: f32) {
-        if self.pos[1] > height {
-            self.pos[1] = height;
-        } else if self.pos[1] < 0.0 {
-            self.pos[1] = 0.0;
-        }
-
-        if self.pos[0] < 0.0 {
-            self.pos[0] = width;
-        } else if self.pos[0] > width {
-            self.pos[0] = 0.0;
-        }
-    }
-
-    fn update(&mut self, ctx: &mut Context) {
-        if let Some(goal) = self.keyframes.pop_front() {
-            let speed = (self.speed * (self.keyframes.len() + 1) as f32).min(1.0);
-            self.pos = lerp(self.pos, goal, speed);
-            if distance(self.pos, goal) > 0.01 {
-                self.keyframes.push_front(goal);
-            }
-        }
-
-        self.handle_boundaries(
-            ctx.conf.window_mode.width as f32,
-            ctx.conf.window_mode.height as f32,
-        );
-    }
-
-    fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        graphics::set_color(ctx, WHITE)?;
-        graphics::circle(ctx, DrawMode::Fill, self.pos, 10.0, 2.0)?;
-        graphics::set_color(ctx, RED)?;
-        graphics::circle(ctx, DrawMode::Fill, self.goal, 3.0, 2.0)?;
-        Ok(())
-    }
-
-    fn key_down_event(&mut self, direction: Direction) {
-        use Direction::*;
-        match direction {
-            Left | LeftDown | LeftUp => self.goal[0] += -40.0,
-            Right | RightDown | RightUp => self.goal[0] += 40.0,
-            Up | Down | None => (),
-        }
-        match direction {
-            Up | LeftUp | RightUp => self.goal[1] += -40.0,
-            Down | LeftDown | RightDown => self.goal[1] += 40.0,
-            Left | Right | None => (),
-        }
-        self.keyframes.push_back(self.goal.clone());
-    }
-}
-
-impl Default for Ball {
-    fn default() -> Self {
-        Ball {
-            pos: Point2::new(0.0, 0.0),
-            goal: Point2::new(0.0, 0.0),
-            speed: 0.0,
-            keyframes: VecDeque::new(),
-        }
-    }
 }
 
 impl MainState {
@@ -132,7 +53,11 @@ impl MainState {
     fn beat(&mut self, ctx: &mut Context) {
         println!("Beat!");
         if self.enemies.len() < 100 {
-            self.enemies.push(Enemy::spawn(ctx.conf.window_mode.width as f32, ctx.conf.window_mode.height as f32, Wall::rand()));
+            self.enemies.push(Enemy::spawn(
+                ctx.conf.window_mode.width as f32,
+                ctx.conf.window_mode.height as f32,
+                Wall::rand(),
+            ));
         }
     }
 
@@ -140,8 +65,8 @@ impl MainState {
         fn rev_quad(n: f64) -> f64 {
             (1.0 - n) * (1.0 - n)
         }
-        let beat_percent = timer::duration_to_f64(time_in_beat)/timer::duration_to_f64(self.bpm);
-        let color = (rev_quad(beat_percent)/2.0) as f32;
+        let beat_percent = timer::duration_to_f64(time_in_beat) / timer::duration_to_f64(self.bpm);
+        let color = (rev_quad(beat_percent) / 2.0) as f32;
         self.background = Color::new(color, color, color, 1.0);
     }
 }
@@ -156,7 +81,11 @@ impl event::EventHandler for MainState {
 
         self.enemies.retain(|e| e.alive);
 
-        self.ball.speed = if self.keyboard.space.is_down { 0.01 } else { 0.2 };
+        self.ball.speed = if self.keyboard.space.is_down {
+            0.01
+        } else {
+            0.2
+        };
 
         let time_in_beat = timer::get_time_since_start(ctx) - self.time;
         self.interbeat_update(time_in_beat);
@@ -171,7 +100,7 @@ impl event::EventHandler for MainState {
             self.arrow.opacity = 1.0;
             println!("{:?}", direction);
         }
-        
+
         Ok(())
     }
 
@@ -273,101 +202,6 @@ impl Default for Arrow {
             y: 400.0,
         }
     }
-}
-
-struct Enemy {
-    pos: Point2,
-    start_pos: Point2,
-    end_pos: Point2,
-    alive: bool,
-    time: f32,
-}
-
-impl Enemy {
-    fn handle_boundaries(&mut self, width: f32, height: f32) {
-        if self.pos[0] < 0.0 || self.pos[0] > width
-          || self.pos[1] > height || self.pos[1] < 0.0 {
-            self.alive = self.time > 1.0;
-        }
-        
-    }
-
-    fn update(&mut self, ctx: &mut Context) {
-        self.handle_boundaries(
-            ctx.conf.window_mode.width as f32,
-            ctx.conf.window_mode.height as f32,
-        );
-        self.pos = lerp(self.start_pos, self.end_pos, self.time);
-        self.time += 0.01;
-    }
-
-    fn spawn(width: f32, height: f32, wall: Wall) -> Enemy {
-        use Wall::*;
-        use rand::thread_rng;
-        let (pos_x, end_pos_x) = match wall {
-            Left => (0.0, width),
-            Right => (width, 0.0),
-            Up => (thread_rng().gen_range(0.0, width), thread_rng().gen_range(0.0, width)),
-            Down => (thread_rng().gen_range(0.0, width), thread_rng().gen_range(0.0, width)),
-        };
-        
-        let (pos_y, end_pos_y) = match wall {
-            Left => (thread_rng().gen_range(0.0, height), thread_rng().gen_range(0.0, height)),
-            Right => (thread_rng().gen_range(0.0, height), thread_rng().gen_range(0.0, height)),
-            Up => (0.0, height),
-            Down => (height, 0.0),
-        };
-
-        Enemy {
-            pos: Point2::new(pos_x, pos_y),
-            start_pos: Point2::new(pos_x, pos_y),
-            end_pos: Point2::new(end_pos_x, end_pos_y),
-            alive: true,
-            time: 0.0,
-        }
-    }
-
-    fn draw(&self, ctx: &mut Context)-> GameResult<()> {
-        graphics::set_color(ctx, RED)?;
-        graphics::circle(ctx, DrawMode::Fill, self.pos, 5.0, 2.0)?;
-        Ok(())
-    }
-}
-
-enum Wall {
-    Left,
-    Right,
-    Up,
-    Down,
-}
-
-impl Wall {
-    fn rand() -> Wall {
-        use Wall::*;
-        match thread_rng().gen_range(0, 4) {
-            0 => Left,
-            1 => Right,
-            2 => Up,
-            3 => Down,
-            _ => unreachable!()
-        }
-    }
-}
-
-pub fn vector2(a: Point2, b: Point2) -> Vector2 {
-    Vector2::new(b[0] - a[0], b[1] - a[1])
-}
-
-pub fn lerp(current: Point2, goal: Point2, time: f32) -> Point2 {
-    current + (goal - current) * time
-}
-
-pub fn distance(a: Point2, b: Point2) -> f32 {
-    ((a[0] - b[0]).powf(2.0) + (a[1] - b[1]).powf(2.0)).sqrt()
-}
-
-pub fn bpm_to_duration(bpm: f64) -> Duration {
-    timer::f64_to_duration(60.0/bpm)
 }
 
 pub fn main() {
