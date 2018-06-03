@@ -87,11 +87,14 @@ impl Ball {
     fn key_down_event(&mut self, direction: Direction) {
         use Direction::*;
         match direction {
-            Left => self.goal[0] += -40.0,
-            Right => self.goal[0] += 40.0,
-            Up => self.goal[1] += -40.0,
-            Down => self.goal[1] += 40.0,
-            _ => (), // TODO: implement diagonal detection
+            Left | LeftDown | LeftUp => self.goal[0] += -40.0,
+            Right | RightDown | RightUp => self.goal[0] += 40.0,
+            Up | Down | None => (),
+        }
+        match direction {
+            Up | LeftUp | RightUp => self.goal[1] += -40.0,
+            Down | LeftDown | RightDown => self.goal[1] += 40.0,
+            Left | Right | None => (),
         }
         self.keyframes.push_back(self.goal.clone());
     }
@@ -142,13 +145,20 @@ impl event::EventHandler for MainState {
         self.ball.update(ctx);
         self.arrow.update();
 
-        self.ball.speed = if self.keyboard.space { 0.01 } else { 0.2 };
+        self.ball.speed = if self.keyboard.space.is_down { 0.01 } else { 0.2 };
 
         let time_in_beat = timer::get_time_since_start(ctx) - self.time;
         self.interbeat_update(time_in_beat);
         if time_in_beat > self.bpm {
             self.beat(ctx);
             self.time = timer::get_time_since_start(ctx);
+        }
+        if let Ok(direction) = self.keyboard.direction() {
+            self.ball.key_down_event(direction);
+
+            self.arrow.direction = direction;
+            self.arrow.opacity = 1.0;
+            println!("{:?}", direction);
         }
         
         Ok(())
@@ -168,21 +178,12 @@ impl event::EventHandler for MainState {
             _ => (),
         }
 
-        
-
         self.keyboard.update(keycode, true);
-        if let Ok(direction) = Direction::from_keyboard(&self.keyboard) {
-            self.ball.key_down_event(direction);
-
-            self.arrow.direction = direction;
-            self.arrow.opacity = 1.0;
-            println!("{:?}", self.arrow.direction);
-        }
     }
 
     fn key_up_event(&mut self, _ctx: &mut Context, keycode: Keycode, _keymod: Mod, _repeat: bool) {
         self.keyboard.update(keycode, false);
-        if let Ok(direction) = Direction::from_keyboard(&self.keyboard) {
+        if let Ok(direction) = self.keyboard.direction() {
             self.arrow.direction = direction;
             println!("{:?}", self.arrow.direction);
         }
