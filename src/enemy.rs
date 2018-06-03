@@ -2,11 +2,11 @@ use ggez::graphics::DrawMode;
 use ggez::graphics::Point2;
 use ggez::*;
 
-use rand::{Rng, thread_rng};
+use rand::Rng;
 
 use util::*;
 
-
+#[derive(Debug)]
 pub struct Enemy {
     pos: Point2,
     start_pos: Point2,
@@ -18,7 +18,7 @@ pub struct Enemy {
 impl Enemy {
     fn handle_boundaries(&mut self, width: f32, height: f32) {
         if self.pos[0] < 0.0 || self.pos[0] > width || self.pos[1] > height || self.pos[1] < 0.0 {
-            self.alive = self.time > 1.0;
+            self.alive = self.time < 1.0;
         }
     }
 

@@ -30,7 +30,7 @@ impl Ball {
 
     pub fn update(&mut self, ctx: &mut Context) {
         if let Some(goal) = self.keyframes.pop_front() {
-            let speed = (self.speed * (self.keyframes.len() + 1) as f32).min(1.0);
+            let speed = (self.speed * (self.keyframes.len() + 2) as f32).min(1.0);
             self.pos = lerp(self.pos, goal, speed);
             if distance(self.pos, goal) > 0.01 {
                 self.keyframes.push_front(goal);
