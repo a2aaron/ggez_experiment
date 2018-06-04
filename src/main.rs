@@ -1,30 +1,33 @@
 extern crate ggez;
 extern crate rand;
 
+mod enemy;
+mod grid;
 mod keyboard;
 mod player;
 mod util;
-mod enemy;
 
 use std::env;
 use std::path::PathBuf;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 use ggez::audio::Source;
 use ggez::event::{Keycode, Mod};
 use ggez::graphics::{Color, DrawMode, Mesh, Point2};
 use ggez::*;
 
+use enemy::Enemy;
+use grid::Grid;
 use keyboard::KeyboardState;
 use player::Ball;
 use util::*;
-use enemy::Enemy;
 
 const BPM: f64 = 170.0;
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
 
 struct MainState {
     ball: Ball,
+    grid: Grid,
     arrow: Arrow,
     keyboard: KeyboardState,
     time: Instant,
@@ -37,6 +40,7 @@ struct MainState {
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
         let s = MainState {
+            grid: Grid::default(),
             ball: Default::default(),
             keyboard: Default::default(),
             arrow: Default::default(),
@@ -72,8 +76,8 @@ impl event::EventHandler for MainState {
         let beat_percent = timer::duration_to_f64(time_in_beat) / timer::duration_to_f64(self.bpm);
         let color = (rev_quad(beat_percent) / 10.0) as f32;
         self.background = Color::new(color, color, color, 1.0);
-
-        self.ball.update(ctx, beat_percent);
+        self.grid.update(beat_percent);
+        self.ball.update(ctx);
         self.arrow.update();
         for enemy in self.enemies.iter_mut() {
             enemy.update(ctx);
@@ -88,7 +92,7 @@ impl event::EventHandler for MainState {
         };
 
         if let Ok(direction) = self.keyboard.direction() {
-            self.ball.key_down_event(direction);
+            self.ball.key_down_event(direction, &self.grid);
             self.arrow.key_down_event(direction);
             println!("{:?}", direction);
         }
@@ -124,6 +128,7 @@ impl event::EventHandler for MainState {
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         graphics::clear(ctx);
         graphics::set_background_color(ctx, self.background);
+        self.grid.draw(ctx)?;
         self.ball.draw(ctx)?;
         self.arrow.draw(ctx)?;
         for enemy in self.enemies.iter() {
