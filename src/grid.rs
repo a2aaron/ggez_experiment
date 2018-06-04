@@ -9,7 +9,7 @@ pub struct Grid {
     offset: Point2, // Offset in position from upper right corner
     glow_offset: Point2, 
     grid_spacing: f32,
-    grid_size: (usize, usize),
+    pub grid_size: (usize, usize),
     line_width: f32,
     glow_line_width: f32,
     color: Color,
@@ -81,6 +81,6 @@ impl Grid {
     }
 
     pub fn to_screen_coord(&self, grid_coord: (isize, isize)) -> Point2 {
-        Point2::new(grid_coord.0 as f32 * self.grid_spacing + self.offset[0], -grid_coord.1 as f32 * self.grid_spacing + self.offset[1])
+        Point2::new(grid_coord.0 as f32 * self.grid_spacing + self.offset[0], grid_coord.1 as f32 * self.grid_spacing + self.offset[1])
     }
 }

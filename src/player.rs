@@ -60,8 +60,8 @@ impl Ball {
             Up | Down => (),
         }
         match direction {
-            Up | LeftUp | RightUp => self.grid_pos.1 += 1,
-            Down | LeftDown | RightDown => self.grid_pos.1 += -1,
+            Up | LeftUp | RightUp => self.grid_pos.1 += -1,
+            Down | LeftDown | RightDown => self.grid_pos.1 += 1,
             Left | Right => (),
         }
         self.goal = grid.to_screen_coord(self.grid_pos);

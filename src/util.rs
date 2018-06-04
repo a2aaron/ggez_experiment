@@ -19,11 +19,18 @@ pub const RED: Color = Color {
     a: 1.0,
 };
 
+pub const GREEN: Color = Color {
+    r: 0.0,
+    g: 1.0,
+    b: 0.0,
+    a: 1.0,
+};
+
 pub const TRANSPARENT: Color = Color {
     r: 0.0,
     g: 0.0,
     b: 0.0,
-    a: 0.0,  
+    a: 0.0,
 };
 
 #[derive(PartialEq, Debug, Clone, Copy)]
