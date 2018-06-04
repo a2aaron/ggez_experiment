@@ -8,7 +8,7 @@ mod enemy;
 
 use std::env;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Instant, Duration};
 
 use ggez::audio::Source;
 use ggez::event::{Keycode, Mod};
@@ -27,7 +27,7 @@ struct MainState {
     ball: Ball,
     arrow: Arrow,
     keyboard: KeyboardState,
-    time: Duration,
+    time: Instant,
     background: Color,
     bpm: Duration,
     music: Source,
@@ -40,13 +40,13 @@ impl MainState {
             ball: Default::default(),
             keyboard: Default::default(),
             arrow: Default::default(),
-            time: Duration::new(0, 0),
+            time: Instant::now(),
             background: Color::new(0.0, 0.0, 0.0, 1.0),
             bpm: bpm_to_duration(BPM),
             music: audio::Source::new(ctx, MUSIC_PATH)?,
             enemies: Default::default(),
         };
-        // s.music.play()?;
+        s.music.play()?;
         Ok(s)
     }
 
@@ -64,10 +64,10 @@ impl MainState {
 
 impl event::EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
-        let time_in_beat = timer::get_time_since_start(ctx) - self.time;
+        let time_in_beat = Instant::now().duration_since(self.time);
         if time_in_beat > self.bpm {
             self.beat(ctx);
-            self.time = timer::get_time_since_start(ctx);
+            self.time += self.bpm;
         }
         let beat_percent = timer::duration_to_f64(time_in_beat) / timer::duration_to_f64(self.bpm);
         let color = (rev_quad(beat_percent) / 10.0) as f32;
