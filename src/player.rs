@@ -1,10 +1,11 @@
 use std::collections::VecDeque;
 
-use ggez::graphics::{DrawMode, Point2};
+use ggez::graphics::{DrawMode, Point2, Color};
 use ggez::*;
 
 use grid::Grid;
 use util::*;
+use enemy::Enemy;
 
 pub struct Ball {
     pos: Point2,              // The current position of the Ball
@@ -12,6 +13,9 @@ pub struct Ball {
     grid_pos: (isize, isize), // The position of the ball in discreet space
     pub speed: f32,           // TODO: make not public
     keyframes: VecDeque<Point2>,
+    size: f32,
+    color: Color,
+    hit_timer: usize,
 }
 
 impl Ball {
@@ -23,10 +27,18 @@ impl Ball {
         }
 
         if self.pos[0] < 0.0 {
-            self.pos[0] = width;
-        } else if self.pos[0] > width {
             self.pos[0] = 0.0;
+        } else if self.pos[0] > width {
+            self.pos[0] = width;
         }
+    }
+
+    pub fn on_hit(&mut self) {
+        self.hit_timer = 100;
+    }
+
+    pub fn hit(&self, enemy: &Enemy) -> bool {
+        distance(self.pos, enemy.pos) < self.size
     }
 
     pub fn update(&mut self, ctx: &mut Context) {
@@ -42,11 +54,14 @@ impl Ball {
             ctx.conf.window_mode.width as f32,
             ctx.conf.window_mode.height as f32,
         );
+
+        self.hit_timer = self.hit_timer.saturating_sub(1);
+        self.color = color_lerp(WHITE, RED, (self.hit_timer as f32)/100.0);
     }
 
     pub fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        graphics::set_color(ctx, WHITE)?;
-        graphics::circle(ctx, DrawMode::Fill, self.pos, 10.0, 2.0)?;
+        graphics::set_color(ctx, self.color)?;
+        graphics::circle(ctx, DrawMode::Fill, self.pos, self.size, 2.0)?;
         graphics::set_color(ctx, RED)?;
         graphics::circle(ctx, DrawMode::Fill, self.goal, 3.0, 2.0)?;
         Ok(())
@@ -77,6 +92,9 @@ impl Default for Ball {
             grid_pos: (0, 0),
             speed: 0.0,
             keyframes: VecDeque::new(),
+            size: 10.0,
+            color: WHITE,
+            hit_timer: 0,
         }
     }
 }

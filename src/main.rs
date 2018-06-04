@@ -55,11 +55,9 @@ impl MainState {
     }
 
     fn beat(&mut self, ctx: &mut Context) {
-        println!("Beat!");
         if self.enemies.len() < 100 {
             self.enemies.push(Enemy::spawn(
-                ctx.conf.window_mode.width as f32,
-                ctx.conf.window_mode.height as f32,
+                &self.grid,
                 Direction4::rand(),
             ));
         }
@@ -79,8 +77,17 @@ impl event::EventHandler for MainState {
         self.grid.update(beat_percent);
         self.ball.update(ctx);
         self.arrow.update();
+
+        let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
-            enemy.update(ctx);
+            enemy.update();
+            if self.ball.hit(enemy) {
+                was_hit = true
+            }
+        }
+
+        if was_hit {
+            self.ball.on_hit();
         }
 
         self.enemies.retain(|e| e.alive);
@@ -94,7 +101,6 @@ impl event::EventHandler for MainState {
         if let Ok(direction) = self.keyboard.direction() {
             self.ball.key_down_event(direction, &self.grid);
             self.arrow.key_down_event(direction);
-            println!("{:?}", direction);
         }
 
         Ok(())
@@ -121,7 +127,6 @@ impl event::EventHandler for MainState {
         self.keyboard.update(keycode, false);
         if let Ok(direction) = self.keyboard.direction() {
             self.arrow.direction = Some(direction);
-            println!("{:?}", self.arrow.direction);
         }
     }
 

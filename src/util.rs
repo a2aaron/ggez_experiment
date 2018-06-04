@@ -65,9 +65,24 @@ impl Direction4 {
     }
 }
 
-pub fn lerp(current: Point2, goal: Point2, time: f32) -> Point2 {
-    current + (goal - current) * time
+pub fn lerp(a: Point2, b: Point2, t: f32) -> Point2 {
+    a + (b - a) * t
 }
+
+// todo : make this not stupid
+pub fn color_lerp(a: Color, b: Color, t: f32) -> Color {
+    fn f32_lerp(a: f32, b: f32, t: f32) -> f32 {
+        a + (b - a) * t
+    }
+
+    Color::new(
+        f32_lerp(a.r, b.r, t),
+        f32_lerp(a.b, b.b, t),
+        f32_lerp(a.g, b.g, t),
+        f32_lerp(a.a, b.a, t),
+    )
+}
+
 
 pub fn distance(a: Point2, b: Point2) -> f32 {
     ((a[0] - b[0]).powf(2.0) + (a[1] - b[1]).powf(2.0)).sqrt()
