@@ -10,7 +10,7 @@ use enemy::Enemy;
 pub struct Ball {
     pos: Point2,              // The current position of the Ball
     goal: Point2,             // The position the Ball wants to get to
-    grid_pos: (isize, isize), // The position of the ball in discreet space
+    pub grid_pos: (isize, isize), // The position of the ball in discreet space
     pub speed: f32,           // TODO: make not public
     keyframes: VecDeque<Point2>,
     size: f32,

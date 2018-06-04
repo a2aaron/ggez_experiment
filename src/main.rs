@@ -58,6 +58,7 @@ impl MainState {
         if self.enemies.len() < 100 {
             self.enemies.push(Enemy::spawn(
                 &self.grid,
+                self.ball.grid_pos,
                 Direction4::rand(),
             ));
         }
