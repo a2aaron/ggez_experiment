@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 
-use ggez::graphics::DrawMode;
-use ggez::graphics::{Point2, MeshBuilder, Mesh};
+use ggez::graphics::{Point2, DrawMode, MeshBuilder, Mesh, Color};
 use ggez::*;
 
 use util::*;
@@ -43,14 +42,15 @@ impl Ball {
             ctx.conf.window_mode.width as f32,
             ctx.conf.window_mode.height as f32,
         );
-
-        self.grid.line_width = 1.0 + 6.0 * smooth_step(1.0 - beat_percent) as f32;
+        let color = 0.3 + 0.7 * smooth_step(1.0 - beat_percent) as f32;
+        self.grid.color = Color::new(color, color, color, 1.0);
     }
 
     pub fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        graphics::set_color(ctx, WHITE)?;
+        graphics::set_color(ctx, self.grid.color)?;
         let grid_mesh = self.grid.mesh(ctx)?;
         graphics::draw(ctx, &grid_mesh, self.grid.offset, 0.0)?;
+        graphics::set_color(ctx, WHITE)?;
         graphics::circle(ctx, DrawMode::Fill, self.pos, 10.0, 2.0)?;
         graphics::set_color(ctx, RED)?;
         graphics::circle(ctx, DrawMode::Fill, self.goal, 3.0, 2.0)?;
@@ -91,17 +91,19 @@ impl Default for Ball {
 struct Grid {
     offset: Point2,
     grid_spacing: f32,
-    grid_size: usize,
+    grid_size: (usize, usize),
     line_width: f32,
+    color: Color,
 }
 
 impl Default for Grid {
     fn default() -> Self {
         Grid {
-            offset: Point2::new(5.0f32, 5.0f32),
-            grid_spacing: 40.0,
-            grid_size: 8,
+            offset: Point2::new(15.0f32, 15.0f32),
+            grid_spacing: 50.0,
+            grid_size: (12, 9),
             line_width: 1.0,
+            color: WHITE,
         }
     }
 }
@@ -109,14 +111,16 @@ impl Default for Grid {
 impl Grid {
     fn mesh(&mut self, ctx: &mut Context) -> GameResult<Mesh> {
         let mut mb = MeshBuilder::new();
-        let max_x = self.grid_spacing * self.grid_size as f32;
-        let max_y = self.grid_spacing * self.grid_size as f32;
-        for i in 0..self.grid_size {
+        let max_x = self.grid_spacing * self.grid_size.0 as f32;
+        let max_y = self.grid_spacing * self.grid_size.1 as f32;
+        for i in 0..self.grid_size.0 {
             mb.line(&[
                 Point2::new(self.grid_spacing * i as f32, 0.0),
                 Point2::new(self.grid_spacing * i as f32, max_y),
             ], self.line_width);
+        }
 
+        for i in 0..self.grid_size.1 {
             mb.line(&[
                 Point2::new(0.0, self.grid_spacing * i as f32),
                 Point2::new(max_x, self.grid_spacing * i as f32),
