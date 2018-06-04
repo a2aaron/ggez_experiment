@@ -46,7 +46,7 @@ impl MainState {
             music: audio::Source::new(ctx, MUSIC_PATH)?,
             enemies: Default::default(),
         };
-        s.music.play()?;
+        // s.music.play()?;
         Ok(s)
     }
 
@@ -60,20 +60,20 @@ impl MainState {
             ));
         }
     }
-
-    fn interbeat_update(&mut self, time_in_beat: Duration) {
-        fn rev_quad(n: f64) -> f64 {
-            (1.0 - n) * (1.0 - n)
-        }
-        let beat_percent = timer::duration_to_f64(time_in_beat) / timer::duration_to_f64(self.bpm);
-        let color = (rev_quad(beat_percent) / 2.0) as f32;
-        self.background = Color::new(color, color, color, 1.0);
-    }
 }
 
 impl event::EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
-        self.ball.update(ctx);
+        let time_in_beat = timer::get_time_since_start(ctx) - self.time;
+        if time_in_beat > self.bpm {
+            self.beat(ctx);
+            self.time = timer::get_time_since_start(ctx);
+        }
+        let beat_percent = timer::duration_to_f64(time_in_beat) / timer::duration_to_f64(self.bpm);
+        let color = (rev_quad(beat_percent) / 10.0) as f32;
+        self.background = Color::new(color, color, color, 1.0);
+
+        self.ball.update(ctx, beat_percent);
         self.arrow.update();
         for enemy in self.enemies.iter_mut() {
             enemy.update(ctx);
@@ -86,13 +86,6 @@ impl event::EventHandler for MainState {
         } else {
             0.2
         };
-
-        let time_in_beat = timer::get_time_since_start(ctx) - self.time;
-        self.interbeat_update(time_in_beat);
-        if time_in_beat > self.bpm {
-            self.beat(ctx);
-            self.time = timer::get_time_since_start(ctx);
-        }
 
         if let Ok(direction) = self.keyboard.direction() {
             self.ball.key_down_event(direction);

@@ -1,16 +1,18 @@
 use std::collections::VecDeque;
 
 use ggez::graphics::DrawMode;
-use ggez::graphics::Point2;
+use ggez::graphics::{Point2, MeshBuilder, Mesh};
 use ggez::*;
 
 use util::*;
 
 pub struct Ball {
-    pos: Point2,
-    goal: Point2,
+    pos: Point2, // The current position of the Ball
+    goal: Point2, // The position the Ball wants to get to
+    grid_pos: (isize, isize), // The position of the ball in discreet space
     pub speed: f32, // TODO: make not public
     keyframes: VecDeque<Point2>,
+    grid: Grid,
 }
 
 impl Ball {
@@ -28,7 +30,7 @@ impl Ball {
         }
     }
 
-    pub fn update(&mut self, ctx: &mut Context) {
+    pub fn update(&mut self, ctx: &mut Context, beat_percent: f64) {
         if let Some(goal) = self.keyframes.pop_front() {
             let speed = (self.speed * (self.keyframes.len() + 2) as f32).min(1.0);
             self.pos = lerp(self.pos, goal, speed);
@@ -41,10 +43,14 @@ impl Ball {
             ctx.conf.window_mode.width as f32,
             ctx.conf.window_mode.height as f32,
         );
+
+        self.grid.line_width = 1.0 + 6.0 * smooth_step(1.0 - beat_percent) as f32;
     }
 
     pub fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         graphics::set_color(ctx, WHITE)?;
+        let grid_mesh = self.grid.mesh(ctx)?;
+        graphics::draw(ctx, &grid_mesh, self.grid.offset, 0.0)?;
         graphics::circle(ctx, DrawMode::Fill, self.pos, 10.0, 2.0)?;
         graphics::set_color(ctx, RED)?;
         graphics::circle(ctx, DrawMode::Fill, self.goal, 3.0, 2.0)?;
@@ -54,16 +60,17 @@ impl Ball {
     pub fn key_down_event(&mut self, direction: Direction8) {
         use Direction8::*;
         match direction {
-            Left | LeftDown | LeftUp => self.goal[0] += -40.0,
-            Right | RightDown | RightUp => self.goal[0] += 40.0,
+            Left | LeftDown | LeftUp => self.grid_pos.0 += -1,
+            Right | RightDown | RightUp => self.grid_pos.0 += 1,
             Up | Down => (),
         }
         match direction {
-            Up | LeftUp | RightUp => self.goal[1] += -40.0,
-            Down | LeftDown | RightDown => self.goal[1] += 40.0,
+            Up | LeftUp | RightUp => self.grid_pos.1 += 1,
+            Down | LeftDown | RightDown => self.grid_pos.1 += -1,
             Left | Right => (),
         }
-        self.keyframes.push_back(self.goal.clone());
+        self.goal = self.grid.to_screen_coord(self.grid_pos);
+        self.keyframes.push_back(self.goal);
     }
 }
 
@@ -72,8 +79,63 @@ impl Default for Ball {
         Ball {
             pos: Point2::new(0.0, 0.0),
             goal: Point2::new(0.0, 0.0),
+            grid_pos: (0, 0),
             speed: 0.0,
             keyframes: VecDeque::new(),
+            grid: Default::default(),
         }
+    }
+}
+
+
+struct Grid {
+    offset: Point2,
+    grid_spacing: f32,
+    grid_size: usize,
+    line_width: f32,
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        Grid {
+            offset: Point2::new(5.0f32, 5.0f32),
+            grid_spacing: 40.0,
+            grid_size: 8,
+            line_width: 1.0,
+        }
+    }
+}
+
+impl Grid {
+    fn mesh(&mut self, ctx: &mut Context) -> GameResult<Mesh> {
+        let mut mb = MeshBuilder::new();
+        let max_x = self.grid_spacing * self.grid_size as f32;
+        let max_y = self.grid_spacing * self.grid_size as f32;
+        for i in 0..self.grid_size {
+            mb.line(&[
+                Point2::new(self.grid_spacing * i as f32, 0.0),
+                Point2::new(self.grid_spacing * i as f32, max_y),
+            ], self.line_width);
+
+            mb.line(&[
+                Point2::new(0.0, self.grid_spacing * i as f32),
+                Point2::new(max_x, self.grid_spacing * i as f32),
+            ], self.line_width);
+        }
+
+        mb.line(&[
+            Point2::new(max_x, 0.0),
+            Point2::new(max_x, max_y),
+        ], self.line_width);
+
+        mb.line(&[
+                Point2::new(0.0, max_y),
+                Point2::new(max_x, max_y),
+            ], self.line_width);
+        mb.build(ctx)
+    }
+
+    fn to_screen_coord(&self, grid_coord: (isize, isize)) -> Point2 {
+        Point2::new(grid_coord.0 as f32 * self.grid_spacing + self.offset[0], -grid_coord.1 as f32 * self.grid_spacing + self.offset[1])
     }
 }

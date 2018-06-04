@@ -62,3 +62,11 @@ pub fn distance(a: Point2, b: Point2) -> f32 {
 pub fn bpm_to_duration(bpm: f64) -> Duration {
     timer::f64_to_duration(60.0 / bpm)
 }
+
+pub fn rev_quad(n: f64) -> f64 {
+    (1.0 - n) * (1.0 - n)
+}
+
+pub fn smooth_step(n: f64) -> f64 {
+    -2.0 * n * n + 3.0 * n * n
+}
