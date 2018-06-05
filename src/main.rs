@@ -62,6 +62,11 @@ impl MainState {
                 self.ball.grid_pos,
                 Direction4::rand(),
             ));
+            self.enemies.push(Enemy::spawn(
+                &self.grid,
+                self.ball.grid_pos,
+                Direction4::rand(),
+            ));
         }
     }
 }

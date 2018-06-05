@@ -54,6 +54,8 @@ impl Enemy {
         graphics::circle(ctx, DrawMode::Fill, self.pos, 5.0, 2.0)?;
         graphics::set_color(ctx, GREEN)?;
         graphics::circle(ctx, DrawMode::Line(0.5), self.end_pos, 10.0, 2.0)?;
+        graphics::set_color(ctx, GUIDE_GREY)?;
+        graphics::line(ctx, &[self.pos, self.end_pos], 1.0)?;
         Ok(())
     }
 }

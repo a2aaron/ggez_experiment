@@ -33,6 +33,13 @@ pub const TRANSPARENT: Color = Color {
     a: 0.0,
 };
 
+pub const GUIDE_GREY: Color = Color {
+    r: 1.0,
+    g: 1.0,
+    b: 1.0,
+    a: 0.2,
+};
+
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Direction8 {
     Left,
