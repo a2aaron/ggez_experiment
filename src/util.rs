@@ -91,6 +91,9 @@ pub fn color_lerp(a: Color, b: Color, t: f32) -> Color {
 }
 
 pub fn gen_range(lower: isize, upper: isize) -> isize {
+    if lower == upper {
+        return lower
+    }
     thread_rng().gen_range(lower, upper)
 }
 

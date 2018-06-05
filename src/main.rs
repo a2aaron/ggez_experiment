@@ -65,10 +65,10 @@ impl MainState {
             self.measure_num += 1
         }
         {
-        fn spawn(state: &mut MainState, num: usize) {
+        fn spawn(state: &mut MainState, num: usize, spread: isize) {
             for _ in 0..num {
                 let start_pos = rand_edge(state.grid.grid_size);
-                let end_pos = rand_around(state.grid.grid_size, state.ball.grid_pos, 4);
+                let end_pos = rand_around(state.grid.grid_size, state.ball.grid_pos, spread);
                 state.enemies.push(Enemy::new(
                     &state.grid,
                     start_pos,
@@ -76,20 +76,21 @@ impl MainState {
                 ));
             }
         }; 
-
+// 0 4 8 (12) 16 (20) 24 (32) 40! 48 56!! 64 72! 80 88(end) 
         match self.measure_num {
             0 ... 3 => (),
-            4 ... 15 => spawn(self, 1),
-            16 ... 31 => spawn(self, 2),
-            32 ... 63 => spawn(self, 3),
-            64 ... 95 => if self.beat_num % 4 == 0 {
-                spawn(self, 3);
+            4 ... 7 => spawn(self, 1, 4),
+            8 ... 15 => spawn(self, 1, 2),
+            16 ... 23 => spawn(self, 2, 4),
+            24 ... 39 => spawn(self, 3, 4),
+            40 ... 47 => if self.beat_num % 4 == 0 {
+                spawn(self, 10, 0);
             },
-
-            _ => spawn(self, 3),
+            48 ... 55 => spawn(self, 1, 0),
+            _ => spawn(self, 3, 5),
         }
         }
-        println!("{}", self.beat_num);
+        println!("{}", self.measure_num);
     }
 }
 
