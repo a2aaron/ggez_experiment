@@ -90,6 +90,30 @@ pub fn color_lerp(a: Color, b: Color, t: f32) -> Color {
     )
 }
 
+pub fn gen_range(lower: isize, upper: isize) -> isize {
+    thread_rng().gen_range(lower, upper)
+}
+
+pub fn rand_around(grid_size: (usize, usize), pos: (isize, isize), noise: isize) -> (isize, isize) {
+    (clamp(gen_range(pos.0 - noise, pos.0 + noise), 0, grid_size.0 as isize),
+     clamp(gen_range(pos.1 - noise, pos.1 + noise), 1, grid_size.1 as isize))
+}
+
+pub fn rand_edge(grid_size: (usize, usize)) -> (isize, isize) {
+    let width = grid_size.0 as isize;
+    let height = grid_size.1 as isize;
+    use Direction4::*;
+    match Direction4::rand() {
+        Left => (0, gen_range(0, height)),
+        Right => (width, gen_range(0, height)),
+        Up => (gen_range(0, width), 0),
+        Down => (gen_range(0, width), height),
+    }
+}
+
+pub fn clamp(n: isize, lower: isize, upper: isize) -> isize {
+    n.min(upper).max(lower)
+}
 
 pub fn distance(a: Point2, b: Point2) -> f32 {
     ((a[0] - b[0]).powf(2.0) + (a[1] - b[1]).powf(2.0)).sqrt()

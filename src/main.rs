@@ -36,6 +36,8 @@ struct MainState {
     bpm: Duration,
     music: Source,
     started: bool,
+    beat_num: usize,
+    measure_num: usize,
 }
 
 impl MainState {
@@ -51,23 +53,43 @@ impl MainState {
             bpm: bpm_to_duration(BPM),
             music: audio::Source::new(ctx, MUSIC_PATH)?,
             started: false,
+            beat_num: 0,
+            measure_num: 0,
         };
         Ok(s)
     }
 
     fn beat(&mut self, _ctx: &mut Context) {
-        if self.enemies.len() < 100 {
-            self.enemies.push(Enemy::spawn(
-                &self.grid,
-                self.ball.grid_pos,
-                Direction4::rand(),
-            ));
-            self.enemies.push(Enemy::spawn(
-                &self.grid,
-                self.ball.grid_pos,
-                Direction4::rand(),
-            ));
+        self.beat_num += 1;
+        if self.beat_num % 4 == 0 {
+            self.measure_num += 1
         }
+        {
+        fn spawn(state: &mut MainState, num: usize) {
+            for _ in 0..num {
+                let start_pos = rand_edge(state.grid.grid_size);
+                let end_pos = rand_around(state.grid.grid_size, state.ball.grid_pos, 4);
+                state.enemies.push(Enemy::new(
+                    &state.grid,
+                    start_pos,
+                    end_pos
+                ));
+            }
+        }; 
+
+        match self.measure_num {
+            0 ... 3 => (),
+            4 ... 15 => spawn(self, 1),
+            16 ... 31 => spawn(self, 2),
+            32 ... 63 => spawn(self, 3),
+            64 ... 95 => if self.beat_num % 4 == 0 {
+                spawn(self, 3);
+            },
+
+            _ => spawn(self, 3),
+        }
+        }
+        println!("{}", self.beat_num);
     }
 }
 
@@ -130,6 +152,7 @@ impl event::EventHandler for MainState {
                 self.started = false;
                 self.music.stop();
                 drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
+                self.beat_num = 0;
             }
             _ => (),
         }
