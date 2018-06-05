@@ -27,30 +27,31 @@ const MUSIC_PATH: &str = "/bbkkbkk.ogg";
 
 struct MainState {
     ball: Ball,
+    enemies: Vec<Enemy>,
     grid: Grid,
     arrow: Arrow,
     keyboard: KeyboardState,
-    time: Instant,
     background: Color,
+    time: Instant,
     bpm: Duration,
     music: Source,
-    enemies: Vec<Enemy>,
+    started: bool,
 }
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
         let s = MainState {
-            grid: Grid::default(),
             ball: Default::default(),
-            keyboard: Default::default(),
+            enemies: Default::default(),
+            grid: Grid::default(),
             arrow: Default::default(),
-            time: Instant::now(),
+            keyboard: Default::default(),
             background: Color::new(0.0, 0.0, 0.0, 1.0),
+            time: Instant::now(),
             bpm: bpm_to_duration(BPM),
             music: audio::Source::new(ctx, MUSIC_PATH)?,
-            enemies: Default::default(),
+            started: false,
         };
-        s.music.play()?;
         Ok(s)
     }
 
@@ -67,6 +68,10 @@ impl MainState {
 
 impl event::EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
+        if !self.started {
+            return Ok(())
+        }
+
         let time_in_beat = Instant::now().duration_since(self.time);
         if time_in_beat > self.bpm {
             self.beat(ctx);
@@ -75,6 +80,7 @@ impl event::EventHandler for MainState {
         let beat_percent = timer::duration_to_f64(time_in_beat) / timer::duration_to_f64(self.bpm);
         let color = (rev_quad(beat_percent) / 10.0) as f32;
         self.background = Color::new(color, color, color, 1.0);
+
         self.grid.update(beat_percent);
         self.ball.update(ctx);
         self.arrow.update();
@@ -93,12 +99,6 @@ impl event::EventHandler for MainState {
 
         self.enemies.retain(|e| e.alive);
 
-        self.ball.speed = if self.keyboard.space.is_down {
-            0.01
-        } else {
-            0.2
-        };
-
         if let Ok(direction) = self.keyboard.direction() {
             self.ball.key_down_event(direction, &self.grid);
             self.arrow.key_down_event(direction);
@@ -109,15 +109,23 @@ impl event::EventHandler for MainState {
 
     fn key_down_event(
         &mut self,
-        _ctx: &mut Context,
+        ctx: &mut Context,
         keycode: Keycode,
         _keymod: Mod,
         _repeat: bool,
     ) {
         use Keycode::*;
         match keycode {
-            P => drop(self.music.resume()),
-            S => drop(self.music.pause()),
+            P => {
+                self.started = true;
+                self.time = Instant::now();
+                drop(self.music.play());
+            }
+            S => {
+                self.started = false;
+                self.music.stop();
+                drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
+            }
             _ => (),
         }
 

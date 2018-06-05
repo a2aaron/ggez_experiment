@@ -90,7 +90,7 @@ impl Default for Ball {
             pos: Point2::new(0.0, 0.0),
             goal: Point2::new(0.0, 0.0),
             grid_pos: (0, 0),
-            speed: 0.0,
+            speed: 0.2,
             keyframes: VecDeque::new(),
             size: 10.0,
             color: WHITE,
