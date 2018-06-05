@@ -106,3 +106,7 @@ pub fn rev_quad(n: f64) -> f64 {
 pub fn smooth_step(n: f64) -> f64 {
     -2.0 * n * n + 3.0 * n * n
 }
+
+pub fn quartic(n: f64) -> f64 {
+    n * n * n * n
+}

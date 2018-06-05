@@ -1,11 +1,10 @@
-use ggez::graphics::DrawMode;
-use ggez::graphics::Point2;
+use ggez::graphics::{Color, DrawMode, Point2};
 use ggez::*;
 
 use rand::Rng;
 
-use util::*;
 use grid::Grid;
+use util::*;
 
 #[derive(Debug)]
 pub struct Enemy {
@@ -14,13 +13,17 @@ pub struct Enemy {
     end_pos: Point2,
     pub alive: bool,
     time: f32,
+    glow_size: f32,
+    glow_trans: f32,
 }
 
 impl Enemy {
-    pub fn update(&mut self) {
+    pub fn update(&mut self, beat_percent: f64) {
         self.alive = self.time < 1.0;
         self.pos = lerp(self.start_pos, self.end_pos, self.time);
         self.time += 0.01;
+        self.glow_size = 15.0 * smooth_step(beat_percent) as f32;
+        self.glow_trans = 1.0 - quartic(beat_percent) as f32;
     }
 
     pub fn spawn(grid: &Grid, player_pos: (isize, isize), direction: Direction4) -> Enemy {
@@ -46,12 +49,16 @@ impl Enemy {
             end_pos: grid.to_screen_coord((end_pos_x, end_pos_y)),
             alive: true,
             time: 0.0,
+            glow_size: 0.0,
+            glow_trans: 0.0,
         }
     }
 
     pub fn draw(&self, ctx: &mut Context) -> GameResult<()> {
         graphics::set_color(ctx, RED)?;
         graphics::circle(ctx, DrawMode::Fill, self.pos, 5.0, 2.0)?;
+        graphics::set_color(ctx, Color::new(1.0, 0.0, 0.0, self.glow_trans))?;
+        graphics::circle(ctx, DrawMode::Fill, self.pos, self.glow_size, 2.0)?;
         graphics::set_color(ctx, GREEN)?;
         graphics::circle(ctx, DrawMode::Line(0.5), self.end_pos, 10.0, 2.0)?;
         graphics::set_color(ctx, GUIDE_GREY)?;

@@ -55,7 +55,7 @@ impl MainState {
         Ok(s)
     }
 
-    fn beat(&mut self, ctx: &mut Context) {
+    fn beat(&mut self, _ctx: &mut Context) {
         if self.enemies.len() < 100 {
             self.enemies.push(Enemy::spawn(
                 &self.grid,
@@ -92,7 +92,7 @@ impl event::EventHandler for MainState {
 
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
-            enemy.update();
+            enemy.update(beat_percent);
             if self.ball.hit(enemy) {
                 was_hit = true
             }
