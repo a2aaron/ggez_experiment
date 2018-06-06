@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use ggez::audio::Source;
 use ggez::event::{Keycode, Mod};
-use ggez::graphics::{Color, DrawMode, Mesh, Point2};
+use ggez::graphics::Color;
 use ggez::*;
 
 use enemy::Enemy;
@@ -29,7 +29,6 @@ struct MainState {
     ball: Ball,
     enemies: Vec<Enemy>,
     grid: Grid,
-    arrow: Arrow,
     keyboard: KeyboardState,
     background: Color,
     time: Instant,
@@ -46,7 +45,6 @@ impl MainState {
             ball: Default::default(),
             enemies: Default::default(),
             grid: Grid::default(),
-            arrow: Default::default(),
             keyboard: Default::default(),
             background: Color::new(0.0, 0.0, 0.0, 1.0),
             time: Instant::now(),
@@ -107,7 +105,6 @@ impl event::EventHandler for MainState {
 
         self.grid.update(beat_percent);
         self.ball.update(ctx);
-        self.arrow.update();
 
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
@@ -125,7 +122,6 @@ impl event::EventHandler for MainState {
 
         if let Ok(direction) = self.keyboard.direction() {
             self.ball.key_down_event(direction);
-            self.arrow.key_down_event(direction);
         }
 
         Ok(())
@@ -144,6 +140,7 @@ impl event::EventHandler for MainState {
                 self.music.stop();
                 drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
                 self.beat_num = 0;
+                self.measure_num = 0;
             }
             _ => (),
         }
@@ -153,9 +150,6 @@ impl event::EventHandler for MainState {
 
     fn key_up_event(&mut self, _ctx: &mut Context, keycode: Keycode, _keymod: Mod, _repeat: bool) {
         self.keyboard.update(keycode, false);
-        if let Ok(direction) = self.keyboard.direction() {
-            self.arrow.direction = Some(direction);
-        }
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
@@ -163,78 +157,11 @@ impl event::EventHandler for MainState {
         graphics::set_background_color(ctx, self.background);
         self.grid.draw(ctx)?;
         self.ball.draw(ctx, &self.grid)?;
-        self.arrow.draw(ctx)?;
         for enemy in self.enemies.iter() {
             enemy.draw(ctx, &self.grid)?;
         }
         graphics::present(ctx);
         Ok(())
-    }
-}
-
-struct Arrow {
-    direction: Option<Direction8>,
-    opacity: f32,
-    x: f32,
-    y: f32,
-}
-
-impl Arrow {
-    fn update(&mut self) {
-        self.opacity -= 0.03;
-        if self.opacity < 0.0 {
-            self.opacity = 0.0
-        }
-    }
-
-    fn key_down_event(&mut self, direction: Direction8) {
-        self.direction = Some(direction);
-        self.opacity = 1.0;
-    }
-
-    fn draw(&self, ctx: &mut Context) -> GameResult<()> {
-        use Direction8::*;
-        use DrawMode::*;
-
-        if self.direction == None {
-            return Ok(());
-        }
-
-        let prev_color = graphics::get_color(ctx);
-
-        graphics::set_color(ctx, Color::new(1.0, 1.0, 1.0, self.opacity))?;
-        let angle: f32 = match self.direction.unwrap() {
-            Right => 0.0f32,
-            RightDown => 45.0f32,
-            Down => 90.0f32,
-            LeftDown => 135.0f32,
-            Left => 180.0f32,
-            LeftUp => 225.0f32,
-            Up => 270.0f32,
-            RightUp => 315.0f32,
-        }.to_radians();
-
-        let points = [
-            Point2::new(0.0, 0.0),
-            Point2::new(100.0, 0.0),
-            Point2::new(100.0, 10.0),
-            Point2::new(0.0, 10.0),
-        ];
-        let rect = Mesh::new_polygon(ctx, Fill, &points)?;
-        graphics::draw(ctx, &rect, Point2::new(self.x, self.y), angle)?;
-        graphics::set_color(ctx, prev_color)?;
-        Ok(())
-    }
-}
-
-impl Default for Arrow {
-    fn default() -> Self {
-        Arrow {
-            direction: None,
-            opacity: 0.0,
-            x: 400.0,
-            y: 400.0,
-        }
     }
 }
 
