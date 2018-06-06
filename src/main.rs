@@ -5,6 +5,7 @@ mod enemy;
 mod grid;
 mod keyboard;
 mod player;
+mod time;
 mod util;
 
 use std::env;
@@ -22,7 +23,7 @@ use keyboard::KeyboardState;
 use player::Ball;
 use util::*;
 
-const BPM: f64 = 170.0;
+const BPM: f64 = 1360.0;
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
 
 struct MainState {
@@ -31,12 +32,13 @@ struct MainState {
     grid: Grid,
     keyboard: KeyboardState,
     background: Color,
-    time: Instant,
+    start_time: Instant,
     bpm: Duration,
     music: Source,
     started: bool,
     beat_num: usize,
     measure_num: usize,
+    asdf: usize,
 }
 
 impl MainState {
@@ -47,12 +49,13 @@ impl MainState {
             grid: Grid::default(),
             keyboard: Default::default(),
             background: Color::new(0.0, 0.0, 0.0, 1.0),
-            time: Instant::now(),
+            start_time: Instant::now(),
             bpm: bpm_to_duration(BPM),
             music: audio::Source::new(ctx, MUSIC_PATH)?,
             started: false,
             beat_num: 0,
             measure_num: 0,
+            asdf: 0,
         };
         Ok(s)
     }
@@ -94,12 +97,13 @@ impl event::EventHandler for MainState {
             return Ok(());
         }
 
-        let time_in_beat = Instant::now().duration_since(self.time);
-        if time_in_beat > self.bpm {
-            self.beat(ctx);
-            self.time += self.bpm;
-        }
-        let beat_percent = timer::duration_to_f64(time_in_beat) / timer::duration_to_f64(self.bpm);
+        let time_since_start = Instant::now().duration_since(self.start_time);
+        let beats_since_start =
+            timer::duration_to_f64(time_since_start) / timer::duration_to_f64(self.bpm);
+        let beat_percent = beats_since_start % 1.0;
+
+        self.scheduler.update(beats_since_start);
+
         let color = (rev_quad(beat_percent) / 10.0) as f32;
         self.background = Color::new(color, color, color, 1.0);
 
@@ -132,7 +136,7 @@ impl event::EventHandler for MainState {
         match keycode {
             P => {
                 self.started = true;
-                self.time = Instant::now();
+                self.start_time = Instant::now();
                 drop(self.music.play());
             }
             S => {
