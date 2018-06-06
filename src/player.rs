@@ -1,18 +1,17 @@
 use std::collections::VecDeque;
 
-use ggez::graphics::{DrawMode, Point2, Color};
+use ggez::graphics::{Color, DrawMode, Point2};
 use ggez::*;
 
+use enemy::Enemy;
 use grid::Grid;
 use util::*;
-use enemy::Enemy;
 
 pub struct Ball {
-    pos: Point2,              // The current position of the Ball
-    goal: Point2,             // The position the Ball wants to get to
-    pub grid_pos: (isize, isize), // The position of the ball in discreet space
-    pub speed: f32,           // TODO: make not public
-    keyframes: VecDeque<Point2>,
+    pos: GridPoint,      // The current position of the Ball
+    pub goal: GridPoint, // The position the Ball wants to get to
+    pub speed: f32,      // TODO: make not public
+    keyframes: VecDeque<GridPoint>,
     size: f32,
     color: Color,
     hit_timer: usize,
@@ -20,16 +19,17 @@ pub struct Ball {
 
 impl Ball {
     fn handle_boundaries(&mut self, width: f32, height: f32) {
-        if self.pos[1] > height {
-            self.pos[1] = height;
-        } else if self.pos[1] < 0.0 {
-            self.pos[1] = 0.0;
+        let pos = &mut self.pos.0;
+        if pos[1] > height {
+            pos[1] = height;
+        } else if pos[1] < 0.0 {
+            pos[1] = 0.0;
         }
 
-        if self.pos[0] < 0.0 {
-            self.pos[0] = 0.0;
-        } else if self.pos[0] > width {
-            self.pos[0] = width;
+        if pos[0] < 0.0 {
+            pos[0] = 0.0;
+        } else if pos[0] > width {
+            pos[0] = width;
         }
     }
 
@@ -38,14 +38,14 @@ impl Ball {
     }
 
     pub fn hit(&self, enemy: &Enemy) -> bool {
-        distance(self.pos, enemy.pos) < self.size
+        distance(self.pos.0, enemy.pos.0) < self.size
     }
 
     pub fn update(&mut self, ctx: &mut Context) {
         if let Some(goal) = self.keyframes.pop_front() {
             let speed = (self.speed * (self.keyframes.len() * 4 + 2) as f32).min(1.0);
             self.pos = lerp(self.pos, goal, speed);
-            if distance(self.pos, goal) > 0.01 {
+            if distance(self.pos.0, goal.0) > 0.01 {
                 self.keyframes.push_front(goal);
             }
         }
@@ -56,30 +56,37 @@ impl Ball {
         );
 
         self.hit_timer = self.hit_timer.saturating_sub(1);
-        self.color = color_lerp(WHITE, RED, (self.hit_timer as f32)/100.0);
+        self.color = color_lerp(WHITE, RED, (self.hit_timer as f32) / 100.0);
     }
 
-    pub fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
+    pub fn draw(&mut self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
+        let pos = grid.to_screen_coord(self.pos);
+        let goal = grid.to_screen_coord(self.goal);
         graphics::set_color(ctx, self.color)?;
-        graphics::circle(ctx, DrawMode::Fill, self.pos, self.size, 2.0)?;
+        graphics::circle(
+            ctx,
+            DrawMode::Fill,
+            pos,
+            grid.to_screen_length(self.size),
+            2.0,
+        )?;
         graphics::set_color(ctx, RED)?;
-        graphics::circle(ctx, DrawMode::Fill, self.goal, 3.0, 2.0)?;
+        graphics::circle(ctx, DrawMode::Fill, goal, 3.0, 2.0)?;
         Ok(())
     }
 
-    pub fn key_down_event(&mut self, direction: Direction8, grid: &Grid) {
+    pub fn key_down_event(&mut self, direction: Direction8) {
         use Direction8::*;
-        match direction {
-            Left | LeftDown | LeftUp => self.grid_pos.0 += -1,
-            Right | RightDown | RightUp => self.grid_pos.0 += 1,
-            Up | Down => (),
-        }
-        match direction {
-            Up | LeftUp | RightUp => self.grid_pos.1 += -1,
-            Down | LeftDown | RightDown => self.grid_pos.1 += 1,
-            Left | Right => (),
-        }
-        self.goal = grid.to_screen_coord(self.grid_pos);
+        self.goal.0[0] += match direction {
+            Left | LeftDown | LeftUp => -1.0,
+            Right | RightDown | RightUp => 1.0,
+            Up | Down => 0.0,
+        };
+        self.goal.0[1] += match direction {
+            Up | LeftUp | RightUp => -1.0,
+            Down | LeftDown | RightDown => 1.0,
+            Left | Right => 0.0,
+        };
         self.keyframes.push_back(self.goal);
     }
 }
@@ -87,12 +94,11 @@ impl Ball {
 impl Default for Ball {
     fn default() -> Self {
         Ball {
-            pos: Point2::new(0.0, 0.0),
-            goal: Point2::new(0.0, 0.0),
-            grid_pos: (0, 0),
+            pos: GridPoint(Point2::new(0.0, 0.0)),
+            goal: GridPoint(Point2::new(0.0, 0.0)),
             speed: 0.2,
             keyframes: VecDeque::new(),
-            size: 10.0,
+            size: 0.2,
             color: WHITE,
             hit_timer: 0,
         }

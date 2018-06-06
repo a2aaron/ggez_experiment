@@ -40,6 +40,9 @@ pub const GUIDE_GREY: Color = Color {
     a: 0.2,
 };
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct GridPoint(pub Point2);
+
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Direction8 {
     Left,
@@ -72,8 +75,8 @@ impl Direction4 {
     }
 }
 
-pub fn lerp(a: Point2, b: Point2, t: f32) -> Point2 {
-    a + (b - a) * t
+pub fn lerp(a: GridPoint, b: GridPoint, t: f32) -> GridPoint {
+    GridPoint(a.0 + (b.0 - a.0) * t)
 }
 
 // todo : make this not stupid
@@ -92,26 +95,39 @@ pub fn color_lerp(a: Color, b: Color, t: f32) -> Color {
 
 pub fn gen_range(lower: isize, upper: isize) -> isize {
     if lower == upper {
-        return lower
+        return lower;
     }
     thread_rng().gen_range(lower, upper)
 }
 
-pub fn rand_around(grid_size: (usize, usize), pos: (isize, isize), noise: isize) -> (isize, isize) {
-    (clamp(gen_range(pos.0 - noise, pos.0 + noise), 0, grid_size.0 as isize),
-     clamp(gen_range(pos.1 - noise, pos.1 + noise), 1, grid_size.1 as isize))
+// todo: this is an awful way to do this but w/e make it compile
+pub fn rand_around(grid_size: (usize, usize), pos: GridPoint, noise: isize) -> GridPoint {
+    let (pos_x, pos_y) = (pos.0[0] as isize, pos.0[1] as isize);
+    GridPoint(Point2::new(
+        clamp(
+            gen_range(pos_x - noise, pos_x + noise),
+            0,
+            grid_size.0 as isize,
+        ) as f32,
+        clamp(
+            gen_range(pos_y - noise, pos_y + noise),
+            0,
+            grid_size.1 as isize,
+        ) as f32,
+    ))
 }
 
-pub fn rand_edge(grid_size: (usize, usize)) -> (isize, isize) {
+pub fn rand_edge(grid_size: (usize, usize)) -> GridPoint {
     let width = grid_size.0 as isize;
     let height = grid_size.1 as isize;
     use Direction4::*;
-    match Direction4::rand() {
+    let (x, y) = match Direction4::rand() {
         Left => (0, gen_range(0, height)),
         Right => (width, gen_range(0, height)),
         Up => (gen_range(0, width), 0),
         Down => (gen_range(0, width), height),
-    }
+    };
+    GridPoint(Point2::new(x as f32, y as f32))
 }
 
 pub fn clamp(n: isize, lower: isize, upper: isize) -> isize {

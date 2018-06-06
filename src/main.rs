@@ -65,39 +65,35 @@ impl MainState {
             self.measure_num += 1
         }
         {
-        fn spawn(state: &mut MainState, num: usize, spread: isize) {
-            for _ in 0..num {
-                let start_pos = rand_edge(state.grid.grid_size);
-                let end_pos = rand_around(state.grid.grid_size, state.ball.grid_pos, spread);
-                state.enemies.push(Enemy::new(
-                    &state.grid,
-                    start_pos,
-                    end_pos
-                ));
+            fn spawn(state: &mut MainState, num: usize, spread: isize) {
+                for _ in 0..num {
+                    let start_pos = rand_edge(state.grid.grid_size);
+                    let end_pos = rand_around(state.grid.grid_size, state.ball.goal, spread);
+                    state.enemies.push(Enemy::new(start_pos, end_pos));
+                }
+            };
+            // 0 4 8 (12) 16 (20) 24 (32) 40! 48 56!! 64 72! 80 88(end)
+            match self.measure_num {
+                0...3 => (),
+                4...7 => spawn(self, 1, 4),
+                8...15 => spawn(self, 1, 2),
+                16...23 => spawn(self, 2, 4),
+                24...39 => spawn(self, 3, 4),
+                40...47 => if self.beat_num % 4 == 0 {
+                    spawn(self, 10, 0);
+                },
+                48...55 => spawn(self, 1, 0),
+                _ => spawn(self, 3, 5),
             }
-        }; 
-// 0 4 8 (12) 16 (20) 24 (32) 40! 48 56!! 64 72! 80 88(end) 
-        match self.measure_num {
-            0 ... 3 => (),
-            4 ... 7 => spawn(self, 1, 4),
-            8 ... 15 => spawn(self, 1, 2),
-            16 ... 23 => spawn(self, 2, 4),
-            24 ... 39 => spawn(self, 3, 4),
-            40 ... 47 => if self.beat_num % 4 == 0 {
-                spawn(self, 10, 0);
-            },
-            48 ... 55 => spawn(self, 1, 0),
-            _ => spawn(self, 3, 5),
         }
-        }
-        println!("{}", self.measure_num);
+        // println!("{}", self.measure_num);
     }
 }
 
 impl event::EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
         if !self.started {
-            return Ok(())
+            return Ok(());
         }
 
         let time_in_beat = Instant::now().duration_since(self.time);
@@ -128,20 +124,14 @@ impl event::EventHandler for MainState {
         self.enemies.retain(|e| e.alive);
 
         if let Ok(direction) = self.keyboard.direction() {
-            self.ball.key_down_event(direction, &self.grid);
+            self.ball.key_down_event(direction);
             self.arrow.key_down_event(direction);
         }
 
         Ok(())
     }
 
-    fn key_down_event(
-        &mut self,
-        ctx: &mut Context,
-        keycode: Keycode,
-        _keymod: Mod,
-        _repeat: bool,
-    ) {
+    fn key_down_event(&mut self, ctx: &mut Context, keycode: Keycode, _keymod: Mod, _repeat: bool) {
         use Keycode::*;
         match keycode {
             P => {
@@ -172,10 +162,10 @@ impl event::EventHandler for MainState {
         graphics::clear(ctx);
         graphics::set_background_color(ctx, self.background);
         self.grid.draw(ctx)?;
-        self.ball.draw(ctx)?;
+        self.ball.draw(ctx, &self.grid)?;
         self.arrow.draw(ctx)?;
         for enemy in self.enemies.iter() {
-            enemy.draw(ctx)?;
+            enemy.draw(ctx, &self.grid)?;
         }
         graphics::present(ctx);
         Ok(())

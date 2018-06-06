@@ -1,4 +1,4 @@
-use ggez::graphics::{Color, DrawMode, Point2};
+use ggez::graphics::{Color, DrawMode};
 use ggez::*;
 
 use grid::Grid;
@@ -6,9 +6,9 @@ use util::*;
 
 #[derive(Debug)]
 pub struct Enemy {
-    pub pos: Point2,
-    start_pos: Point2,
-    end_pos: Point2,
+    pub pos: GridPoint,
+    start_pos: GridPoint,
+    end_pos: GridPoint,
     pub alive: bool,
     time: f32,
     glow_size: f32,
@@ -24,11 +24,11 @@ impl Enemy {
         self.glow_trans = 1.0 - quartic(beat_percent) as f32;
     }
 
-    pub fn new(grid: &Grid, start_pos: (isize, isize), end_pos: (isize, isize)) -> Enemy {
+    pub fn new(start_pos: GridPoint, end_pos: GridPoint) -> Enemy {
         Enemy {
-            pos: grid.to_screen_coord(start_pos),
-            start_pos: grid.to_screen_coord(start_pos),
-            end_pos: grid.to_screen_coord(end_pos),
+            pos: start_pos,
+            start_pos: start_pos,
+            end_pos: end_pos,
             alive: true,
             time: 0.0,
             glow_size: 0.0,
@@ -36,15 +36,17 @@ impl Enemy {
         }
     }
 
-    pub fn draw(&self, ctx: &mut Context) -> GameResult<()> {
+    pub fn draw(&self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
+        let pos = grid.to_screen_coord(self.pos);
+        let end_pos = grid.to_screen_coord(self.end_pos);
         graphics::set_color(ctx, RED)?;
-        graphics::circle(ctx, DrawMode::Fill, self.pos, 5.0, 2.0)?;
+        graphics::circle(ctx, DrawMode::Fill, pos, 5.0, 2.0)?;
         graphics::set_color(ctx, Color::new(1.0, 0.0, 0.0, self.glow_trans))?;
-        graphics::circle(ctx, DrawMode::Fill, self.pos, self.glow_size, 2.0)?;
+        graphics::circle(ctx, DrawMode::Fill, pos, self.glow_size, 2.0)?;
         graphics::set_color(ctx, GREEN)?;
-        graphics::circle(ctx, DrawMode::Line(0.5), self.end_pos, 10.0, 2.0)?;
+        graphics::circle(ctx, DrawMode::Line(0.5), end_pos, 10.0, 2.0)?;
         graphics::set_color(ctx, GUIDE_GREY)?;
-        graphics::line(ctx, &[self.pos, self.end_pos], 1.0)?;
+        graphics::line(ctx, &[pos, end_pos], 1.0)?;
         Ok(())
     }
 }

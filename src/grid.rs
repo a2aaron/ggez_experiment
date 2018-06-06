@@ -1,4 +1,4 @@
-use ggez::graphics::{Point2, MeshBuilder, Mesh, Color};
+use ggez::graphics::{Color, Mesh, MeshBuilder, Point2, Vector2};
 use ggez::*;
 
 use util::*;
@@ -7,7 +7,7 @@ use util::*;
 /// Also has a "glow" effect that is just decorative.
 pub struct Grid {
     offset: Point2, // Offset in position from upper right corner
-    glow_offset: Point2, 
+    glow_offset: Point2,
     grid_spacing: f32,
     pub grid_size: (usize, usize),
     line_width: f32,
@@ -55,32 +55,42 @@ impl Grid {
         let max_x = self.grid_spacing * self.grid_size.0 as f32;
         let max_y = self.grid_spacing * self.grid_size.1 as f32;
         for i in 0..self.grid_size.0 {
-            mb.line(&[
-                Point2::new(self.grid_spacing * i as f32, 0.0),
-                Point2::new(self.grid_spacing * i as f32, max_y),
-            ], line_width);
+            mb.line(
+                &[
+                    Point2::new(self.grid_spacing * i as f32, 0.0),
+                    Point2::new(self.grid_spacing * i as f32, max_y),
+                ],
+                line_width,
+            );
         }
 
         for i in 0..self.grid_size.1 {
-            mb.line(&[
-                Point2::new(0.0, self.grid_spacing * i as f32),
-                Point2::new(max_x, self.grid_spacing * i as f32),
-            ], line_width);
+            mb.line(
+                &[
+                    Point2::new(0.0, self.grid_spacing * i as f32),
+                    Point2::new(max_x, self.grid_spacing * i as f32),
+                ],
+                line_width,
+            );
         }
 
-        mb.line(&[
-            Point2::new(max_x, 0.0),
-            Point2::new(max_x, max_y),
-        ], line_width);
+        mb.line(
+            &[Point2::new(max_x, 0.0), Point2::new(max_x, max_y)],
+            line_width,
+        );
 
-        mb.line(&[
-                Point2::new(0.0, max_y),
-                Point2::new(max_x, max_y),
-            ], line_width);
+        mb.line(
+            &[Point2::new(0.0, max_y), Point2::new(max_x, max_y)],
+            line_width,
+        );
         mb.build(ctx)
     }
 
-    pub fn to_screen_coord(&self, grid_coord: (isize, isize)) -> Point2 {
-        Point2::new(grid_coord.0 as f32 * self.grid_spacing + self.offset[0], grid_coord.1 as f32 * self.grid_spacing + self.offset[1])
+    pub fn to_screen_coord(&self, grid_point: GridPoint) -> Point2 {
+        (grid_point.0 * self.grid_spacing) + Vector2::new(self.offset[0], self.offset[1])
+    }
+
+    pub fn to_screen_length(&self, length: f32) -> f32 {
+        self.grid_spacing * length
     }
 }
