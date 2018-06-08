@@ -1,3 +1,5 @@
+#![feature(iterator_step_by)]
+
 extern crate ggez;
 extern crate rand;
 
@@ -9,6 +11,7 @@ mod time;
 mod util;
 
 use std::env;
+use std::fs::File;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -21,87 +24,25 @@ use enemy::Enemy;
 use grid::Grid;
 use keyboard::KeyboardState;
 use player::Player;
+use time::{Beat, Scheduler};
 use util::*;
 
 const BPM: f64 = 170.0;
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
+const MAP_PATH: &str = "/Users/kofskyfamilycomputer/dev/Rust/visual/resources/bbkkbkk.map";
 
-struct MainState {
+/// Contains all the information abou the world and it's game elements
+pub struct World {
     player: Player,
     enemies: Vec<Enemy>,
     grid: Grid,
-    keyboard: KeyboardState,
     background: Color,
-    start_time: Instant,
-    bpm: Duration,
-    music: Source,
-    started: bool,
-    beat_num: usize,
-    measure_num: usize,
+    beat_time: Beat, // Time since start of song
 }
 
-impl MainState {
-    fn new(ctx: &mut Context) -> GameResult<MainState> {
-        let s = MainState {
-            player: Default::default(),
-            enemies: Default::default(),
-            grid: Grid::default(),
-            keyboard: Default::default(),
-            background: Color::new(0.0, 0.0, 0.0, 1.0),
-            start_time: Instant::now(),
-            bpm: bpm_to_duration(BPM),
-            music: audio::Source::new(ctx, MUSIC_PATH)?,
-            started: false,
-            beat_num: 0,
-            measure_num: 0,
-        };
-        Ok(s)
-    }
-
-    fn beat(&mut self, _ctx: &mut Context) {
-        self.beat_num += 1;
-        if self.beat_num % 4 == 0 {
-            self.measure_num += 1
-        }
-        {
-            fn spawn(state: &mut MainState, num: usize, spread: isize) {
-                for _ in 0..num {
-                    let start_pos = rand_edge(state.grid.grid_size);
-                    let end_pos = rand_around(state.grid.grid_size, state.player.goal, spread);
-                    state.enemies.push(Enemy::new(start_pos, end_pos));
-                }
-            };
-            // 0 4 8 (12) 16 (20) 24 (32) 40! 48 56!! 64 72! 80 88(end)
-            match self.measure_num {
-                0...3 => (),
-                4...7 => spawn(self, 1, 4),
-                8...15 => spawn(self, 1, 2),
-                16...23 => spawn(self, 2, 4),
-                24...39 => spawn(self, 3, 4),
-                40...47 => if self.beat_num % 4 == 0 {
-                    spawn(self, 10, 0);
-                },
-                48...55 => spawn(self, 1, 0),
-                _ => spawn(self, 3, 5),
-            }
-        }
-        // println!("{}", self.measure_num);
-    }
-}
-
-impl event::EventHandler for MainState {
-    fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
-        if !self.started {
-            return Ok(());
-        }
-
-        let time_since_start = Instant::now().duration_since(self.start_time);
-        let beats_since_start =
-            timer::duration_to_f64(time_since_start) / timer::duration_to_f64(self.bpm);
-        let beat_percent = beats_since_start % 1.0;
-
-        self.scheduler.update(beats_since_start);
-
+impl World {
+    fn update(&mut self, ctx: &mut Context) {
+        let beat_percent: f64 = Into::<f64>::into(self.beat_time) % 1.0;
         let color = (rev_quad(beat_percent) / 10.0) as f32;
         self.background = Color::new(color, color, color, 1.0);
 
@@ -121,10 +62,78 @@ impl event::EventHandler for MainState {
         }
 
         self.enemies.retain(|e| e.alive);
+    }
+
+    fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
+        self.grid.draw(ctx)?;
+        self.player.draw(ctx, &self.grid)?;
+        for enemy in self.enemies.iter() {
+            enemy.draw(ctx, &self.grid)?;
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self) {
+        self.enemies.clear();
+        self.beat_time = Default::default();
+    }
+}
+
+impl Default for World {
+    fn default() -> Self {
+        World {
+            player: Default::default(),
+            enemies: Default::default(),
+            grid: Default::default(),
+            background: Color::new(0.0, 0.0, 0.0, 1.0),
+            beat_time: Default::default(),
+        }
+    }
+}
+
+struct MainState {
+    scheduler: Scheduler,
+    world: World,
+    keyboard: KeyboardState,
+    start_time: Instant,
+    bpm: Duration,
+    music: Source,
+    started: bool,
+}
+
+impl MainState {
+    fn new(ctx: &mut Context) -> GameResult<MainState> {
+        let s = MainState {
+            keyboard: Default::default(),
+            world: Default::default(),
+            start_time: Instant::now(),
+            bpm: bpm_to_duration(BPM),
+            music: audio::Source::new(ctx, MUSIC_PATH)?,
+            started: false,
+            scheduler: Scheduler::read_file(File::open(MAP_PATH).unwrap()),
+        };
+        Ok(s)
+    }
+}
+
+impl event::EventHandler for MainState {
+    fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
+        if !self.started {
+            return Ok(());
+        }
+
+        let time_since_start = Instant::now().duration_since(self.start_time);
+        let beats_since_start =
+            timer::duration_to_f64(time_since_start) / timer::duration_to_f64(self.bpm);
 
         if let Ok(direction) = self.keyboard.direction() {
-            self.player.key_down_event(direction);
+            self.world.player.key_down_event(direction);
         }
+        self.world.beat_time = beats_since_start.into();
+        self.world.update(ctx);
+
+        self.scheduler
+            .update(beats_since_start.into(), &mut self.world);
 
         Ok(())
     }
@@ -141,8 +150,7 @@ impl event::EventHandler for MainState {
                 self.started = false;
                 self.music.stop();
                 drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
-                self.beat_num = 0;
-                self.measure_num = 0;
+                self.world.reset();
             }
             _ => (),
         }
@@ -156,12 +164,8 @@ impl event::EventHandler for MainState {
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         graphics::clear(ctx);
-        graphics::set_background_color(ctx, self.background);
-        self.grid.draw(ctx)?;
-        self.player.draw(ctx, &self.grid)?;
-        for enemy in self.enemies.iter() {
-            enemy.draw(ctx, &self.grid)?;
-        }
+        graphics::set_background_color(ctx, self.world.background);
+        self.world.draw(ctx)?;
         graphics::present(ctx);
         Ok(())
     }
