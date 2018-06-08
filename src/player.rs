@@ -7,9 +7,9 @@ use enemy::Enemy;
 use grid::Grid;
 use util::*;
 
-pub struct Ball {
-    pos: GridPoint,      // The current position of the Ball
-    pub goal: GridPoint, // The position the Ball wants to get to
+pub struct Player {
+    pos: GridPoint,      // The current position of the Player
+    pub goal: GridPoint, // The position the Player wants to get to
     pub speed: f32,      // TODO: make not public
     keyframes: VecDeque<GridPoint>,
     size: f32,
@@ -17,7 +17,7 @@ pub struct Ball {
     hit_timer: usize,
 }
 
-impl Ball {
+impl Player {
     fn handle_boundaries(&mut self, width: f32, height: f32) {
         let pos = &mut self.pos.0;
         if pos[1] > height {
@@ -91,9 +91,9 @@ impl Ball {
     }
 }
 
-impl Default for Ball {
+impl Default for Player {
     fn default() -> Self {
-        Ball {
+        Player {
             pos: GridPoint(Point2::new(0.0, 0.0)),
             goal: GridPoint(Point2::new(0.0, 0.0)),
             speed: 0.2,

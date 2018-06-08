@@ -20,14 +20,14 @@ use ggez::*;
 use enemy::Enemy;
 use grid::Grid;
 use keyboard::KeyboardState;
-use player::Ball;
+use player::Player;
 use util::*;
 
-const BPM: f64 = 1360.0;
+const BPM: f64 = 170.0;
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
 
 struct MainState {
-    ball: Ball,
+    player: Player,
     enemies: Vec<Enemy>,
     grid: Grid,
     keyboard: KeyboardState,
@@ -38,13 +38,12 @@ struct MainState {
     started: bool,
     beat_num: usize,
     measure_num: usize,
-    asdf: usize,
 }
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
         let s = MainState {
-            ball: Default::default(),
+            player: Default::default(),
             enemies: Default::default(),
             grid: Grid::default(),
             keyboard: Default::default(),
@@ -55,7 +54,6 @@ impl MainState {
             started: false,
             beat_num: 0,
             measure_num: 0,
-            asdf: 0,
         };
         Ok(s)
     }
@@ -69,7 +67,7 @@ impl MainState {
             fn spawn(state: &mut MainState, num: usize, spread: isize) {
                 for _ in 0..num {
                     let start_pos = rand_edge(state.grid.grid_size);
-                    let end_pos = rand_around(state.grid.grid_size, state.ball.goal, spread);
+                    let end_pos = rand_around(state.grid.grid_size, state.player.goal, spread);
                     state.enemies.push(Enemy::new(start_pos, end_pos));
                 }
             };
@@ -108,24 +106,24 @@ impl event::EventHandler for MainState {
         self.background = Color::new(color, color, color, 1.0);
 
         self.grid.update(beat_percent);
-        self.ball.update(ctx);
+        self.player.update(ctx);
 
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
             enemy.update(beat_percent);
-            if self.ball.hit(enemy) {
+            if self.player.hit(enemy) {
                 was_hit = true
             }
         }
 
         if was_hit {
-            self.ball.on_hit();
+            self.player.on_hit();
         }
 
         self.enemies.retain(|e| e.alive);
 
         if let Ok(direction) = self.keyboard.direction() {
-            self.ball.key_down_event(direction);
+            self.player.key_down_event(direction);
         }
 
         Ok(())
@@ -160,7 +158,7 @@ impl event::EventHandler for MainState {
         graphics::clear(ctx);
         graphics::set_background_color(ctx, self.background);
         self.grid.draw(ctx)?;
-        self.ball.draw(ctx, &self.grid)?;
+        self.player.draw(ctx, &self.grid)?;
         for enemy in self.enemies.iter() {
             enemy.draw(ctx, &self.grid)?;
         }
