@@ -35,46 +35,57 @@ impl Scheduler {
     pub fn read_file(file: File) -> Self {
         let mut scheduler: Scheduler = Default::default();
 
-        let file = BufReader::new(&file);
-        for line in file.lines() {
+        let reader = BufReader::new(&file);
+        let mut beats = vec![];
+        for line in reader.lines() {
             if let Ok(line) = line {
-                if line == "end" {
-                    break
+                let line = line.trim().to_string();
+                if line.starts_with("#") {
+                    continue;
                 }
 
-                let parsed = parse_line(line);
-                for beat_action in parsed {
-                    scheduler.work_queue.push(beat_action);
+                if line.starts_with("measure") {
+                    let mut line = line.split_whitespace();
+                    assert_eq!(line.next().unwrap(), "measure");
+                    let beat_start: usize = line.next().unwrap().parse::<usize>().unwrap() * 4;
+                    let beat_end: usize = line.next().unwrap().parse::<usize>().unwrap() * 4;
+                    assert_eq!(line.next().unwrap(), "per");
+                    let sizing: usize = line.next().unwrap().parse().unwrap();
+                    beats = to_beats(beat_start, beat_end, sizing);
                 }
+
+                if line.starts_with("spawn") {
+                    let mut line = line.split_whitespace();
+                    assert_eq!(line.next().unwrap(), "spawn");
+                    let spawn: usize = line.next().unwrap().parse().unwrap();
+                    assert_eq!(line.next().unwrap(), "spread");
+                    let spread: usize = line.next().unwrap().parse().unwrap();
+                    let action = SpawnEnemy {
+                        num: spawn,
+                        spread: spread as isize,
+                    };
+                    for beat in beats.iter() {
+                        scheduler.work_queue.push(BeatAction {
+                            beat: Reverse(*beat),
+                            action: Box::new(action),
+                        })
+                    }
+                }
+            } else {
+                break;
             }
         }
         scheduler
     }
 }
 
-fn parse_line(line: String) -> Vec<BeatAction> {
+fn to_beats(start: usize, end: usize, sizing: usize) -> Vec<Beat> {
     let mut vec = vec![];
-    let mut iter = line.split_whitespace();
-    assert!(iter.next() == Some("measure"));
-    let beat_start: u32 = iter.next().unwrap().parse::<u32>().unwrap() * 4;
-    let beat_end: u32 = iter.next().unwrap().parse::<u32>().unwrap() * 4;
-    assert!(iter.next() == Some("spawn"));
-    let spawn: usize = iter.next().unwrap().parse().unwrap();
-    assert!(iter.next() == Some("spread"));
-    let spread: isize = iter.next().unwrap().parse().unwrap();
-    assert!(iter.next() == Some("per"));
-    let per: usize = iter.next().unwrap().parse().unwrap();
-    for i in (beat_start..beat_end).step_by(per) {
-        vec.push(BeatAction {
-            beat: Reverse(Beat {
-                beat: i,
+    for i in (start..end).step_by(sizing) {
+        vec.push(Beat {
+                beat: i as u32,
                 offset: 0,
-            }),
-            action: Box::new(SpawnEnemy {
-                num: spawn,
-                spread: spread,
-            })
-        });
+            });
     }
     vec
 }
@@ -140,6 +151,7 @@ impl fmt::Debug for Action {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct SpawnEnemy {
     num: usize,
     spread: isize,

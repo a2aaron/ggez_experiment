@@ -29,7 +29,7 @@ use util::*;
 
 const BPM: f64 = 170.0;
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
-const MAP_PATH: &str = "/Users/kofskyfamilycomputer/dev/Rust/visual/resources/bbkkbkk.map";
+const MAP_PATH: &str = "./resources/bbkkbkk.map";
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {

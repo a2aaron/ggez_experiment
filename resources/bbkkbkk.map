@@ -1,12 +1,29 @@
-measure 0 3 spawn 0 spread 4 per 1
-measure 4 7 spawn 1 spread 4 per 1
-measure 8 16 spawn 1 spread 2 per 1
-measure 16 24 spawn 2 spread 4 per 1
-measure 24 40 spawn 3 spread 4 per 1
-measure 40 48 spawn 10 spread 0 per 4
-measure 48 56 spawn 1 spread 0 per 1
-measure 56 64 spawn 3 spread 5 per 1
-measure 64 72 spawn 3 spread 5 per 1
-measure 72 80 spawn 3 spread 5 per 1
-measure 80 88 spawn 3 spread 5 per 1
+# empty
+measure 0 3 per 1
+    spawn 0 spread 4
+measure 4 7 per 1
+    spawn 1 spread 4
+# intro
+measure 8 16 per 1
+    spawn 1 spread 2
+# add snare
+measure 16 24 per 1
+    spawn 2 spread 4
+# drop 1?
+measure 24 40 per 1
+    spawn 3 spread 4
+# break
+measure 40 48 per 4
+    spawn 10 spread 0
+measure 48 56 per 1
+    spawn 1 spread 0
+# drop 2
+measure 56 64 per 1
+    spawn 3 spread 5
+measure 64 72 per 1
+    spawn 3 spread 5
+measure 72 80 per 1
+    spawn 3 spread 5
+measure 80 88 per 1
+    spawn 3 spread 5
 end
