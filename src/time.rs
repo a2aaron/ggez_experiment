@@ -63,6 +63,7 @@ impl Scheduler {
                     let action = SpawnEnemy {
                         num: spawn,
                         spread: spread as isize,
+                        duration: Beat { beat: 1, offset: 0 }
                     };
                     for beat in beats.iter() {
                         scheduler.work_queue.push(BeatAction {
@@ -155,6 +156,7 @@ impl fmt::Debug for Action {
 pub struct SpawnEnemy {
     num: usize,
     spread: isize,
+    duration: Beat,
 }
 
 impl Action for SpawnEnemy {
@@ -162,7 +164,9 @@ impl Action for SpawnEnemy {
         for _ in 0..self.num {
             let start_pos = rand_edge(world.grid.grid_size);
             let end_pos = rand_around(world.grid.grid_size, world.player.goal, self.spread);
-            world.enemies.push(Enemy::new(start_pos, end_pos));
+            let mut enemy = Enemy::new(start_pos, end_pos, self.duration.into());
+            enemy.on_spawn(world.beat_time.into());
+            world.enemies.push(enemy);
         }
     }
 }

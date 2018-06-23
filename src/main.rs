@@ -51,7 +51,7 @@ impl World {
 
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
-            enemy.update(beat_percent);
+            enemy.update(Into::<f64>::into(self.beat_time));
             if self.player.hit(enemy) {
                 was_hit = true
             }
@@ -151,6 +151,7 @@ impl event::EventHandler for MainState {
                 self.music.stop();
                 drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
                 self.world.reset();
+                self.scheduler = Scheduler::read_file(File::open(MAP_PATH).unwrap())
             }
             _ => (),
         }
