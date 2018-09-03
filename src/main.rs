@@ -1,5 +1,3 @@
-#![feature(iterator_step_by)]
-
 extern crate ggez;
 extern crate rand;
 
