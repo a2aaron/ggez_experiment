@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use ggez::graphics::{Color, DrawMode, Point2};
 use ggez::*;
 
-use enemy::Enemy;
+use enemy::Bullet;
 use grid::Grid;
 use util::*;
 
@@ -37,7 +37,7 @@ impl Player {
         self.hit_timer = 100;
     }
 
-    pub fn hit(&self, enemy: &Enemy) -> bool {
+    pub fn hit(&self, enemy: &Bullet) -> bool {
         distance(self.pos.0, enemy.pos.0) < self.size
     }
 

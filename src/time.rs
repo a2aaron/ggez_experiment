@@ -6,7 +6,7 @@ use std::io::BufReader;
 use std::collections::HashSet;
 use std::fs::File;
 
-use enemy::Enemy;
+use enemy::Bullet;
 use util::*;
 use World;
 
@@ -110,8 +110,8 @@ impl Scheduler {
                         },
                     ["on", ref rest..] => parse_on_keyword(&mut parse_state, rest),
                     ["spawn", spawn, "spread", spread] => {
-                        // Spawn the appropriate enemy and push it into the queue
-                        let action = SpawnEnemy {
+                        // Spawn the appropriate bullet and push it into the queue
+                        let action = SpawnBullet {
                             num: spawn.parse().unwrap(),
                             spread: spread.parse().unwrap(),
                             duration: Beat {beat: 4, offset: 0},
@@ -233,20 +233,20 @@ impl fmt::Debug for Action {
 }
 
 #[derive(Clone, Copy)]
-pub struct SpawnEnemy {
+pub struct SpawnBullet {
     num: usize,
     spread: isize,
     duration: Beat,
 }
 
-impl Action for SpawnEnemy {
+impl Action for SpawnBullet {
     fn preform(&self, world: &mut World) {
         for _ in 0..self.num {
             let start_pos = rand_edge(world.grid.grid_size);
             let end_pos = rand_around(world.grid.grid_size, world.player.goal, self.spread);
-            let mut enemy = Enemy::new(start_pos, end_pos, self.duration.into());
-            enemy.on_spawn(world.beat_time.into());
-            world.enemies.push(enemy);
+            let mut bullet = Bullet::new(start_pos, end_pos, self.duration.into());
+            bullet.on_spawn(world.beat_time.into());
+            world.enemies.push(bullet);
         }
     }
 }

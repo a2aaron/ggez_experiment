@@ -20,7 +20,7 @@ use ggez::event::{Keycode, Mod};
 use ggez::graphics::Color;
 use ggez::*;
 
-use enemy::Enemy;
+use enemy::Bullet;
 use grid::Grid;
 use keyboard::KeyboardState;
 use player::Player;
@@ -34,7 +34,7 @@ const MAP_PATH: &str = "./resources/bbkkbkk.map";
 /// Contains all the information abou the world and it's game elements
 pub struct World {
     player: Player,
-    enemies: Vec<Enemy>,
+    enemies: Vec<Bullet>,
     grid: Grid,
     background: Color,
     beat_time: Beat, // Time since start of song

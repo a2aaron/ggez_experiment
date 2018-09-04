@@ -5,10 +5,10 @@ use grid::Grid;
 use util::*;
 
 #[derive(Debug)]
-pub struct Enemy {
+pub struct Bullet {
     pub pos: GridPoint, // Current position
-    start_pos: GridPoint, // Position enemy started from
-    end_pos: GridPoint, // Position enemy must end up at
+    start_pos: GridPoint, // Position bullet started from
+    end_pos: GridPoint, // Position bullet must end up at
     start_time: f64, // Start of bullet existance.
     duration: f64, // Beat time for which this should take place.
     pub alive: bool,
@@ -16,7 +16,7 @@ pub struct Enemy {
     glow_trans: f32,
 }
 
-impl Enemy {
+impl Bullet {
     pub fn on_spawn(&mut self, start_time: f64) {
         self.start_time = start_time;
     }
@@ -31,8 +31,8 @@ impl Enemy {
         self.glow_trans = 1.0 - quartic(beat_percent) as f32;
     }
 
-    pub fn new(start_pos: GridPoint, end_pos: GridPoint, duration: f64) -> Enemy {
-        Enemy {
+    pub fn new(start_pos: GridPoint, end_pos: GridPoint, duration: f64) -> Bullet {
+        Bullet {
             pos: start_pos,
             start_pos: start_pos,
             end_pos: end_pos,
