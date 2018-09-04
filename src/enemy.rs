@@ -25,7 +25,7 @@ impl Enemy {
         let delta_time = curr_time - self.start_time;
         self.alive = delta_time < self.duration;
         let total_percent = delta_time / self.duration;
-        let beat_percent = total_percent % 1.0;
+        let beat_percent = delta_time % 1.0;
         self.pos = lerp(self.start_pos, self.end_pos, total_percent as f32);
         self.glow_size = 15.0 * smooth_step(beat_percent) as f32;
         self.glow_trans = 1.0 - quartic(beat_percent) as f32;
