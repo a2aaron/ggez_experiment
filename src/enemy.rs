@@ -1,5 +1,3 @@
-use std::time::{Instant, Duration};
-
 use ggez::graphics::{Color, DrawMode};
 use ggez::*;
 

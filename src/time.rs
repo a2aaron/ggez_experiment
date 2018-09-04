@@ -3,7 +3,7 @@ use std::collections::{binary_heap::PeekMut, BinaryHeap};
 use std::fmt;
 use std::io::BufRead;
 use std::io::BufReader;
-
+use std::collections::HashSet;
 use std::fs::File;
 
 use enemy::Enemy;
@@ -13,6 +13,61 @@ use World;
 #[derive(Debug, Default)]
 pub struct Scheduler {
     work_queue: BinaryHeap<BeatAction>,
+}
+
+#[derive(Debug)]
+struct ParseState {
+    section_start: u32, // The starting measure number of this section
+    section_end: u32, // The ending measure number of this section
+    measure_frequency: u32, // How often to apply the event
+    beat_frequency: BeatSet // *Which beats* to apply the event
+}
+
+impl ParseState {
+    fn beats(&self) -> Vec<Beat> {
+        let mut beats = vec![];
+        for measure in (self.section_start..self.section_end).step_by(self.measure_frequency as usize) {
+            for beat in self.beat_frequency.beats.iter() {
+                beats.push(Beat {
+                    beat: measure * 4 + beat.beat - 1,
+                    offset: beat.offset,
+                });
+            }
+        }
+        println!("{:?}", self.beat_frequency);
+        beats
+    }
+}
+
+impl Default for ParseState {
+    fn default() -> Self {
+        ParseState {
+            section_start: 0,
+            section_end: 0,
+            beat_frequency: BeatSet::new(vec![1, 2, 3, 4].iter()),
+            measure_frequency: 1,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct BeatSet {
+    beats: HashSet<Beat>
+    // TODO: more stuff??
+}
+
+impl BeatSet {
+    fn new<'a>(iter: impl Iterator<Item=&'a u32>) -> BeatSet {
+        let mut beats: HashSet<Beat> = Default::default(); 
+        for quarter_note in iter {
+            beats.insert(Beat {
+                beat: *quarter_note, offset: 0,
+            });
+        }
+        BeatSet {
+            beats: beats
+        }
+    }
 }
 
 impl Scheduler {
@@ -32,45 +87,45 @@ impl Scheduler {
         }
     }
 
-    pub fn read_file(file: File) -> Self {
-        let mut scheduler: Scheduler = Default::default();
 
+    pub fn read_file(file: File) -> Scheduler {
+        let mut scheduler: Scheduler = Default::default();
+        let mut parse_state: ParseState = Default::default(); 
         let reader = BufReader::new(&file);
-        let mut beats = vec![];
-        for line in reader.lines() {
+
+        for (i, line) in reader.lines().enumerate() {
             if let Ok(line) = line {
-                let line = line.trim().to_string();
+                let line = line.trim();
                 if line.starts_with("#") {
                     continue;
                 }
-
-                if line.starts_with("measure") {
-                    let mut line = line.split_whitespace();
-                    assert_eq!(line.next().unwrap(), "measure");
-                    let beat_start: usize = line.next().unwrap().parse::<usize>().unwrap() * 4;
-                    let beat_end: usize = line.next().unwrap().parse::<usize>().unwrap() * 4;
-                    assert_eq!(line.next().unwrap(), "per");
-                    let sizing: usize = line.next().unwrap().parse().unwrap();
-                    beats = to_beats(beat_start, beat_end, sizing);
-                }
-
-                if line.starts_with("spawn") {
-                    let mut line = line.split_whitespace();
-                    assert_eq!(line.next().unwrap(), "spawn");
-                    let spawn: usize = line.next().unwrap().parse().unwrap();
-                    assert_eq!(line.next().unwrap(), "spread");
-                    let spread: usize = line.next().unwrap().parse().unwrap();
-                    let action = SpawnEnemy {
-                        num: spawn,
-                        spread: spread as isize,
-                        duration: Beat { beat: 1, offset: 0 }
-                    };
-                    for beat in beats.iter() {
-                        scheduler.work_queue.push(BeatAction {
-                            beat: Reverse(*beat),
-                            action: Box::new(action),
-                        })
+                let mut line: Vec<_> = line.split_whitespace().collect();
+                match line[..] {
+                    ["section", start, end] => {
+                        // Reset event frequency changes & update section times
+                        parse_state.section_start = start.parse().unwrap();
+                        parse_state.section_end = end.parse().unwrap();
+                        parse_state.measure_frequency = 1;
+                        parse_state.beat_frequency = BeatSet::new(vec![1, 2, 3, 4].iter());
+                        },
+                    ["on", ref rest..] => parse_on_keyword(&mut parse_state, rest),
+                    ["spawn", spawn, "spread", spread] => {
+                        // Spawn the appropriate enemy and push it into the queue
+                        let action = SpawnEnemy {
+                            num: spawn.parse().unwrap(),
+                            spread: spread.parse().unwrap(),
+                            duration: Beat {beat: 4, offset: 0},
+                        };
+                        for beat in parse_state.beats() {
+                            scheduler.work_queue.push(BeatAction {
+                                beat: Reverse(beat),
+                                action: Box::new(action),
+                            });
+                        }
                     }
+                    ["rest"] => (),
+                    ["end"] => break,
+                    ref x => panic!("unexpected line in map file: {:?} (line {})", x, i),
                 }
             } else {
                 break;
@@ -78,6 +133,31 @@ impl Scheduler {
         }
         scheduler
     }
+}
+
+/// Update the measure and beat frequencies based on a sliced string
+/// Format: ["measure", freq, "beat", which_beats_to_apply]
+fn parse_on_keyword(parse_state: &mut ParseState, measure_beat_frequency: &[&str]) {
+    let beat_index = measure_beat_frequency.iter().position(|&e| e == "beat").unwrap();
+    let (measure_frequency, beat_frequency) = measure_beat_frequency.split_at(beat_index);
+    parse_state.measure_frequency = if measure_frequency[1] == "*" {
+        1
+    } else {
+        measure_frequency[1].parse().unwrap()
+    };
+    
+    let beat_frequency = beat_frequency.get(1..).unwrap();
+    let mut beat_numbers: Vec<u32> = vec![];
+    if beat_frequency[0] == "*" {
+        beat_numbers = vec![1, 2, 3, 4]
+    } else {
+        for beat_number in beat_frequency {
+            beat_numbers.push(beat_number.parse().unwrap())
+        }
+    }
+
+    parse_state.beat_frequency = BeatSet::new(beat_numbers.iter());
+    
 }
 
 fn to_beats(start: usize, end: usize, sizing: usize) -> Vec<Beat> {

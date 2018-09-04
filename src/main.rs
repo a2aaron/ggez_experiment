@@ -1,3 +1,5 @@
+#![feature(slice_patterns)]
+
 extern crate ggez;
 extern crate rand;
 
@@ -132,7 +134,6 @@ impl event::EventHandler for MainState {
 
         self.scheduler
             .update(beats_since_start.into(), &mut self.world);
-
         Ok(())
     }
 
