@@ -10,7 +10,7 @@ section 8 16
 section 16 24
     # snare
     on measure * beat 2 4
-        spawn 1 spread 1
+        spawn 1 spread 0
     on measure * beat *
         spawn 1 spread 4
 # drop 1?
