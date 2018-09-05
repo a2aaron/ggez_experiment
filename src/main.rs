@@ -1,4 +1,4 @@
-#![feature(iterator_step_by)]
+#![feature(slice_patterns)]
 
 extern crate ggez;
 extern crate rand;
@@ -20,7 +20,7 @@ use ggez::event::{Keycode, Mod};
 use ggez::graphics::Color;
 use ggez::*;
 
-use enemy::Enemy;
+use enemy::Bullet;
 use grid::Grid;
 use keyboard::KeyboardState;
 use player::Player;
@@ -29,12 +29,12 @@ use util::*;
 
 const BPM: f64 = 170.0;
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
-const MAP_PATH: &str = "/Users/kofskyfamilycomputer/dev/Rust/visual/resources/bbkkbkk.map";
+const MAP_PATH: &str = "./resources/bbkkbkk.map";
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {
     player: Player,
-    enemies: Vec<Enemy>,
+    enemies: Vec<Bullet>,
     grid: Grid,
     background: Color,
     beat_time: Beat, // Time since start of song
@@ -51,7 +51,7 @@ impl World {
 
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
-            enemy.update(beat_percent);
+            enemy.update(Into::<f64>::into(self.beat_time));
             if self.player.hit(enemy) {
                 was_hit = true
             }
@@ -134,7 +134,6 @@ impl event::EventHandler for MainState {
 
         self.scheduler
             .update(beats_since_start.into(), &mut self.world);
-
         Ok(())
     }
 
@@ -151,6 +150,7 @@ impl event::EventHandler for MainState {
                 self.music.stop();
                 drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
                 self.world.reset();
+                self.scheduler = Scheduler::read_file(File::open(MAP_PATH).unwrap())
             }
             _ => (),
         }
