@@ -123,17 +123,17 @@ impl event::EventHandler for MainState {
         }
 
         let time_since_start = Instant::now().duration_since(self.start_time);
-        let beats_since_start =
-            timer::duration_to_f64(time_since_start) / timer::duration_to_f64(self.bpm);
+        let beats_since_start: Beat =
+            (timer::duration_to_f64(time_since_start) / timer::duration_to_f64(self.bpm)).into();
 
         if let Ok(direction) = self.keyboard.direction() {
             self.world.player.key_down_event(direction);
         }
-        self.world.beat_time = beats_since_start.into();
+        self.world.beat_time = beats_since_start;
         self.world.update(ctx);
 
         self.scheduler
-            .update(beats_since_start.into(), &mut self.world);
+            .update(beats_since_start, &mut self.world);
         Ok(())
     }
 
@@ -141,16 +141,20 @@ impl event::EventHandler for MainState {
         use Keycode::*;
         match keycode {
             P => {
-                self.started = true;
-                self.start_time = Instant::now();
-                drop(self.music.play());
-            }
-            S => {
-                self.started = false;
-                self.music.stop();
-                drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
-                self.world.reset();
-                self.scheduler = Scheduler::read_file(File::open(MAP_PATH).unwrap())
+                if self.started {
+                    // Stop the game, pausing the music, fetching a new Source instance, and
+                    // rebuild the scheduler work queue.
+                    self.started = false;
+                    self.music.stop();
+                    drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
+                    self.world.reset();
+                    self.scheduler = Scheduler::read_file(File::open(MAP_PATH).unwrap())
+                } else {
+                    // Start the game. Also play the music.
+                    self.started = true;
+                    self.start_time = Instant::now();
+                    drop(self.music.play());
+                }
             }
             _ => (),
         }
