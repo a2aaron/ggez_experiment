@@ -50,7 +50,7 @@ impl Default for ParseState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, PartialEq, Eq)]
 struct BeatSet {
     beats: HashSet<Beat>
     // TODO: more stuff??
@@ -249,4 +249,44 @@ impl Action for SpawnBullet {
             world.enemies.push(bullet);
         }
     }
+}
+
+#[test]
+fn test_parse_on_keyword() {
+    let mut parse_state: ParseState = Default::default();
+    parse_on_keyword(&mut parse_state, &["measure", "420", "beat", "6", "9"]);
+    assert_eq!(parse_state.measure_frequency, 420);
+    assert_eq!(parse_state.beat_frequency, BeatSet::new(vec![6, 9].iter()));
+
+    let mut parse_state: ParseState = Default::default();
+    parse_on_keyword(&mut parse_state, &["measure", "*", "beat", "*"]);
+    assert_eq!(parse_state.measure_frequency, 1);
+    assert_eq!(parse_state.beat_frequency, BeatSet::new(vec![1, 2, 3, 4].iter()));
+}
+
+#[test]
+fn test_new_beat_set() {
+    let beat_set1 = BeatSet::new(vec![1, 2, 3, 4].iter());
+    let mut beat_set2: BeatSet = Default::default();
+    beat_set2.beats.insert(Beat {beat: 1, offset: 0});
+    beat_set2.beats.insert(Beat {beat: 2, offset: 0});
+    beat_set2.beats.insert(Beat {beat: 3, offset: 0});
+    beat_set2.beats.insert(Beat {beat: 4, offset: 0});
+    assert_eq!(beat_set1, beat_set2);
+}
+
+#[test]
+fn test_beat_to_f64() {
+    assert_eq!(1.0f64, Beat { beat: 1, offset: 0}.into());
+    assert_eq!(2.0f64 + 1.0/256.0 as f64, Beat { beat: 2, offset: 1}.into());
+    assert_eq!(3.5f64, Beat { beat: 3, offset: 128}.into());
+    assert_eq!(4.25f64, Beat { beat: 4, offset: 64}.into());
+}
+
+#[test]
+fn test_f64_to_beat() {
+    assert_eq!(Beat::from(1.0f64), Beat { beat: 1, offset: 0});
+    assert_eq!(Beat::from(2.0f64 + 1.0/256.0 as f64), Beat { beat: 2, offset: 1});
+    assert_eq!(Beat::from(3.5f64), Beat { beat: 3, offset: 128});
+    assert_eq!(Beat::from(4.25f64), Beat { beat: 4, offset: 64});
 }
