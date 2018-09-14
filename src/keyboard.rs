@@ -5,8 +5,8 @@ use ggez::event::Keycode;
 use util::Direction8;
 
 // If a key was pressed since however many nanoseconds ago, cound it as having been pressed now
-// This allows for
-static NANOS_KEYPRESS_TOLERANCE: u32 = 3_000_000; // 3 milliseconds
+// This allows for diagonal movement
+static NANOS_KEYPRESS_TOLERANCE: u32 = 5_000_000; // 5 milliseconds
 
 #[derive(Default, Debug)]
 pub struct KeyboardState {
