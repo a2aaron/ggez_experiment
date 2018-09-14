@@ -96,6 +96,8 @@ struct MainState {
     world: World,
     keyboard: KeyboardState,
     start_time: Instant,
+    last_time: Instant,
+    current_time: Duration,
     bpm: Duration,
     music: Source,
     started: bool,
@@ -107,12 +109,26 @@ impl MainState {
             keyboard: Default::default(),
             world: Default::default(),
             start_time: Instant::now(),
+            last_time: Instant::now(),
+            current_time: Duration::new(0, 0),
             bpm: bpm_to_duration(BPM),
             music: audio::Source::new(ctx, MUSIC_PATH)?,
             started: false,
             scheduler: Scheduler::read_file(File::open(MAP_PATH).unwrap()),
+            assets: Assets::new(ctx),
         };
         Ok(s)
+    }
+
+    /// Draw debug text at the bottom of the screen showing the time in the song, in beats. 
+    fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
+        let beat_time = self.world.beat_time;
+        let string: &str = &format!("Measure: {:?}, Beat: {:?}, Offset: {:?}", beat_time.beat/4, beat_time.beat % 4, beat_time.offset)[..];
+        let text = Text::new(ctx, string, &self.assets.font)?;
+        let screen = graphics::get_screen_coordinates(ctx);
+        graphics::set_color(ctx, DEBUG_RED)?;
+        text.draw(ctx, Point2::new(screen.w - text.width() as f32, screen.h - text.height() as f32), 0.0)?;
+        Ok(())
     }
 }
 
@@ -121,16 +137,16 @@ impl event::EventHandler for MainState {
         if !self.started {
             return Ok(());
         }
-
-        let time_since_start = Instant::now().duration_since(self.start_time);
+        self.current_time += Instant::now().duration_since(self.last_time);
+        self.last_time = Instant::now();
         let beats_since_start: Beat =
-            (timer::duration_to_f64(time_since_start) / timer::duration_to_f64(self.bpm)).into();
+            (timer::duration_to_f64(self.current_time) / timer::duration_to_f64(self.bpm)).into();
 
         if let Ok(direction) = self.keyboard.direction() {
             self.world.player.key_down_event(direction);
         }
-        self.world.beat_time = beats_since_start;
-        self.world.update(ctx);
+
+        self.world.update(ctx, beats_since_start);
 
         self.scheduler
             .update(beats_since_start, &mut self.world);

@@ -34,7 +34,6 @@ impl ParseState {
                 });
             }
         }
-        println!("{:?}", self.beat_frequency);
         beats
     }
 }
