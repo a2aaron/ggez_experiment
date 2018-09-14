@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use ggez::audio::Source;
 use ggez::event::{Keycode, Mod};
-use ggez::graphics::Color;
+use ggez::graphics::{Color, Text, Font, Point2, Drawable};
 use ggez::*;
 
 use enemy::Bullet;
@@ -30,6 +30,7 @@ use util::*;
 const BPM: f64 = 170.0;
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
 const MAP_PATH: &str = "./resources/bbkkbkk.map";
+const ARIAL_PATH: &str = "/Arial.ttf";
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {
@@ -41,7 +42,8 @@ pub struct World {
 }
 
 impl World {
-    fn update(&mut self, ctx: &mut Context) {
+    fn update(&mut self, ctx: &mut Context, beats_since_start: Beat) {
+        self.beat_time = beats_since_start;
         let beat_percent: f64 = Into::<f64>::into(self.beat_time) % 1.0;
         let color = (rev_quad(beat_percent) / 10.0) as f32;
         self.background = Color::new(color, color, color, 1.0);
@@ -91,6 +93,18 @@ impl Default for World {
     }
 }
 
+struct Assets {
+    font: Font,
+}
+
+impl Assets {
+    fn new(ctx: &mut Context) -> Assets {
+        Assets {
+            font: Font::new(ctx, ARIAL_PATH, 18).unwrap(),
+        }
+    }
+}
+
 struct MainState {
     scheduler: Scheduler,
     world: World,
@@ -100,6 +114,7 @@ struct MainState {
     current_time: Duration,
     bpm: Duration,
     music: Source,
+    assets: Assets,
     started: bool,
 }
 
@@ -169,6 +184,8 @@ impl event::EventHandler for MainState {
                     // Start the game. Also play the music.
                     self.started = true;
                     self.start_time = Instant::now();
+                    self.last_time = Instant::now();
+                    self.current_time = Duration::new(0,0);
                     drop(self.music.play());
                 }
             }
@@ -186,6 +203,7 @@ impl event::EventHandler for MainState {
         graphics::clear(ctx);
         graphics::set_background_color(ctx, self.world.background);
         self.world.draw(ctx)?;
+        self.draw_debug_time(ctx)?;
         graphics::present(ctx);
         Ok(())
     }

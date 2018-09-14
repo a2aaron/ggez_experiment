@@ -40,6 +40,13 @@ pub const GUIDE_GREY: Color = Color {
     a: 0.2,
 };
 
+pub const DEBUG_RED: Color = Color {
+    r: 1.0,
+    g: 0.1,
+    b: 0.1,
+    a: 1.0,
+};
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GridPoint(pub Point2);
 

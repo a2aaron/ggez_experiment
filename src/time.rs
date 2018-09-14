@@ -201,8 +201,8 @@ impl Ord for BeatAction {
 /// A struct for measuring time, based on beats from the start
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Default, Copy, Clone)]
 pub struct Beat {
-    beat: u32,
-    offset: u8, // offset from the beat, in 1/256th increments
+    pub beat: u32,
+    pub offset: u8, // offset from the beat, in 1/256th increments
 }
 
 /// Beat time is scaled such that 1.0 = 1 beat and 1.5 = 1.5 beat, etc
