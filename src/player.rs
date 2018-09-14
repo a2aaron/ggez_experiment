@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::iter::FromIterator;
 
 use ggez::graphics::{Color, DrawMode, Point2};
 use ggez::*;
@@ -8,9 +9,10 @@ use grid::Grid;
 use util::*;
 
 pub struct Player {
-    pos: GridPoint,      // The current position of the Player
-    pub goal: GridPoint, // The position the Player wants to get to
-    pub speed: f32,      // TODO: make not public
+    pos: GridPoint, // The current position of the Player
+    speed: f32,
+    // A list of positions the Player attempts to move to, used for animation
+    // purposes. Should never be empty (at least 1 value always)
     keyframes: VecDeque<GridPoint>,
     size: f32,
     color: Color,
@@ -45,7 +47,7 @@ impl Player {
         if let Some(goal) = self.keyframes.pop_front() {
             let speed = (self.speed * (self.keyframes.len() * 4 + 2) as f32).min(1.0);
             self.pos = lerp(self.pos, goal, speed);
-            if distance(self.pos.0, goal.0) > 0.01 {
+            if distance(self.pos.0, goal.0) > 0.01 || self.keyframes.len() == 0 {
                 self.keyframes.push_front(goal);
             }
         }
@@ -61,7 +63,7 @@ impl Player {
 
     pub fn draw(&mut self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
         let pos = grid.to_screen_coord(self.pos);
-        let goal = grid.to_screen_coord(self.goal);
+        let goal = grid.to_screen_coord(self.position());
         graphics::set_color(ctx, self.color)?;
         graphics::circle(
             ctx,
@@ -77,17 +79,22 @@ impl Player {
 
     pub fn key_down_event(&mut self, direction: Direction8) {
         use Direction8::*;
-        self.goal.0[0] += match direction {
+        let mut goal: GridPoint = self.position();
+        goal.0[0] += match direction {
             Left | LeftDown | LeftUp => -1.0,
             Right | RightDown | RightUp => 1.0,
             Up | Down => 0.0,
         };
-        self.goal.0[1] += match direction {
+        goal.0[1] += match direction {
             Up | LeftUp | RightUp => -1.0,
             Down | LeftDown | RightDown => 1.0,
             Left | Right => 0.0,
         };
-        self.keyframes.push_back(self.goal);
+        self.keyframes.push_back(goal);
+    }
+
+    pub fn position(&self) -> GridPoint {
+        *self.keyframes.back().unwrap()
     }
 }
 
@@ -95,9 +102,8 @@ impl Default for Player {
     fn default() -> Self {
         Player {
             pos: GridPoint(Point2::new(0.0, 0.0)),
-            goal: GridPoint(Point2::new(0.0, 0.0)),
             speed: 0.2,
-            keyframes: VecDeque::new(),
+            keyframes: VecDeque::from_iter(vec![GridPoint(Point2::new(0.0, 0.0))]),
             size: 0.2,
             color: WHITE,
             hit_timer: 0,

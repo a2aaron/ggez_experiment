@@ -243,7 +243,7 @@ impl Action for SpawnBullet {
     fn preform(&self, world: &mut World) {
         for _ in 0..self.num {
             let start_pos = rand_edge(world.grid.grid_size);
-            let end_pos = rand_around(world.grid.grid_size, world.player.goal, self.spread);
+            let end_pos = rand_around(world.grid.grid_size, world.player.position(), self.spread);
             let mut bullet = Bullet::new(start_pos, end_pos, self.duration.into());
             bullet.on_spawn(world.beat_time.into());
             world.enemies.push(bullet);
