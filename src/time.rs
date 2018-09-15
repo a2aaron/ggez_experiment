@@ -217,6 +217,11 @@ impl Time {
     pub fn beat_percent(beat: Beat) -> f64 {
         Into::<f64>::into(beat) % 1.0
     }
+
+    /// Return a value from 0.0 to 1.0 indicating how far along the duration we currently are
+    pub fn percent_over_duration(start_time: f64, curr_time: f64, duration: f64) -> f64 {
+        (curr_time - start_time) / duration
+    }
 }
 
 /// A wrapper struct of a Beat and a Boxed Action. The beat has reversed ordering
