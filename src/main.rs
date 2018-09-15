@@ -13,7 +13,6 @@ mod util;
 use std::env;
 use std::fs::File;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
 
 use ggez::audio::Source;
 use ggez::event::{Keycode, Mod};
@@ -24,7 +23,7 @@ use enemy::Bullet;
 use grid::Grid;
 use keyboard::KeyboardState;
 use player::Player;
-use time::{Beat, Scheduler};
+use time::{Beat, Scheduler, Time};
 use util::*;
 
 const BPM: f64 = 170.0;
@@ -37,14 +36,12 @@ pub struct World {
     player: Player,
     enemies: Vec<Bullet>,
     grid: Grid,
-    background: Color,
-    beat_time: Beat, // Time since start of song
+    background: Color
 }
 
 impl World {
-    fn update(&mut self, ctx: &mut Context, beats_since_start: Beat) {
-        self.beat_time = beats_since_start;
-        let beat_percent: f64 = Into::<f64>::into(self.beat_time) % 1.0;
+    fn update(&mut self, ctx: &mut Context, beat_time: Beat) {
+        let beat_percent = Time::beat_percent(beat_time);
         let color = (rev_quad(beat_percent) / 10.0) as f32;
         self.background = Color::new(color, color, color, 1.0);
 
@@ -53,7 +50,7 @@ impl World {
 
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
-            enemy.update(Into::<f64>::into(self.beat_time));
+            enemy.update(Into::<f64>::into(beat_time));
             if self.player.hit(enemy) {
                 was_hit = true
             }
@@ -77,7 +74,6 @@ impl World {
 
     fn reset(&mut self) {
         self.enemies.clear();
-        self.beat_time = Default::default();
     }
 }
 
@@ -88,7 +84,6 @@ impl Default for World {
             enemies: Default::default(),
             grid: Default::default(),
             background: Color::new(0.0, 0.0, 0.0, 1.0),
-            beat_time: Default::default(),
         }
     }
 }
@@ -109,10 +104,7 @@ struct MainState {
     scheduler: Scheduler,
     world: World,
     keyboard: KeyboardState,
-    start_time: Instant,
-    last_time: Instant,
-    current_time: Duration,
-    bpm: Duration,
+    time: Time,
     music: Source,
     assets: Assets,
     started: bool,
@@ -123,11 +115,8 @@ impl MainState {
         let s = MainState {
             keyboard: Default::default(),
             world: Default::default(),
-            start_time: Instant::now(),
-            last_time: Instant::now(),
-            current_time: Duration::new(0, 0),
-            bpm: bpm_to_duration(BPM),
             music: audio::Source::new(ctx, MUSIC_PATH)?,
+            time: Time::new(BPM),
             started: false,
             scheduler: Scheduler::read_file(File::open(MAP_PATH).unwrap()),
             assets: Assets::new(ctx),
@@ -137,7 +126,7 @@ impl MainState {
 
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats. 
     fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
-        let beat_time = self.world.beat_time;
+        let beat_time = self.time.beat_time();
         let string: &str = &format!("Measure: {:?}, Beat: {:?}, Offset: {:?}", beat_time.beat/4, beat_time.beat % 4, beat_time.offset)[..];
         let text = Text::new(ctx, string, &self.assets.font)?;
         let screen = graphics::get_screen_coordinates(ctx);
@@ -152,19 +141,16 @@ impl event::EventHandler for MainState {
         if !self.started {
             return Ok(());
         }
-        self.current_time += Instant::now().duration_since(self.last_time);
-        self.last_time = Instant::now();
-        let beats_since_start: Beat =
-            (timer::duration_to_f64(self.current_time) / timer::duration_to_f64(self.bpm)).into();
+
+        self.time.update();
 
         if let Ok(direction) = self.keyboard.direction() {
             self.world.player.key_down_event(direction);
         }
 
-        self.world.update(ctx, beats_since_start);
+        self.world.update(ctx, self.time.beat_time());
 
-        self.scheduler
-            .update(beats_since_start, &mut self.world);
+        self.scheduler.update(&self.time, &mut self.world);
         Ok(())
     }
 
@@ -183,9 +169,8 @@ impl event::EventHandler for MainState {
                 } else {
                     // Start the game. Also play the music.
                     self.started = true;
-                    self.start_time = Instant::now();
-                    self.last_time = Instant::now();
-                    self.current_time = Duration::new(0,0);
+                    self.world.reset();
+                    self.time.reset();
                     drop(self.music.play());
                 }
             }

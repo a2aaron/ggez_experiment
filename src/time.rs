@@ -5,6 +5,9 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::collections::HashSet;
 use std::fs::File;
+use std::time::{Duration, Instant};
+
+use ggez::timer;
 
 use enemy::Bullet;
 use util::*;
@@ -70,13 +73,13 @@ impl BeatSet {
 }
 
 impl Scheduler {
-    pub fn update(&mut self, beat_time: Beat, world: &mut World) {
-        let rev_beat = Reverse(beat_time);
+    pub fn update(&mut self, time: &Time, world: &mut World) {
+        let rev_beat = Reverse(time.beat_time());
         loop {
             match self.work_queue.peek_mut() {
                 Some(peaked) => {
                     if (*peaked).beat > rev_beat {
-                        PeekMut::pop(peaked).action.preform(world)
+                        PeekMut::pop(peaked).action.preform(world, time)
                     } else {
                         return;
                     }
@@ -159,15 +162,54 @@ fn parse_on_keyword(parse_state: &mut ParseState, measure_beat_frequency: &[&str
     
 }
 
-fn to_beats(start: usize, end: usize, sizing: usize) -> Vec<Beat> {
-    let mut vec = vec![];
-    for i in (start..end).step_by(sizing) {
-        vec.push(Beat {
-                beat: i as u32,
-                offset: 0,
-            });
+/// Time keeping struct 
+#[derive(Debug)]
+pub struct Time {
+    start_time: Instant,
+    last_time: Instant,
+    current_duration: Duration,
+    bpm: Duration,
+}
+
+impl Time {
+    /// Create a new Time struct. Note that the timer will start ticking immediately
+    /// After calling.
+    pub fn new(bpm: f64) -> Time {
+        Time {
+            start_time: Instant::now(),
+            last_time: Instant::now(),
+            current_duration: Duration::new(0, 0),
+            bpm: bpm_to_duration(bpm),
+        }
     }
-    vec
+
+    pub fn update(&mut self) {
+        self.current_duration += Instant::now().duration_since(self.last_time);
+        self.last_time = Instant::now();
+    }
+
+    /// Reset the timer, resetting the current duration to 0. Note that the timer
+    /// will start ticking immediately after call.
+    pub fn reset(&mut self) {
+        self.start_time = Instant::now();
+        self.last_time = Instant::now();
+        self.current_duration = Duration::new(0, 0);
+    }
+
+    /// Get the time (with 1.0 = 1 beat) since the start
+    pub fn f64_time(&self) -> f64 {
+        timer::duration_to_f64(self.current_duration) / timer::duration_to_f64(self.bpm)
+    }
+
+    /// Get the number of beats since the start
+    pub fn beat_time(&self) -> Beat {
+        self.f64_time().into()
+    }
+
+    /// Return a value from 0.0 to 1.0 indicating the percent through the beat we are at
+    pub fn beat_percent(beat: Beat) -> f64 {
+        Into::<f64>::into(beat) % 1.0
+    }
 }
 
 /// A wrapper struct to be stored in a binary heap
@@ -222,7 +264,7 @@ impl Into<f64> for Beat {
 }
 
 pub trait Action {
-    fn preform(&self, world: &mut World);
+    fn preform(&self, world: &mut World, time: &Time);
 }
 
 impl fmt::Debug for Action {
@@ -239,12 +281,12 @@ pub struct SpawnBullet {
 }
 
 impl Action for SpawnBullet {
-    fn preform(&self, world: &mut World) {
+    fn preform(&self, world: &mut World, time: &Time) {
         for _ in 0..self.num {
             let start_pos = rand_edge(world.grid.grid_size);
             let end_pos = rand_around(world.grid.grid_size, world.player.position(), self.spread);
             let mut bullet = Bullet::new(start_pos, end_pos, self.duration.into());
-            bullet.on_spawn(world.beat_time.into());
+            bullet.on_spawn(time.f64_time().into());
             world.enemies.push(bullet);
         }
     }
