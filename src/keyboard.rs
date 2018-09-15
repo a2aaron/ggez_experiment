@@ -8,6 +8,8 @@ use util::Direction8;
 // This allows for diagonal movement
 static NANOS_KEYPRESS_TOLERANCE: u32 = 5_000_000; // 5 milliseconds
 
+/// Remembers the press state of the key since the last frame.
+/// Maybe should be hashmap?
 #[derive(Default, Debug)]
 pub struct KeyboardState {
     pub left: Key,
@@ -29,7 +31,8 @@ impl KeyboardState {
             _ => (),
         }
     }
-
+    /// Return the direction based on the current state.
+    /// Supports diagonal directions.
     pub fn direction(&self) -> Result<Direction8, &'static str> {
         let left = self.left.pressed();
         let right = self.right.pressed();
@@ -67,7 +70,8 @@ impl Key {
     fn last_pressed(&self) -> Duration {
         self.last_pressed.elapsed()
     }
-
+    /// Returns if last pressed within NANO_KEYPRESS_TOLERANCE
+    /// Tolarance is used to allow for diagonal motion.
     pub fn pressed(&self) -> bool {
         self.last_pressed() < Duration::new(0, NANOS_KEYPRESS_TOLERANCE)
     }

@@ -20,6 +20,8 @@ pub struct Player {
 }
 
 impl Player {
+    /// Reset the player in bounds if they try to go out of bounds.
+    /// TODO: make sure Keyframes are in bounds as well
     fn handle_boundaries(&mut self, width: f32, height: f32) {
         let pos = &mut self.pos.0;
         if pos[1] > height {
@@ -39,10 +41,14 @@ impl Player {
         self.hit_timer = 100;
     }
 
+    /// TODO: Make more general. This is super specific right now.
     pub fn hit(&self, enemy: &Bullet) -> bool {
         distance(self.pos.0, enemy.pos.0) < self.size
     }
 
+    /// Move the Player closer to the next keyframe, and drop that keyframe if
+    /// sufficiently close. The last keyframe never drops as that is the latest
+    /// intended position.
     pub fn update(&mut self, ctx: &mut Context) {
         if let Some(goal) = self.keyframes.pop_front() {
             let speed = (self.speed * (self.keyframes.len() * 4 + 2) as f32).min(1.0);
@@ -93,6 +99,7 @@ impl Player {
         self.keyframes.push_back(goal);
     }
 
+    /// Return the last keyframe, which is the latest intended position.
     pub fn position(&self) -> GridPoint {
         *self.keyframes.back().unwrap()
     }

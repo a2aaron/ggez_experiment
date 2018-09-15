@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use ggez::audio::Source;
 use ggez::event::{Keycode, Mod};
 use ggez::graphics::{Color, Text, Font, Point2, Drawable};
-use ggez::*;
+use ggez::{Context, ContextBuilder, GameResult, audio, conf, event, graphics};
 
 use enemy::Bullet;
 use grid::Grid;
@@ -27,9 +27,13 @@ use time::{Beat, Scheduler, Time};
 use util::*;
 
 const BPM: f64 = 170.0;
+// Files read via ggez (usually music/font/images)
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
-const MAP_PATH: &str = "./resources/bbkkbkk.map";
 const ARIAL_PATH: &str = "/Arial.ttf";
+const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
+// Files manually read by me (usually maps)
+const MAP_PATH: &str = "./resources/bbkkbkk.map";
+
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {
@@ -42,12 +46,15 @@ pub struct World {
 impl World {
     fn update(&mut self, ctx: &mut Context, beat_time: Beat) {
         let beat_percent = Time::beat_percent(beat_time);
+        // Set the background as appropriate
         let color = (rev_quad(beat_percent) / 10.0) as f32;
         self.background = Color::new(color, color, color, 1.0);
 
+        // Update everything
         self.grid.update(beat_percent);
         self.player.update(ctx);
 
+        // Collision check. Also update enemies.
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
             enemy.update(Into::<f64>::into(beat_time));
@@ -60,6 +67,7 @@ impl World {
             self.player.on_hit();
         }
 
+        // Delete all non-alive enemies
         self.enemies.retain(|e| e.alive);
     }
 
@@ -88,14 +96,16 @@ impl Default for World {
     }
 }
 
+/// Stores assets like fonts, music, sprite images, etc
+/// TODO: Add music stuff here.
 struct Assets {
-    font: Font,
+    debug_font: Font,
 }
 
 impl Assets {
     fn new(ctx: &mut Context) -> Assets {
         Assets {
-            font: Font::new(ctx, ARIAL_PATH, 18).unwrap(),
+            debug_font: Font::new(ctx, FIRACODE_PATH, 18).unwrap(),
         }
     }
 }
@@ -127,8 +137,8 @@ impl MainState {
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats. 
     fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
         let beat_time = self.time.beat_time();
-        let string: &str = &format!("Measure: {:?}, Beat: {:?}, Offset: {:?}", beat_time.beat/4, beat_time.beat % 4, beat_time.offset)[..];
-        let text = Text::new(ctx, string, &self.assets.font)?;
+        let string: &str = &format!("Measure: {:2?}, Beat: {:2?}, Offset: {:3?}", beat_time.beat/4, beat_time.beat % 4, beat_time.offset)[..];
+        let text = Text::new(ctx, string, &self.assets.debug_font)?;
         let screen = graphics::get_screen_coordinates(ctx);
         graphics::set_color(ctx, DEBUG_RED)?;
         text.draw(ctx, Point2::new(screen.w - text.width() as f32, screen.h - text.height() as f32), 0.0)?;
@@ -195,10 +205,11 @@ impl event::EventHandler for MainState {
 }
 
 pub fn main() {
-    let mut cb = ContextBuilder::new("visual", "ggez")
+    let mut cb = ContextBuilder::new("visual", "a2aaron")
         .window_setup(conf::WindowSetup::default().title("Rythym"))
         .window_mode(conf::WindowMode::default().dimensions(640, 480));
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        // Add the resources path so we can use it.
         let mut path = PathBuf::from(manifest_dir);
         path.push("resources");
         println!("Adding path {:?}", path);
