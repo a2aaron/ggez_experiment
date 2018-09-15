@@ -47,6 +47,7 @@ pub const DEBUG_RED: Color = Color {
     a: 1.0,
 };
 
+/// Convience wrapper around Point2, for type enforcement
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GridPoint(pub Point2);
 
@@ -100,6 +101,7 @@ pub fn color_lerp(a: Color, b: Color, t: f32) -> Color {
     )
 }
 
+/// Generate from [lower, upper). If they are equal then return lower.
 pub fn gen_range(lower: isize, upper: isize) -> isize {
     if lower == upper {
         return lower;
@@ -108,6 +110,7 @@ pub fn gen_range(lower: isize, upper: isize) -> isize {
 }
 
 // todo: this is an awful way to do this but w/e make it compile
+/// Return a random GridPoint around another point.
 pub fn rand_around(grid_size: (usize, usize), pos: GridPoint, noise: isize) -> GridPoint {
     let (pos_x, pos_y) = (pos.0[0] as isize, pos.0[1] as isize);
     GridPoint(Point2::new(
@@ -124,6 +127,7 @@ pub fn rand_around(grid_size: (usize, usize), pos: GridPoint, noise: isize) -> G
     ))
 }
 
+/// Return a random GridPoint along an edge.
 pub fn rand_edge(grid_size: (usize, usize)) -> GridPoint {
     let width = grid_size.0 as isize;
     let height = grid_size.1 as isize;

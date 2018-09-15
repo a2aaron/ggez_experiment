@@ -28,9 +28,12 @@ use time::{Beat, Scheduler};
 use util::*;
 
 const BPM: f64 = 170.0;
+// Files read via ggez (usually music/font/images)
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
-const MAP_PATH: &str = "./resources/bbkkbkk.map";
 const ARIAL_PATH: &str = "/Arial.ttf";
+// Files manually read by me (usually maps)
+const MAP_PATH: &str = "./resources/bbkkbkk.map";
+
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {
@@ -45,12 +48,15 @@ impl World {
     fn update(&mut self, ctx: &mut Context, beats_since_start: Beat) {
         self.beat_time = beats_since_start;
         let beat_percent: f64 = Into::<f64>::into(self.beat_time) % 1.0;
+        // Set the background as appropriate
         let color = (rev_quad(beat_percent) / 10.0) as f32;
         self.background = Color::new(color, color, color, 1.0);
 
+        // Update everything
         self.grid.update(beat_percent);
         self.player.update(ctx);
 
+        // Collision check. Also update enemies.
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
             enemy.update(Into::<f64>::into(self.beat_time));
@@ -62,7 +68,8 @@ impl World {
         if was_hit {
             self.player.on_hit();
         }
-
+        
+        // Delete all non-alive enemies
         self.enemies.retain(|e| e.alive);
     }
 
@@ -93,6 +100,8 @@ impl Default for World {
     }
 }
 
+/// Stores assets like fonts, music, sprite images, etc
+/// TODO: Add music stuff here.
 struct Assets {
     font: Font,
 }
@@ -214,6 +223,7 @@ pub fn main() {
         .window_setup(conf::WindowSetup::default().title("Rythym"))
         .window_mode(conf::WindowMode::default().dimensions(640, 480));
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        // Add the resources path so we can use it.
         let mut path = PathBuf::from(manifest_dir);
         path.push("resources");
         println!("Adding path {:?}", path);
