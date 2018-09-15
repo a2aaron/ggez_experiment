@@ -32,6 +32,7 @@ impl Default for Grid {
 }
 
 impl Grid {
+    /// Decorative, makes the glow grid pulse to the music
     pub fn update(&mut self, beat_percent: f64) {
         let color = 0.6 + 0.4 * smooth_step(1.0 - beat_percent) as f32;
         self.color = Color::new(color, color, color, 1.0);
@@ -50,7 +51,9 @@ impl Grid {
         Ok(())
     }
 
+    // Build the grid, returning a nice mesh.
     fn mesh(&self, ctx: &mut Context, line_width: f32) -> GameResult<Mesh> {
+        // Use a meshbuilder for speed and also ease of doing this.
         let mut mb = MeshBuilder::new();
         let max_x = self.grid_spacing * self.grid_size.0 as f32;
         let max_y = self.grid_spacing * self.grid_size.1 as f32;

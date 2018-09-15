@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 
 use ggez::audio::Source;
 use ggez::event::{Keycode, Mod};
-use ggez::graphics::Color;
-use ggez::*;
+use ggez::graphics::{Color, Text, Font, Point2, Drawable};
+use ggez::{Context, ContextBuilder, GameResult, audio, conf, event, graphics, timer};
 
 use enemy::Bullet;
 use grid::Grid;
@@ -28,8 +28,13 @@ use time::{Beat, Scheduler};
 use util::*;
 
 const BPM: f64 = 170.0;
+// Files read via ggez (usually music/font/images)
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
+const ARIAL_PATH: &str = "/Arial.ttf";
+const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
+// Files manually read by me (usually maps)
 const MAP_PATH: &str = "./resources/bbkkbkk.map";
+
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {
@@ -41,14 +46,18 @@ pub struct World {
 }
 
 impl World {
-    fn update(&mut self, ctx: &mut Context) {
+    fn update(&mut self, ctx: &mut Context, beats_since_start: Beat) {
+        self.beat_time = beats_since_start;
         let beat_percent: f64 = Into::<f64>::into(self.beat_time) % 1.0;
+        // Set the background as appropriate
         let color = (rev_quad(beat_percent) / 10.0) as f32;
         self.background = Color::new(color, color, color, 1.0);
 
+        // Update everything
         self.grid.update(beat_percent);
         self.player.update(ctx);
 
+        // Collision check. Also update enemies.
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
             enemy.update(Into::<f64>::into(self.beat_time));
@@ -60,7 +69,8 @@ impl World {
         if was_hit {
             self.player.on_hit();
         }
-
+        
+        // Delete all non-alive enemies
         self.enemies.retain(|e| e.alive);
     }
 
@@ -91,13 +101,30 @@ impl Default for World {
     }
 }
 
+/// Stores assets like fonts, music, sprite images, etc
+/// TODO: Add music stuff here.
+struct Assets {
+    debug_font: Font,
+}
+
+impl Assets {
+    fn new(ctx: &mut Context) -> Assets {
+        Assets {
+            debug_font: Font::new(ctx, FIRACODE_PATH, 18).unwrap(),
+        }
+    }
+}
+
 struct MainState {
     scheduler: Scheduler,
     world: World,
     keyboard: KeyboardState,
     start_time: Instant,
+    last_time: Instant,
+    current_time: Duration,
     bpm: Duration,
     music: Source,
+    assets: Assets,
     started: bool,
 }
 
@@ -107,12 +134,26 @@ impl MainState {
             keyboard: Default::default(),
             world: Default::default(),
             start_time: Instant::now(),
+            last_time: Instant::now(),
+            current_time: Duration::new(0, 0),
             bpm: bpm_to_duration(BPM),
             music: audio::Source::new(ctx, MUSIC_PATH)?,
             started: false,
             scheduler: Scheduler::read_file(File::open(MAP_PATH).unwrap()),
+            assets: Assets::new(ctx),
         };
         Ok(s)
+    }
+
+    /// Draw debug text at the bottom of the screen showing the time in the song, in beats. 
+    fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
+        let beat_time = self.world.beat_time;
+        let string: &str = &format!("Measure: {:2?}, Beat: {:2?}, Offset: {:3?}", beat_time.beat/4, beat_time.beat % 4, beat_time.offset)[..];
+        let text = Text::new(ctx, string, &self.assets.debug_font)?;
+        let screen = graphics::get_screen_coordinates(ctx);
+        graphics::set_color(ctx, DEBUG_RED)?;
+        text.draw(ctx, Point2::new(screen.w - text.width() as f32, screen.h - text.height() as f32), 0.0)?;
+        Ok(())
     }
 }
 
@@ -121,19 +162,19 @@ impl event::EventHandler for MainState {
         if !self.started {
             return Ok(());
         }
-
-        let time_since_start = Instant::now().duration_since(self.start_time);
-        let beats_since_start =
-            timer::duration_to_f64(time_since_start) / timer::duration_to_f64(self.bpm);
+        self.current_time += Instant::now().duration_since(self.last_time);
+        self.last_time = Instant::now();
+        let beats_since_start: Beat =
+            (timer::duration_to_f64(self.current_time) / timer::duration_to_f64(self.bpm)).into();
 
         if let Ok(direction) = self.keyboard.direction() {
             self.world.player.key_down_event(direction);
         }
-        self.world.beat_time = beats_since_start.into();
-        self.world.update(ctx);
+
+        self.world.update(ctx, beats_since_start);
 
         self.scheduler
-            .update(beats_since_start.into(), &mut self.world);
+            .update(beats_since_start, &mut self.world);
         Ok(())
     }
 
@@ -141,16 +182,22 @@ impl event::EventHandler for MainState {
         use Keycode::*;
         match keycode {
             P => {
-                self.started = true;
-                self.start_time = Instant::now();
-                drop(self.music.play());
-            }
-            S => {
-                self.started = false;
-                self.music.stop();
-                drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
-                self.world.reset();
-                self.scheduler = Scheduler::read_file(File::open(MAP_PATH).unwrap())
+                if self.started {
+                    // Stop the game, pausing the music, fetching a new Source instance, and
+                    // rebuild the scheduler work queue.
+                    self.started = false;
+                    self.music.stop();
+                    drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
+                    self.world.reset();
+                    self.scheduler = Scheduler::read_file(File::open(MAP_PATH).unwrap())
+                } else {
+                    // Start the game. Also play the music.
+                    self.started = true;
+                    self.start_time = Instant::now();
+                    self.last_time = Instant::now();
+                    self.current_time = Duration::new(0,0);
+                    drop(self.music.play());
+                }
             }
             _ => (),
         }
@@ -166,16 +213,18 @@ impl event::EventHandler for MainState {
         graphics::clear(ctx);
         graphics::set_background_color(ctx, self.world.background);
         self.world.draw(ctx)?;
+        self.draw_debug_time(ctx)?;
         graphics::present(ctx);
         Ok(())
     }
 }
 
 pub fn main() {
-    let mut cb = ContextBuilder::new("visual", "ggez")
+    let mut cb = ContextBuilder::new("visual", "a2aaron")
         .window_setup(conf::WindowSetup::default().title("Rythym"))
         .window_mode(conf::WindowMode::default().dimensions(640, 480));
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        // Add the resources path so we can use it.
         let mut path = PathBuf::from(manifest_dir);
         path.push("resources");
         println!("Adding path {:?}", path);

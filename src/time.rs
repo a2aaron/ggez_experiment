@@ -24,6 +24,8 @@ struct ParseState {
 }
 
 impl ParseState {
+    /// Return a set of Beats based on the current measure/beat frequency and section.
+    /// Note that these are absolute offsets from the start of the song. 
     fn beats(&self) -> Vec<Beat> {
         let mut beats = vec![];
         for measure in (self.section_start..self.section_end).step_by(self.measure_frequency as usize) {
@@ -34,7 +36,6 @@ impl ParseState {
                 });
             }
         }
-        println!("{:?}", self.beat_frequency);
         beats
     }
 }
@@ -50,6 +51,7 @@ impl Default for ParseState {
     }
 }
 
+/// Convience struct for a set of beats.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct BeatSet {
     beats: HashSet<Beat>
@@ -57,6 +59,7 @@ struct BeatSet {
 }
 
 impl BeatSet {
+    /// Construct a new BeatSet from the iteratior. All will have offset 0.
     fn new<'a>(iter: impl Iterator<Item=&'a u32>) -> BeatSet {
         let mut beats: HashSet<Beat> = Default::default(); 
         for quarter_note in iter {
@@ -71,6 +74,9 @@ impl BeatSet {
 }
 
 impl Scheduler {
+    /// Preform the scheduled actions up to the new beat_time
+    /// Note that this will execute every action since the last beat_time and
+    /// current beat_time.
     pub fn update(&mut self, beat_time: Beat, world: &mut World) {
         let rev_beat = Reverse(beat_time);
         loop {
@@ -171,10 +177,12 @@ fn to_beats(start: usize, end: usize, sizing: usize) -> Vec<Beat> {
     vec
 }
 
-/// A wrapper struct to be stored in a binary heap
+/// A wrapper struct of a Beat and a Boxed Action. The beat has reversed ordering
+/// to allow for the Scheduler to actually get the latest beat times.
 #[derive(Debug)]
 struct BeatAction {
-    // Stored in reverse ordering so that we can get the _earliest_ beat
+    // Stored in reverse ordering so that we can get the _earliest_ beat when in
+    // the scheduler, rather than the latest.
     beat: Reverse<Beat>, // for the binary heap's ordering
     action: Box<Action>,
 }
@@ -202,11 +210,11 @@ impl Ord for BeatAction {
 /// A struct for measuring time, based on beats from the start
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Default, Copy, Clone)]
 pub struct Beat {
-    beat: u32,
-    offset: u8, // offset from the beat, in 1/256th increments
+    pub beat: u32,
+    pub offset: u8, // offset from the beat, in 1/256th increments
 }
 
-/// Beat time is scaled such that 1.0 = 1 beat and 1.5 = 1.5 beat, etc
+/// Beat time is scaled such that 1.0 = 1 beat and 1.5 = 1 beat 128 offset, etc
 impl From<f64> for Beat {
     fn from(beat_time: f64) -> Self {
         Beat {
@@ -216,12 +224,14 @@ impl From<f64> for Beat {
     }
 }
 
+/// Similar to From. 1.0f64 = 1 beat 0 offset
 impl Into<f64> for Beat {
     fn into(self) -> f64 {
         self.beat as f64 + (self.offset as f64) / 256.0
     }
 }
 
+/// An action makes some modification to the world.
 pub trait Action {
     fn preform(&self, world: &mut World);
 }
@@ -232,6 +242,7 @@ impl fmt::Debug for Action {
     }
 }
 
+/// An Action which adds `num` bullets around the player, with some random factor
 #[derive(Clone, Copy)]
 pub struct SpawnBullet {
     num: usize,
@@ -243,7 +254,7 @@ impl Action for SpawnBullet {
     fn preform(&self, world: &mut World) {
         for _ in 0..self.num {
             let start_pos = rand_edge(world.grid.grid_size);
-            let end_pos = rand_around(world.grid.grid_size, world.player.goal, self.spread);
+            let end_pos = rand_around(world.grid.grid_size, world.player.position(), self.spread);
             let mut bullet = Bullet::new(start_pos, end_pos, self.duration.into());
             bullet.on_spawn(world.beat_time.into());
             world.enemies.push(bullet);
