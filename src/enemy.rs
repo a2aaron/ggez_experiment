@@ -1,5 +1,7 @@
-use ggez::graphics::{Color, DrawMode, Drawable, Rect, MeshBuilder, Point2};
+use ggez::graphics::{Color, DrawMode, Drawable, Rect, Matrix4, MeshBuilder, Point2};
 use ggez::{Context, GameResult, graphics};
+
+use ggez::nalgebra::core as na;
 
 use grid::Grid;
 use util::{GREEN, GUIDE_GREY, GridPoint, RED, lerp, quartic, smooth_step, distance};
@@ -103,7 +105,7 @@ impl Laser {
         let bounds = Rect {
             x: point.0[0],
             y: point.0[1],
-            w: 100.0,
+            w: 3.0,
             h: thickness,
         };
         Laser {
@@ -131,15 +133,26 @@ impl Enemy for Laser {
         self.bounds.h = self.thickness * (1.0 - Time::percent_over_duration(self.start_time, curr_time, self.duration) as f32);
     }
 
-    fn draw(&self, ctx: &mut Context, _grid: &Grid) -> GameResult<()> {
+    fn draw(&self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
+        let position = grid.to_screen_coord(GridPoint(Point2::new(self.bounds.x, self.bounds.y)));
+        let width = grid.to_screen_length(self.bounds.w);
+        let height = grid.to_screen_length(self.bounds.h);
         graphics::set_color(ctx, self.color)?;
         let points = [Point2::new(0.0, 0.0),
-                      Point2::new(self.bounds.w, 0.0),
-                      Point2::new(self.bounds.w, self.bounds.h),
-                      Point2::new(0.0, self.bounds.h)];
+                      Point2::new(width, 0.0),
+                      Point2::new(width, height),
+                      Point2::new(0.0, height)];
         let mesh = MeshBuilder::new().polygon(DrawMode::Fill, &points).build(ctx)?;
-        mesh.draw(ctx, Point2::new(self.bounds.x, self.bounds.y), self.angle)?;
-        graphics::circle(ctx, DrawMode::Fill, Point2::new(self.bounds.x, self.bounds.y), 3.0, 2.0)?;
+        let translate = Matrix4::new_translation(&na::Vector3::new(position.x, position.y, 0.0)) * Matrix4::from_axis_angle(&na::Unit::new_normalize(na::Vector3::new(0.0, 0.0, 1.0)), self.angle);
+        graphics::push_transform(ctx, Some(translate));
+        graphics::apply_transformations(ctx)?;
+        mesh.draw(ctx, Point2::new(-width/2.0, -height/2.0), 0.0)?;
+        graphics::set_color(ctx, GUIDE_GREY)?;
+        graphics::circle(ctx, DrawMode::Fill, Point2::new(0.0, 0.0), 3.0, 2.0)?;
+        graphics::pop_transform(ctx);
+        graphics::apply_transformations(ctx)?;
+        graphics::set_color(ctx, GREEN)?;
+        graphics::circle(ctx, DrawMode::Fill, position, 3.0, 2.0)?;
         Ok(())
     }
 
