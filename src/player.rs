@@ -14,7 +14,7 @@ pub struct Player {
     // A list of positions the Player attempts to move to, used for animation
     // purposes. Should never be empty (at least 1 value always)
     keyframes: VecDeque<GridPoint>,
-    size: f32,
+    pub size: f32,
     color: Color,
     hit_timer: usize,
 }
@@ -39,11 +39,6 @@ impl Player {
 
     pub fn on_hit(&mut self) {
         self.hit_timer = 100;
-    }
-
-    /// TODO: Make more general. This is super specific right now.
-    pub fn hit(&self, enemy: &Bullet) -> bool {
-        distance(self.pos.0, enemy.pos.0) < self.size
     }
 
     /// Move the Player closer to the next keyframe, and drop that keyframe if

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use ggez::timer;
 
-use enemy::Bullet;
+use enemy::{Bullet, Enemy};
 use util::*;
 use World;
 
@@ -309,7 +309,7 @@ impl Action for SpawnBullet {
             let end_pos = rand_around(world.grid.grid_size, world.player.position(), self.spread);
             let mut bullet = Bullet::new(start_pos, end_pos, self.duration.into());
             bullet.on_spawn(time.f64_time().into());
-            world.enemies.push(bullet);
+            world.enemies.push(Box::new(bullet));
         }
     }
 }

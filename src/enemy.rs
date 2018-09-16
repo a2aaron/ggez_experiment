@@ -1,9 +1,18 @@
-use ggez::graphics::{Color, DrawMode};
+use ggez::graphics::{Color, DrawMode, Drawable, Rect, MeshBuilder, Point2};
 use ggez::{Context, GameResult, graphics};
 
 use grid::Grid;
-use util::{GREEN, GUIDE_GREY, GridPoint, RED, lerp, quartic, smooth_step};
+use util::{GREEN, GUIDE_GREY, GridPoint, RED, lerp, quartic, smooth_step, distance};
 use time::{Time, BeatF64};
+use player::Player;
+
+pub trait Enemy {
+    fn on_spawn(&mut self, start_time: BeatF64);
+    fn update(&mut self, curr_time: BeatF64);
+    fn draw(&self, ctx: &mut Context, grid: &Grid) -> GameResult<()>;
+    fn intersects(&self, player: &Player) -> bool;
+    fn is_alive(&self) -> bool;
+}
 
 /// A bullet is a simple enemy that moves from point A to point B in some amount
 /// of time. It also has a cool glowy decoration thing for cool glowiness.
@@ -14,45 +23,47 @@ pub struct Bullet {
     start_pos: GridPoint, // Position bullet started from
     end_pos: GridPoint, // Position bullet must end up at
     start_time: BeatF64, // Start of bullet existance.
-    duration: f64, // Time over which this bullet lives, in beats.
-    pub alive: bool,
+    duration: BeatF64, // Time over which this bullet lives, in beats.
+    alive: bool,
     glow_size: f32,
     glow_trans: f32,
 }
 
 impl Bullet {
-    pub fn on_spawn(&mut self, start_time: BeatF64) {
+    pub fn new(start_pos: GridPoint, end_pos: GridPoint, duration: BeatF64) -> Bullet {
+        Bullet {
+            pos: start_pos,
+            start_pos: start_pos,
+            end_pos: end_pos,
+            start_time: 0.0,
+            duration: duration,
+            alive: true,
+            glow_size: 0.0,
+            glow_trans: 0.0,
+        }
+    }
+}
+
+impl Enemy for Bullet {
+    fn on_spawn(&mut self, start_time: BeatF64) {
         self.start_time = start_time;
     }
 
     // TODO: Make this use some sort of percent over duration.
     /// Move bullet towards end position. Also do the cool glow thing.
-    pub fn update(&mut self, curr_time: BeatF64) {
-        let delta_time = curr_time - self.start_time;
-        self.alive = delta_time < self.duration;
-
+    fn update(&mut self, curr_time: BeatF64) {
         let total_percent = Time::percent_over_duration(self.start_time, curr_time, self.duration);
         self.pos = lerp(self.start_pos, self.end_pos, total_percent as f32);
+
+        let delta_time = curr_time - self.start_time;
+        self.alive = delta_time < self.duration;
 
         let beat_percent = delta_time % 1.0;
         self.glow_size = 15.0 * smooth_step(beat_percent) as f32;
         self.glow_trans = 1.0 - quartic(beat_percent) as f32;
     }
 
-    pub fn new(start_pos: GridPoint, end_pos: GridPoint, duration: f64) -> Bullet {
-        Bullet {
-            pos: start_pos,
-            start_pos: start_pos,
-            end_pos: end_pos,
-            alive: true,
-            start_time: 0.0,
-            duration: duration,
-            glow_size: 0.0,
-            glow_trans: 0.0,
-        }
-    }
-
-    pub fn draw(&self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
+    fn draw(&self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
         let pos = grid.to_screen_coord(self.pos);
         let end_pos = grid.to_screen_coord(self.end_pos);
         // TODO: Maybe use a mesh? This is probably really slow
@@ -67,5 +78,76 @@ impl Bullet {
         graphics::set_color(ctx, GUIDE_GREY)?;
         graphics::line(ctx, &[pos, end_pos], 1.0)?;
         Ok(())
+    }
+
+    fn intersects(&self, player: &Player) -> bool {
+        distance(player.position().0, self.pos.0) < player.size // TODO
+    }
+
+    fn is_alive(&self) -> bool {
+        self.alive
+    }
+}
+
+pub struct Laser {
+    start_time: BeatF64,
+    duration: BeatF64,
+    color: Color,
+    thickness: f32,
+    bounds: Rect, // Stores the height, width, and offset of the laser
+    angle: f32,
+    alive: bool,
+}
+impl Laser {
+    pub fn new_through_point(point: GridPoint, angle: f32, thickness: f32, duration: BeatF64) -> Laser {
+        let bounds = Rect {
+            x: point.0[0],
+            y: point.0[1],
+            w: 100.0,
+            h: thickness,
+        };
+        Laser {
+            start_time: 0.0,
+            duration: duration,
+            thickness: thickness,
+            bounds: bounds,
+            angle: angle,
+            color: RED,
+            alive: true,
+        }
+    }
+}
+
+impl Enemy for Laser {
+    fn on_spawn(&mut self, start_time: BeatF64) {
+        self.start_time = start_time;
+        self.alive = true;
+    }
+
+    fn update(&mut self, curr_time: BeatF64) {
+        let delta_time = curr_time - self.start_time;
+        self.alive = delta_time < self.duration;
+
+        self.bounds.h = self.thickness * (1.0 - Time::percent_over_duration(self.start_time, curr_time, self.duration) as f32);
+    }
+
+    fn draw(&self, ctx: &mut Context, _grid: &Grid) -> GameResult<()> {
+        graphics::set_color(ctx, self.color)?;
+        let points = [Point2::new(0.0, 0.0),
+                      Point2::new(self.bounds.w, 0.0),
+                      Point2::new(self.bounds.w, self.bounds.h),
+                      Point2::new(0.0, self.bounds.h)];
+        let mesh = MeshBuilder::new().polygon(DrawMode::Fill, &points).build(ctx)?;
+        mesh.draw(ctx, Point2::new(self.bounds.x, self.bounds.y), self.angle)?;
+        graphics::circle(ctx, DrawMode::Fill, Point2::new(self.bounds.x, self.bounds.y), 3.0, 2.0)?;
+        Ok(())
+    }
+
+    fn intersects(&self, player: &Player) -> bool {
+        false // TODO
+    }
+
+    fn is_alive(&self) -> bool{
+        self.alive
     }
 }

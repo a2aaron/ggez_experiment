@@ -19,7 +19,7 @@ use ggez::event::{Keycode, Mod};
 use ggez::graphics::{Color, Text, Font, Point2, Drawable};
 use ggez::{Context, ContextBuilder, GameResult, audio, conf, event, graphics};
 
-use enemy::Bullet;
+use enemy::{Enemy, Laser};
 use grid::Grid;
 use keyboard::KeyboardState;
 use player::Player;
@@ -38,7 +38,7 @@ const MAP_PATH: &str = "./resources/bbkkbkk.map";
 /// Contains all the information abou the world and it's game elements
 pub struct World {
     player: Player,
-    enemies: Vec<Bullet>,
+    enemies: Vec<Box<dyn Enemy>>,
     grid: Grid,
     background: Color
 }
@@ -58,7 +58,7 @@ impl World {
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
             enemy.update(Into::<BeatF64>::into(beat_time));
-            if self.player.hit(enemy) {
+            if enemy.intersects(&self.player) {
                 was_hit = true
             }
         }
@@ -66,9 +66,13 @@ impl World {
         if was_hit {
             self.player.on_hit();
         }
-
+        if beat_percent > 0.99 {
+            let mut laser = Laser::new_through_point(GridPoint(Point2::new(128.0, 128.0)), self.player.position().0[0], 10.0, 4.0);
+            laser.on_spawn(Into::<BeatF64>::into(beat_time));
+            self.enemies.push(Box::new(laser));
+        }
         // Delete all non-alive enemies
-        self.enemies.retain(|e| e.alive);
+        self.enemies.retain(|e| e.is_alive());
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {

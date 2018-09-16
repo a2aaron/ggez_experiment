@@ -48,6 +48,7 @@ pub const DEBUG_RED: Color = Color {
 };
 
 /// Convience wrapper around Point2, for type enforcement
+/// Coordinates in Grid Space (1.0 GridPoint = 1 Grid Square Length)
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GridPoint(pub Point2);
 
