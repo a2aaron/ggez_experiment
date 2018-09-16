@@ -105,7 +105,7 @@ impl Laser {
         let bounds = Rect {
             x: point.0[0],
             y: point.0[1],
-            w: 3.0,
+            w: 30.0,
             h: thickness,
         };
         Laser {
@@ -138,21 +138,14 @@ impl Enemy for Laser {
         let width = grid.to_screen_length(self.bounds.w);
         let height = grid.to_screen_length(self.bounds.h);
         graphics::set_color(ctx, self.color)?;
-        let points = [Point2::new(0.0, 0.0),
-                      Point2::new(width, 0.0),
-                      Point2::new(width, height),
-                      Point2::new(0.0, height)];
+        // The mesh is done like this so that we draw about the center of the position
+        // this lets us easily rotate the laser about its position.
+        let points = [Point2::new(-width / 2.0, -height / 2.0),
+                      Point2::new(width / 2.0, -height / 2.0),
+                      Point2::new(width / 2.0, height / 2.0),
+                      Point2::new(-width / 2.0, height / 2.0)];
         let mesh = MeshBuilder::new().polygon(DrawMode::Fill, &points).build(ctx)?;
-        let translate = Matrix4::new_translation(&na::Vector3::new(position.x, position.y, 0.0)) * Matrix4::from_axis_angle(&na::Unit::new_normalize(na::Vector3::new(0.0, 0.0, 1.0)), self.angle);
-        graphics::push_transform(ctx, Some(translate));
-        graphics::apply_transformations(ctx)?;
-        mesh.draw(ctx, Point2::new(-width/2.0, -height/2.0), 0.0)?;
-        graphics::set_color(ctx, GUIDE_GREY)?;
-        graphics::circle(ctx, DrawMode::Fill, Point2::new(0.0, 0.0), 3.0, 2.0)?;
-        graphics::pop_transform(ctx);
-        graphics::apply_transformations(ctx)?;
-        graphics::set_color(ctx, GREEN)?;
-        graphics::circle(ctx, DrawMode::Fill, position, 3.0, 2.0)?;
+        mesh.draw(ctx, position, self.angle)?;
         Ok(())
     }
 
