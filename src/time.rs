@@ -315,6 +315,32 @@ impl Action for SpawnBullet {
 }
 
 #[test]
+fn test_beat_percent() {
+    assert_eq!(Time::beat_percent(Beat {beat: 1, offset: 0}), 0.0);
+    assert_eq!(Time::beat_percent(Beat {beat: 2, offset: 128}), 0.5);
+    assert_eq!(Time::beat_percent(Beat {beat: 3, offset: 64}), 0.25);
+}
+
+#[test]
+fn test_over_duration() {
+    assert_eq!(Time::percent_over_duration(0.0, 1.0, 10.0), 0.1);
+    assert_eq!(Time::percent_over_duration(0.0, 5.0, 10.0), 0.5);
+    assert_eq!(Time::percent_over_duration(0.0, 11.0, 10.0), 1.1);
+}
+
+#[test]
+fn test_time() {
+    let mut time = Time::new(120.0);
+    let time1 = time.f64_time();
+    time.update();
+    let time2 = time.f64_time();
+    assert!(time2 > time1);
+    time.reset();
+    let time3 = time.f64_time();
+    assert!(time2 > time3);
+}
+
+#[test]
 fn test_parse_on_keyword() {
     let mut parse_state: ParseState = Default::default();
     parse_on_keyword(&mut parse_state, &["measure", "420", "beat", "6", "9"]);
