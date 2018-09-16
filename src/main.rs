@@ -23,7 +23,7 @@ use enemy::Bullet;
 use grid::Grid;
 use keyboard::KeyboardState;
 use player::Player;
-use time::{Beat, Scheduler, Time};
+use time::{Beat, Scheduler, Time, BeatF64};
 use util::*;
 
 const BPM: f64 = 170.0;
@@ -57,7 +57,7 @@ impl World {
         // Collision check. Also update enemies.
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
-            enemy.update(Into::<f64>::into(beat_time));
+            enemy.update(Into::<BeatF64>::into(beat_time));
             if self.player.hit(enemy) {
                 was_hit = true
             }
@@ -134,7 +134,7 @@ impl MainState {
         Ok(s)
     }
 
-    /// Draw debug text at the bottom of the screen showing the time in the song, in beats. 
+    /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
     fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
         let beat_time = self.time.beat_time();
         let string: &str = &format!("Measure: {:2?}, Beat: {:2?}, Offset: {:3?}", beat_time.beat/4, beat_time.beat % 4, beat_time.offset)[..];

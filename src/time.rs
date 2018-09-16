@@ -64,7 +64,7 @@ struct BeatSet {
 impl BeatSet {
     /// Construct a new BeatSet from the iteratior. All will have offset 0.
     fn new<'a>(iter: impl Iterator<Item=&'a u32>) -> BeatSet {
-        let mut beats: HashSet<Beat> = Default::default(); 
+        let mut beats: HashSet<Beat> = Default::default();
         for quarter_note in iter {
             beats.insert(Beat {
                 beat: *quarter_note, offset: 0,
@@ -99,7 +99,7 @@ impl Scheduler {
 
     pub fn read_file(file: File) -> Scheduler {
         let mut scheduler: Scheduler = Default::default();
-        let mut parse_state: ParseState = Default::default(); 
+        let mut parse_state: ParseState = Default::default();
         let reader = BufReader::new(&file);
 
         for (i, line) in reader.lines().enumerate() {
@@ -154,7 +154,7 @@ fn parse_on_keyword(parse_state: &mut ParseState, measure_beat_frequency: &[&str
     } else {
         measure_frequency[1].parse().unwrap()
     };
-    
+
     let beat_frequency = beat_frequency.get(1..).unwrap();
     let mut beat_numbers: Vec<u32> = vec![];
     if beat_frequency[0] == "*" {
@@ -166,10 +166,10 @@ fn parse_on_keyword(parse_state: &mut ParseState, measure_beat_frequency: &[&str
     }
 
     parse_state.beat_frequency = BeatSet::new(beat_numbers.iter());
-    
+
 }
 
-/// Time keeping struct 
+/// Time keeping struct
 #[derive(Debug)]
 pub struct Time {
     start_time: Instant,
@@ -204,7 +204,7 @@ impl Time {
     }
 
     /// Get the time (with 1.0 = 1 beat) since the start
-    pub fn f64_time(&self) -> f64 {
+    pub fn f64_time(&self) -> BeatF64 {
         timer::duration_to_f64(self.current_duration) / timer::duration_to_f64(self.bpm)
     }
 
@@ -215,11 +215,11 @@ impl Time {
 
     /// Return a value from 0.0 to 1.0 indicating the percent through the beat we are at
     pub fn beat_percent(beat: Beat) -> f64 {
-        Into::<f64>::into(beat) % 1.0
+        Into::<BeatF64>::into(beat) % 1.0
     }
 
     /// Return a value from 0.0 to 1.0 indicating how far along the duration we currently are
-    pub fn percent_over_duration(start_time: f64, curr_time: f64, duration: f64) -> f64 {
+    pub fn percent_over_duration(start_time: BeatF64, curr_time: BeatF64, duration: f64) -> f64 {
         (curr_time - start_time) / duration
     }
 }
@@ -262,8 +262,8 @@ pub struct Beat {
 }
 
 /// Beat time is scaled such that 1.0 = 1 beat and 1.5 = 1 beat 128 offset, etc
-impl From<f64> for Beat {
-    fn from(beat_time: f64) -> Self {
+impl From<BeatF64> for Beat {
+    fn from(beat_time: BeatF64) -> Self {
         Beat {
             beat: beat_time as u32,
             offset: (beat_time.fract() * 256.0) as u8,
@@ -272,11 +272,16 @@ impl From<f64> for Beat {
 }
 
 /// Similar to From. 1.0f64 = 1 beat 0 offset
-impl Into<f64> for Beat {
-    fn into(self) -> f64 {
+impl Into<BeatF64> for Beat {
+    fn into(self) -> BeatF64 {
         self.beat as f64 + (self.offset as f64) / 256.0
     }
 }
+
+/// Alias type indicating that a f64 represents a beat
+/// A BeatF64 is scaled such that 1.0 BeatF64 = 1 beat 0 offset
+/// and 1.5 BeatF64 = 1.5 beat 0 offset
+pub type BeatF64 = f64;
 
 /// An action makes some modification to the world.
 pub trait Action {
