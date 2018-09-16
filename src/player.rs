@@ -4,9 +4,10 @@ use std::iter::FromIterator;
 use ggez::graphics::{Color, DrawMode, Point2};
 use ggez::*;
 
-use enemy::Bullet;
 use grid::Grid;
 use util::*;
+
+const HIT_TIME_LENGTH: usize = 20; // How many frames the hit timer should be
 
 pub struct Player {
     pos: GridPoint, // The current position of the Player
@@ -38,7 +39,7 @@ impl Player {
     }
 
     pub fn on_hit(&mut self) {
-        self.hit_timer = 100;
+        self.hit_timer = HIT_TIME_LENGTH;
     }
 
     /// Move the Player closer to the next keyframe, and drop that keyframe if
@@ -59,7 +60,7 @@ impl Player {
         );
 
         self.hit_timer = self.hit_timer.saturating_sub(1);
-        self.color = color_lerp(WHITE, RED, (self.hit_timer as f32) / 100.0);
+        self.color = color_lerp(WHITE, RED, (self.hit_timer as f32) / HIT_TIME_LENGTH as f32);
     }
 
     pub fn draw(&mut self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {

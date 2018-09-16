@@ -34,6 +34,8 @@ const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
 // Files manually read by me (usually maps)
 const MAP_PATH: &str = "./resources/bbkkbkk.map";
 
+// Debug
+const USE_MAP: bool = false;
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {
@@ -66,8 +68,8 @@ impl World {
         if was_hit {
             self.player.on_hit();
         }
-        if beat_percent > 0.9 {
-            let mut laser = Laser::new_through_point(self.player.position(), beat_time.offset as f32, 0.4, 4.0);
+        if beat_percent > 0.8 {
+            let mut laser = Laser::new_through_point(GridPoint(Point2::new(5.0, 5.0)), 3.14159 * beat_time.beat as f32/ 10.0, 0.4, 4.0);
             laser.on_spawn(Into::<BeatF64>::into(beat_time));
             self.enemies.push(Box::new(laser));
         }
@@ -163,8 +165,9 @@ impl event::EventHandler for MainState {
         }
 
         self.world.update(ctx, self.time.beat_time());
-
-        self.scheduler.update(&self.time, &mut self.world);
+        if USE_MAP {
+            self.scheduler.update(&self.time, &mut self.world);
+        }
         Ok(())
     }
 
