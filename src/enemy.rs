@@ -148,36 +148,24 @@ impl Enemy for Laser {
         mesh.draw(ctx, position, self.angle)?;
         graphics::set_color(ctx, GREEN)?;
         graphics::circle(ctx, DrawMode::Fill, position, 4.0, 2.0)?;
-
-        for i in 0..40 {
-            for j in 0..40 {
-                let position_2 = GridPoint(Point2::new(i as f32/2.0, j as f32/2.0));
-                let intersects = does_intersect(self.angle, position_2, self.bounds, 0.2);
-                if intersects {
-                    graphics::circle(ctx, DrawMode::Fill, grid.to_screen_coord(position_2), grid.to_screen_length(0.2), 2.0)?;
-                }
-            }
-        }
         Ok(())
     }
 
     fn intersects(&self, player: &Player) -> bool {
-        does_intersect(self.angle, player.position(), self.bounds, player.size)
+        if self.bounds.h < 0.1 {
+            return false;
+        }
+        // We want the perpendicular of the line from the plane to the player
+        let a = self.angle.sin();
+        let b = -self.angle.cos();
+        let c = -(a*self.bounds.x + b*self.bounds.y);
+
+        let player_pos = player.position();
+        let distance = (a*player_pos.0[0] + b*player_pos.0[1] + c).abs() / (a*a + b*b).sqrt();
+        distance < self.bounds.h/2.0 + player.size
     }
 
     fn is_alive(&self) -> bool{
         self.alive
     }
-}
-
-fn does_intersect(angle: f32, player_pos: GridPoint, bounds: Rect, size: f32) -> bool {
-    if bounds.h < 0.1 {
-        return false;
-    }
-    // We want the perpendicular of the line from the plane to the player
-    let a = angle.sin();
-    let b = -angle.cos();
-    let c = -(a*bounds.x + b*bounds.y);
-    let distance = (a*player_pos.0[0] + b*player_pos.0[1] + c).abs() / (a*a + b*b).sqrt();
-    distance < bounds.h/2.0 + size
 }

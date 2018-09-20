@@ -69,7 +69,7 @@ impl World {
             self.player.on_hit();
         }
         if beat_percent > 0.8 {
-            let mut laser = Laser::new_through_point(GridPoint(Point2::new(5.0, 5.0)), 3.14159 * beat_time.beat as f32/ 10.0, 0.4, 4.0);
+            let mut laser = Laser::new_through_point(GridPoint(Point2::new(5.0, 5.0)), 3.14159 * beat_time.beat as f32/ 10.0, 0.4, 1.0);
             laser.on_spawn(Into::<BeatF64>::into(beat_time));
             self.enemies.push(Box::new(laser));
         }
