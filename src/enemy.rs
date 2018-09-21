@@ -93,28 +93,24 @@ pub struct Laser {
     start_time: BeatF64,
     durations: LaserDuration,
     color: Color,
-    thickness: f32,
-    end_thickness: f32, // The minimum thickness to do hit detection in active state
-    bounds: Rect, // Stores the height, width, and offset of the laser
+    thickness_keyframe: (f32, f32), // The hitbox thickness to animate to and from while in active state.
+    width: f32, // The lenght of the laser, in gridspace
+    height: f32, // The actual thickness of the laser, in gridspace
+    position: GridPoint,
     angle: f32,
     state: LaserState,
     alive: bool,
 }
 impl Laser {
     pub fn new_through_point(point: GridPoint, angle: f32, thickness: f32, duration: BeatF64) -> Laser {
-        let bounds = Rect {
-            x: point.0[0],
-            y: point.0[1],
-            w: 30.0,
-            h: 0.0,
-        };
         Laser {
             start_time: 0.0,
             durations: LaserDuration::new(duration),
-            thickness: thickness,
-            end_thickness: 0.1,
-            bounds: bounds,
+            thickness_keyframe: (thickness, 0.1),
+            position: point,
             angle: angle,
+            width: 30.0,
+            height: 0.0,
             color: TRANSPARENT,
             state: LaserState::Predelay,
             alive: true,
@@ -137,10 +133,10 @@ impl Enemy for Laser {
         let percent_over_state = self.durations.percent_over_state(delta_time) as f32;
         let (start_thickness, end_thickness) = match self.durations.get_state(delta_time) {
             Predelay => (0.0, 0.05),
-            Active => (self.thickness, self.end_thickness),
-            Cooldown => (self.end_thickness, 0.0),
+            Active => self.thickness_keyframe,
+            Cooldown => (self.thickness_keyframe.1, self.thickness_keyframe.1/1.2),
         };
-        self.bounds.h = lerpf32(start_thickness, end_thickness, percent_over_state);
+        self.height = lerpf32(start_thickness, end_thickness, percent_over_state);
 
         let (start_color, end_color) = match self.durations.get_state(delta_time) {
             Predelay => (TRANSPARENT, Color {r: 1.0, g: 0.0, b: 0.0, a: 0.5}),
@@ -151,9 +147,9 @@ impl Enemy for Laser {
     }
 
     fn draw(&self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
-        let position = grid.to_screen_coord(GridPoint(Point2::new(self.bounds.x, self.bounds.y)));
-        let width = grid.to_screen_length(self.bounds.w);
-        let height = grid.to_screen_length(self.bounds.h);
+        let position = grid.to_screen_coord(self.position);
+        let width = grid.to_screen_length(self.width);
+        let height = grid.to_screen_length(self.height);
         graphics::set_color(ctx, self.color)?;
         // The mesh is done like this so that we draw about the center of the position
         // this lets us easily rotate the laser about its position.
@@ -175,11 +171,11 @@ impl Enemy for Laser {
         // We want the perpendicular of the line from the plane to the player
         let a = self.angle.sin();
         let b = -self.angle.cos();
-        let c = -(a*self.bounds.x + b*self.bounds.y);
+        let c = -(a*self.position.0[0] + b*self.position.0[1]);
 
         let player_pos = player.position();
         let distance = (a*player_pos.0[0] + b*player_pos.0[1] + c).abs() / (a*a + b*b).sqrt();
-        distance < self.bounds.h/2.0 + player.size
+        distance < self.height/2.0 + player.size
     }
 
     fn is_alive(&self) -> bool{
@@ -199,7 +195,7 @@ impl LaserDuration {
         LaserDuration {
             predelay: 4.0,
             active: active_duration,
-            cooldown: 0.5,
+            cooldown: 1.0,
         }
     }
 
