@@ -84,6 +84,10 @@ impl Direction4 {
     }
 }
 
+pub fn lerpf32(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
 pub fn lerp(a: GridPoint, b: GridPoint, t: f32) -> GridPoint {
     GridPoint(a.0 + (b.0 - a.0) * t)
 }

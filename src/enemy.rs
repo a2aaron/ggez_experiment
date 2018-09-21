@@ -1,10 +1,8 @@
 use ggez::graphics::{Color, DrawMode, Drawable, Rect, MeshBuilder, Point2};
 use ggez::{Context, GameResult, graphics};
 
-use ggez::nalgebra::core as na;
-
 use grid::Grid;
-use util::{GREEN, GUIDE_GREY, GridPoint, RED, lerp, quartic, smooth_step, distance};
+use util::{GridPoint, GREEN, GUIDE_GREY, TRANSPARENT, RED, color_lerp, lerp, lerpf32, quartic, smooth_step, distance};
 use time::{Time, BeatF64};
 use player::Player;
 
@@ -93,11 +91,13 @@ impl Enemy for Bullet {
 
 pub struct Laser {
     start_time: BeatF64,
-    duration: BeatF64,
+    durations: LaserDuration,
     color: Color,
     thickness: f32,
+    end_thickness: f32, // The minimum thickness to do hit detection in active state
     bounds: Rect, // Stores the height, width, and offset of the laser
     angle: f32,
+    state: LaserState,
     alive: bool,
 }
 impl Laser {
@@ -106,15 +106,17 @@ impl Laser {
             x: point.0[0],
             y: point.0[1],
             w: 30.0,
-            h: thickness,
+            h: 0.0,
         };
         Laser {
             start_time: 0.0,
-            duration: duration,
+            durations: LaserDuration::new(duration),
             thickness: thickness,
+            end_thickness: 0.1,
             bounds: bounds,
             angle: angle,
-            color: RED,
+            color: TRANSPARENT,
+            state: LaserState::Predelay,
             alive: true,
         }
     }
@@ -123,14 +125,29 @@ impl Laser {
 impl Enemy for Laser {
     fn on_spawn(&mut self, start_time: BeatF64) {
         self.start_time = start_time;
-        self.alive = true;
     }
 
     fn update(&mut self, curr_time: BeatF64) {
         let delta_time = curr_time - self.start_time;
-        self.alive = delta_time < self.duration;
 
-        self.bounds.h = self.thickness * (1.0 - Time::percent_over_duration(self.start_time, curr_time, self.duration) as f32);
+        self.alive = delta_time < self.durations.total_duration(LaserState::Cooldown);
+
+        use self::LaserState::*;
+        self.state = self.durations.get_state(delta_time);
+        let percent_over_state = self.durations.percent_over_state(delta_time) as f32;
+        let (start_thickness, end_thickness) = match self.durations.get_state(delta_time) {
+            Predelay => (0.0, 0.05),
+            Active => (self.thickness, self.end_thickness),
+            Cooldown => (self.end_thickness, 0.0),
+        };
+        self.bounds.h = lerpf32(start_thickness, end_thickness, percent_over_state);
+
+        let (start_color, end_color) = match self.durations.get_state(delta_time) {
+            Predelay => (TRANSPARENT, Color {r: 1.0, g: 0.0, b: 0.0, a: 0.5}),
+            Active => (RED, RED),
+            Cooldown => (RED, TRANSPARENT),
+        };
+        self.color = color_lerp(start_color, end_color, percent_over_state);
     }
 
     fn draw(&self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
@@ -152,7 +169,7 @@ impl Enemy for Laser {
     }
 
     fn intersects(&self, player: &Player) -> bool {
-        if self.bounds.h < 0.1 {
+        if self.state != LaserState::Active {
             return false;
         }
         // We want the perpendicular of the line from the plane to the player
@@ -168,4 +185,59 @@ impl Enemy for Laser {
     fn is_alive(&self) -> bool{
         self.alive
     }
+}
+
+#[derive(Debug)]
+struct LaserDuration {
+    predelay: BeatF64, // The amount of time to show a predelay warning
+    active: BeatF64, // The amount of time to actually do hit detection
+    cooldown: BeatF64, // The amount of time to show a "cool off" animation (and disable hit detection)
+}
+
+impl LaserDuration {
+    fn new(active_duration: BeatF64) -> LaserDuration {
+        LaserDuration {
+            predelay: 4.0,
+            active: active_duration,
+            cooldown: 0.5,
+        }
+    }
+
+    fn get_state(&self, delta_time: BeatF64) -> LaserState {
+
+        if delta_time < self.total_duration(LaserState::Predelay) {
+            LaserState::Predelay
+        } else if delta_time < self.total_duration(LaserState::Active){
+            LaserState::Active
+        } else {
+            LaserState::Cooldown
+        }
+    }
+
+    fn percent_over_state(&self, delta_time: BeatF64) -> f64 {
+        use self::LaserState::*;
+        let state = self.get_state(delta_time);
+        match state {
+            Predelay => delta_time / self.predelay,
+            Active => (delta_time - self.predelay) / self.active,
+            Cooldown => (delta_time - self.predelay - self.active) / self.cooldown,
+        }
+    }
+
+    /// Returns the total duration until this state occurs
+    fn total_duration(&self, state: LaserState) -> f64 {
+        use self::LaserState::*;
+        match state {
+            Predelay => self.predelay,
+            Active => self.predelay + self.active,
+            Cooldown => self.predelay + self.active + self.cooldown,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum LaserState {
+    Predelay,
+    Active,
+    Cooldown,
 }
