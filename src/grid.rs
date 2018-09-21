@@ -34,11 +34,11 @@ impl Default for Grid {
 impl Grid {
     /// Decorative, makes the glow grid pulse to the music
     pub fn update(&mut self, beat_percent: f64) {
-        let color = 0.6 + 0.4 * smooth_step(1.0 - beat_percent) as f32;
+        let color = 0.6 + 0.2 * smooth_step(1.0 - beat_percent) as f32;
         self.color = Color::new(color, color, color, 1.0);
-        let opacity = 0.05 + 0.6 * smooth_step(1.0 - beat_percent) as f32;
+        let opacity = 0.05 + 0.3 * smooth_step(1.0 - beat_percent) as f32;
         self.glow_color = Color::new(1.0, 1.0, 1.0, opacity);
-        self.glow_line_width = 2.0 + 3.0 * smooth_step(1.0 - beat_percent) as f32;
+        self.glow_line_width = 2.0 + 1.0 * smooth_step(1.0 - beat_percent) as f32;
     }
 
     pub fn draw(&self, ctx: &mut Context) -> GameResult<()> {
