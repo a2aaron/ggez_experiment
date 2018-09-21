@@ -100,8 +100,8 @@ pub fn color_lerp(a: Color, b: Color, t: f32) -> Color {
 
     Color::new(
         f32_lerp(a.r, b.r, t),
-        f32_lerp(a.b, b.b, t),
         f32_lerp(a.g, b.g, t),
+        f32_lerp(a.b, b.b, t),
         f32_lerp(a.a, b.a, t),
     )
 }
