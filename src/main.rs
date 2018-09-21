@@ -16,14 +16,14 @@ use std::path::PathBuf;
 
 use ggez::audio::Source;
 use ggez::event::{Keycode, Mod};
-use ggez::graphics::{Color, Text, Font, Point2, Drawable};
-use ggez::{Context, ContextBuilder, GameResult, audio, conf, event, graphics};
+use ggez::graphics::{Color, Drawable, Font, Point2, Text};
+use ggez::{audio, conf, event, graphics, Context, ContextBuilder, GameResult};
 
 use enemy::{Enemy, Laser};
 use grid::Grid;
 use keyboard::KeyboardState;
 use player::Player;
-use time::{Beat, Scheduler, Time, BeatF64};
+use time::{Beat, BeatF64, Scheduler, Time};
 use util::*;
 
 const BPM: f64 = 170.0;
@@ -42,7 +42,7 @@ pub struct World {
     player: Player,
     enemies: Vec<Box<dyn Enemy>>,
     grid: Grid,
-    background: Color
+    background: Color,
 }
 
 impl World {
@@ -69,7 +69,12 @@ impl World {
             self.player.on_hit();
         }
         if beat_percent > 0.8 {
-            let mut laser = Laser::new_through_point(GridPoint{x: 5.0, y: 5.0}, 3.14159 * beat_time.beat as f32/ 10.0, 0.4, 1.0);
+            let mut laser = Laser::new_through_point(
+                GridPoint { x: 5.0, y: 5.0 },
+                3.14159 * beat_time.beat as f32 / 10.0,
+                0.4,
+                1.0,
+            );
             laser.on_spawn(Into::<BeatF64>::into(beat_time));
             self.enemies.push(Box::new(laser));
         }
@@ -143,11 +148,23 @@ impl MainState {
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
     fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
         let beat_time = self.time.beat_time();
-        let string: &str = &format!("Measure: {:2?}, Beat: {:2?}, Offset: {:3?}", beat_time.beat/4, beat_time.beat % 4, beat_time.offset)[..];
+        let string: &str = &format!(
+            "Measure: {:2?}, Beat: {:2?}, Offset: {:3?}",
+            beat_time.beat / 4,
+            beat_time.beat % 4,
+            beat_time.offset
+        )[..];
         let text = Text::new(ctx, string, &self.assets.debug_font)?;
         let screen = graphics::get_screen_coordinates(ctx);
         graphics::set_color(ctx, DEBUG_RED)?;
-        text.draw(ctx, Point2::new(screen.w - text.width() as f32, screen.h - text.height() as f32), 0.0)?;
+        text.draw(
+            ctx,
+            Point2::new(
+                screen.w - text.width() as f32,
+                screen.h - text.height() as f32,
+            ),
+            0.0,
+        )?;
         Ok(())
     }
 }

@@ -1,10 +1,13 @@
-use ggez::graphics::{Color, DrawMode, Drawable, Rect, MeshBuilder, Point2};
-use ggez::{Context, GameResult, graphics};
+use ggez::graphics::{Color, DrawMode, Drawable, MeshBuilder, Point2, Rect};
+use ggez::{graphics, Context, GameResult};
 
 use grid::Grid;
-use util::{GridPoint, GREEN, GUIDE_GREY, TRANSPARENT, RED, color_lerp, lerp, lerpf32, quartic, smooth_step, distance};
-use time::{Time, BeatF64};
 use player::Player;
+use time::{BeatF64, Time};
+use util::{
+    color_lerp, distance, lerp, lerpf32, quartic, smooth_step, GridPoint, GREEN, GUIDE_GREY, RED,
+    TRANSPARENT,
+};
 
 pub trait Enemy {
     fn on_spawn(&mut self, start_time: BeatF64);
@@ -19,11 +22,11 @@ pub trait Enemy {
 // TODO: Add a predelay for fairness
 #[derive(Debug)]
 pub struct Bullet {
-    pub pos: GridPoint, // Current position
+    pub pos: GridPoint,   // Current position
     start_pos: GridPoint, // Position bullet started from
-    end_pos: GridPoint, // Position bullet must end up at
-    start_time: BeatF64, // Start of bullet existance.
-    duration: BeatF64, // Time over which this bullet lives, in beats.
+    end_pos: GridPoint,   // Position bullet must end up at
+    start_time: BeatF64,  // Start of bullet existance.
+    duration: BeatF64,    // Time over which this bullet lives, in beats.
     alive: bool,
     glow_size: f32,
     glow_trans: f32,
@@ -94,15 +97,20 @@ pub struct Laser {
     durations: LaserDuration,
     color: Color,
     thickness_keyframe: (f32, f32), // The hitbox thickness to animate to and from while in active state.
-    width: f32, // The lenght of the laser, in gridspace
-    height: f32, // The actual thickness of the laser, in gridspace
+    width: f32,                     // The lenght of the laser, in gridspace
+    height: f32,                    // The actual thickness of the laser, in gridspace
     position: GridPoint,
     angle: f32,
     state: LaserState,
     alive: bool,
 }
 impl Laser {
-    pub fn new_through_point(point: GridPoint, angle: f32, thickness: f32, duration: BeatF64) -> Laser {
+    pub fn new_through_point(
+        point: GridPoint,
+        angle: f32,
+        thickness: f32,
+        duration: BeatF64,
+    ) -> Laser {
         Laser {
             start_time: 0.0,
             durations: LaserDuration::new(duration),
@@ -134,12 +142,20 @@ impl Enemy for Laser {
         let (start_thickness, end_thickness) = match self.durations.get_state(delta_time) {
             Predelay => (0.0, 0.05),
             Active => self.thickness_keyframe,
-            Cooldown => (self.thickness_keyframe.1, self.thickness_keyframe.1/1.2),
+            Cooldown => (self.thickness_keyframe.1, self.thickness_keyframe.1 / 1.2),
         };
         self.height = lerpf32(start_thickness, end_thickness, percent_over_state);
 
         let (start_color, end_color) = match self.durations.get_state(delta_time) {
-            Predelay => (TRANSPARENT, Color {r: 1.0, g: 0.0, b: 0.0, a: 0.5}),
+            Predelay => (
+                TRANSPARENT,
+                Color {
+                    r: 1.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.5,
+                },
+            ),
             Active => (RED, RED),
             Cooldown => (RED, TRANSPARENT),
         };
@@ -153,11 +169,15 @@ impl Enemy for Laser {
         graphics::set_color(ctx, self.color)?;
         // The mesh is done like this so that we draw about the center of the position
         // this lets us easily rotate the laser about its position.
-        let points = [Point2::new(-width / 2.0, -height / 2.0),
-                      Point2::new(width / 2.0, -height / 2.0),
-                      Point2::new(width / 2.0, height / 2.0),
-                      Point2::new(-width / 2.0, height / 2.0)];
-        let mesh = MeshBuilder::new().polygon(DrawMode::Fill, &points).build(ctx)?;
+        let points = [
+            Point2::new(-width / 2.0, -height / 2.0),
+            Point2::new(width / 2.0, -height / 2.0),
+            Point2::new(width / 2.0, height / 2.0),
+            Point2::new(-width / 2.0, height / 2.0),
+        ];
+        let mesh = MeshBuilder::new()
+            .polygon(DrawMode::Fill, &points)
+            .build(ctx)?;
         mesh.draw(ctx, position, self.angle)?;
         graphics::set_color(ctx, GREEN)?;
         graphics::circle(ctx, DrawMode::Fill, position, 4.0, 2.0)?;
@@ -171,14 +191,14 @@ impl Enemy for Laser {
         // We want the perpendicular of the line from the plane to the player
         let a = self.angle.sin();
         let b = -self.angle.cos();
-        let c = -(a*self.position.x + b*self.position.y);
+        let c = -(a * self.position.x + b * self.position.y);
 
         let player_pos = player.position();
-        let distance = (a*player_pos.x + b*player_pos.y + c).abs() / (a*a + b*b).sqrt();
-        distance < self.height/2.0 + player.size
+        let distance = (a * player_pos.x + b * player_pos.y + c).abs() / (a * a + b * b).sqrt();
+        distance < self.height / 2.0 + player.size
     }
 
-    fn is_alive(&self) -> bool{
+    fn is_alive(&self) -> bool {
         self.alive
     }
 }
@@ -186,7 +206,7 @@ impl Enemy for Laser {
 #[derive(Debug)]
 struct LaserDuration {
     predelay: BeatF64, // The amount of time to show a predelay warning
-    active: BeatF64, // The amount of time to actually do hit detection
+    active: BeatF64,   // The amount of time to actually do hit detection
     cooldown: BeatF64, // The amount of time to show a "cool off" animation (and disable hit detection)
 }
 
@@ -200,10 +220,9 @@ impl LaserDuration {
     }
 
     fn get_state(&self, delta_time: BeatF64) -> LaserState {
-
         if delta_time < self.total_duration(LaserState::Predelay) {
             LaserState::Predelay
-        } else if delta_time < self.total_duration(LaserState::Active){
+        } else if delta_time < self.total_duration(LaserState::Active) {
             LaserState::Active
         } else {
             LaserState::Cooldown

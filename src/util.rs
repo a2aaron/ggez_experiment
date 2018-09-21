@@ -158,7 +158,10 @@ pub fn rand_edge(grid_size: (usize, usize)) -> GridPoint {
         Up => (gen_range(0, width), 0),
         Down => (gen_range(0, width), height),
     };
-    GridPoint {x: x as f32, y: y as f32}
+    GridPoint {
+        x: x as f32,
+        y: y as f32,
+    }
 }
 
 pub fn clamp(n: isize, lower: isize, upper: isize) -> isize {
