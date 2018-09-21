@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::iter::FromIterator;
 
-use ggez::graphics::{Color, DrawMode, Point2};
+use ggez::graphics::{Color, DrawMode};
 use ggez::*;
 
 use grid::Grid;
@@ -103,9 +103,9 @@ impl Player {
 impl Default for Player {
     fn default() -> Self {
         Player {
-            pos: GridPoint {x: 0.0, y: 0.0},
+            pos: GridPoint { x: 0.0, y: 0.0 },
             speed: 0.2,
-            keyframes: VecDeque::from_iter(vec![GridPoint {x: 0.0, y: 0.0}]),
+            keyframes: VecDeque::from_iter(vec![GridPoint { x: 0.0, y: 0.0 }]),
             size: 0.2,
             color: WHITE,
             hit_timer: 0,

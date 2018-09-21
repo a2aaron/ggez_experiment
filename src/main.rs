@@ -19,7 +19,7 @@ use ggez::event::{Keycode, Mod};
 use ggez::graphics::{Color, Drawable, Font, Point2, Text};
 use ggez::{audio, conf, event, graphics, Context, ContextBuilder, GameResult};
 
-use enemy::{Enemy, Laser};
+use enemy::Enemy;
 use grid::Grid;
 use keyboard::KeyboardState;
 use player::Player;
@@ -29,13 +29,13 @@ use util::*;
 const BPM: f64 = 170.0;
 // Files read via ggez (usually music/font/images)
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
-const ARIAL_PATH: &str = "/Arial.ttf";
+// const ARIAL_PATH: &str = "/Arial.ttf";
 const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
 // Files manually read by me (usually maps)
 const MAP_PATH: &str = "./resources/bbkkbkk.map";
 
 // Debug
-const USE_MAP: bool = false;
+const USE_MAP: bool = true;
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {
@@ -68,16 +68,7 @@ impl World {
         if was_hit {
             self.player.on_hit();
         }
-        if beat_percent > 0.8 {
-            let mut laser = Laser::new_through_point(
-                GridPoint { x: 5.0, y: 5.0 },
-                3.14159 * beat_time.beat as f32 / 10.0,
-                0.4,
-                1.0,
-            );
-            laser.on_spawn(Into::<BeatF64>::into(beat_time));
-            self.enemies.push(Box::new(laser));
-        }
+
         // Delete all non-alive enemies
         self.enemies.retain(|e| e.is_alive());
     }

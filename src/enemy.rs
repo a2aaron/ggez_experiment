@@ -1,13 +1,16 @@
-use ggez::graphics::{Color, DrawMode, Drawable, MeshBuilder, Point2, Rect};
+use ggez::graphics::{Color, DrawMode, Drawable, MeshBuilder, Point2};
 use ggez::{graphics, Context, GameResult};
 
 use grid::Grid;
 use player::Player;
-use time::{BeatF64, Time};
+use time::{Beat, BeatF64, Time};
 use util::{
     color_lerp, distance, lerp, lerpf32, quartic, smooth_step, GridPoint, GREEN, GUIDE_GREY, RED,
     TRANSPARENT,
 };
+
+pub const LASER_PREDELAY: f64 = 4.0;
+pub const LASER_PREDELAY_BEATS: Beat = Beat { beat: 4, offset: 0 };
 
 pub trait Enemy {
     fn on_spawn(&mut self, start_time: BeatF64);
@@ -140,7 +143,7 @@ impl Enemy for Laser {
         self.state = self.durations.get_state(delta_time);
         let percent_over_state = self.durations.percent_over_state(delta_time) as f32;
         let (start_thickness, end_thickness) = match self.durations.get_state(delta_time) {
-            Predelay => (0.0, 0.05),
+            Predelay => (0.0, 0.1),
             Active => self.thickness_keyframe,
             Cooldown => (self.thickness_keyframe.1, self.thickness_keyframe.1 / 1.2),
         };
@@ -153,7 +156,7 @@ impl Enemy for Laser {
                     r: 1.0,
                     g: 0.0,
                     b: 0.0,
-                    a: 0.5,
+                    a: 0.8,
                 },
             ),
             Active => (RED, RED),
@@ -213,7 +216,7 @@ struct LaserDuration {
 impl LaserDuration {
     fn new(active_duration: BeatF64) -> LaserDuration {
         LaserDuration {
-            predelay: 4.0,
+            predelay: LASER_PREDELAY,
             active: active_duration,
             cooldown: 1.0,
         }

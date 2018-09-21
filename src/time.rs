@@ -1,16 +1,19 @@
 use std::cmp::{Ordering, Reverse};
 use std::collections::HashSet;
 use std::collections::{binary_heap::PeekMut, BinaryHeap};
+use std::f32::consts::PI;
 use std::fmt;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
+use std::ops;
 use std::time::{Duration, Instant};
 
 use ggez::timer;
 
-use enemy::{Bullet, Enemy};
-use util::*;
+use enemy;
+use enemy::{Bullet, Enemy, Laser};
+use util;
 use World;
 
 #[derive(Debug, Default)]
@@ -131,6 +134,21 @@ impl Scheduler {
                             });
                         }
                     }
+                    ["laser", "spread", spread] => {
+                        let action = SpawnLaser {
+                            spread: spread.parse().unwrap(),
+                        };
+                        if spread.parse::<isize>().is_err() {
+                            panic!("Expected integer, got {:?}", spread)
+                        }
+                        for beat in parse_state.beats() {
+                            let beat = beat - enemy::LASER_PREDELAY_BEATS;
+                            scheduler.work_queue.push(BeatAction {
+                                beat: Reverse(beat),
+                                action: Box::new(action),
+                            });
+                        }
+                    }
                     ["rest"] => (),
                     ["end"] => break,
                     ref x => panic!("unexpected line in map file: {:?} (line {})", x, i),
@@ -187,7 +205,7 @@ impl Time {
             start_time: Instant::now(),
             last_time: Instant::now(),
             current_duration: Duration::new(0, 0),
-            bpm: bpm_to_duration(bpm),
+            bpm: util::bpm_to_duration(bpm),
         }
     }
 
@@ -262,6 +280,22 @@ pub struct Beat {
     pub offset: u8, // offset from the beat, in 1/256th increments
 }
 
+impl ops::Sub for Beat {
+    type Output = Beat;
+    fn sub(self, other: Beat) -> Beat {
+        let beat = if self.offset > other.offset {
+            self.beat.saturating_sub(other.beat)
+        } else {
+            self.beat.saturating_sub(other.beat + 1)
+        };
+        let offset = self.offset.wrapping_sub(other.offset);
+        Beat {
+            beat: beat,
+            offset: offset,
+        }
+    }
+}
+
 /// Beat time is scaled such that 1.0 = 1 beat and 1.5 = 1 beat 128 offset, etc
 impl From<BeatF64> for Beat {
     fn from(beat_time: BeatF64) -> Self {
@@ -295,6 +329,24 @@ impl fmt::Debug for Action {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct SpawnLaser {
+    spread: isize,
+}
+
+impl Action for SpawnLaser {
+    fn preform(&self, world: &mut World, time: &Time) {
+        let mut laser = Laser::new_through_point(
+            util::rand_around(world.grid.grid_size, world.player.position(), self.spread),
+            util::gen_range(0, 6) as f32 * (PI / 6.0),
+            0.4,
+            1.0,
+        );
+        laser.on_spawn(time.f64_time());
+        world.enemies.push(Box::new(laser));
+    }
+}
+
 /// An Action which adds `num` bullets around the player, with some random factor
 #[derive(Clone, Copy)]
 pub struct SpawnBullet {
@@ -306,10 +358,11 @@ pub struct SpawnBullet {
 impl Action for SpawnBullet {
     fn preform(&self, world: &mut World, time: &Time) {
         for _ in 0..self.num {
-            let start_pos = rand_edge(world.grid.grid_size);
-            let end_pos = rand_around(world.grid.grid_size, world.player.position(), self.spread);
+            let start_pos = util::rand_edge(world.grid.grid_size);
+            let end_pos =
+                util::rand_around(world.grid.grid_size, world.player.position(), self.spread);
             let mut bullet = Bullet::new(start_pos, end_pos, self.duration.into());
-            bullet.on_spawn(time.f64_time().into());
+            bullet.on_spawn(time.f64_time());
             world.enemies.push(Box::new(bullet));
         }
     }
