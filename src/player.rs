@@ -24,17 +24,16 @@ impl Player {
     /// Reset the player in bounds if they try to go out of bounds.
     /// TODO: make sure Keyframes are in bounds as well
     fn handle_boundaries(&mut self, width: f32, height: f32) {
-        let pos = &mut self.pos.0;
-        if pos[1] > height {
-            pos[1] = height;
-        } else if pos[1] < 0.0 {
-            pos[1] = 0.0;
+        if self.pos.y > height {
+            self.pos.y = height;
+        } else if self.pos.y < 0.0 {
+            self.pos.y = 0.0;
         }
 
-        if pos[0] < 0.0 {
-            pos[0] = 0.0;
-        } else if pos[0] > width {
-            pos[0] = width;
+        if self.pos.x < 0.0 {
+            self.pos.x = 0.0;
+        } else if self.pos.x > width {
+            self.pos.x = width;
         }
     }
 
@@ -49,7 +48,7 @@ impl Player {
         if let Some(goal) = self.keyframes.pop_front() {
             let speed = (self.speed * (self.keyframes.len() * 4 + 2) as f32).min(1.0);
             self.pos = lerp(self.pos, goal, speed);
-            if distance(self.pos.0, goal.0) > 0.01 || self.keyframes.len() == 0 {
+            if distance(self.pos.as_point(), goal.as_point()) > 0.01 || self.keyframes.len() == 0 {
                 self.keyframes.push_front(goal);
             }
         }
@@ -82,12 +81,12 @@ impl Player {
     pub fn key_down_event(&mut self, direction: Direction8) {
         use Direction8::*;
         let mut goal: GridPoint = self.position();
-        goal.0[0] += match direction {
+        goal.x += match direction {
             Left | LeftDown | LeftUp => -1.0,
             Right | RightDown | RightUp => 1.0,
             Up | Down => 0.0,
         };
-        goal.0[1] += match direction {
+        goal.y += match direction {
             Up | LeftUp | RightUp => -1.0,
             Down | LeftDown | RightDown => 1.0,
             Left | Right => 0.0,
@@ -104,9 +103,9 @@ impl Player {
 impl Default for Player {
     fn default() -> Self {
         Player {
-            pos: GridPoint(Point2::new(0.0, 0.0)),
+            pos: GridPoint {x: 0.0, y: 0.0},
             speed: 0.2,
-            keyframes: VecDeque::from_iter(vec![GridPoint(Point2::new(0.0, 0.0))]),
+            keyframes: VecDeque::from_iter(vec![GridPoint {x: 0.0, y: 0.0}]),
             size: 0.2,
             color: WHITE,
             hit_timer: 0,

@@ -81,7 +81,7 @@ impl Enemy for Bullet {
     }
 
     fn intersects(&self, player: &Player) -> bool {
-        distance(player.position().0, self.pos.0) < player.size // TODO
+        distance(player.position().as_point(), self.pos.as_point()) < player.size // TODO
     }
 
     fn is_alive(&self) -> bool {
@@ -171,10 +171,10 @@ impl Enemy for Laser {
         // We want the perpendicular of the line from the plane to the player
         let a = self.angle.sin();
         let b = -self.angle.cos();
-        let c = -(a*self.position.0[0] + b*self.position.0[1]);
+        let c = -(a*self.position.x + b*self.position.y);
 
         let player_pos = player.position();
-        let distance = (a*player_pos.0[0] + b*player_pos.0[1] + c).abs() / (a*a + b*b).sqrt();
+        let distance = (a*player_pos.x + b*player_pos.y + c).abs() / (a*a + b*b).sqrt();
         distance < self.height/2.0 + player.size
     }
 

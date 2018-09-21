@@ -91,7 +91,7 @@ impl Grid {
 
     /// Transform a world-space coordinate into a screen-space coordinate (for drawing)
     pub fn to_screen_coord(&self, grid_point: GridPoint) -> Point2 {
-        (grid_point.0 * self.grid_spacing) + Vector2::new(self.offset[0], self.offset[1])
+        (grid_point.as_point() * self.grid_spacing) + Vector2::new(self.offset[0], self.offset[1])
     }
 
     /// Transform a world-space length into a screen-space length (for drawing)
