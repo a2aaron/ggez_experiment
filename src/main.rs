@@ -6,6 +6,7 @@ extern crate rand;
 mod enemy;
 mod grid;
 mod keyboard;
+mod parse;
 mod player;
 mod time;
 mod util;
@@ -22,8 +23,9 @@ use ggez::{audio, conf, event, graphics, Context, ContextBuilder, GameResult};
 use enemy::Enemy;
 use grid::Grid;
 use keyboard::KeyboardState;
+use parse::Scheduler;
 use player::Player;
-use time::{Beat, BeatF64, Scheduler, Time};
+use time::{Beat, BeatF64, Time};
 use util::*;
 
 const BPM: f64 = 170.0;
