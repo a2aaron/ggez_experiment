@@ -1,8 +1,9 @@
 use ggez::graphics::{Color, DrawMode};
-use ggez::*;
+use ggez::{Context, GameResult, graphics};
 
 use grid::Grid;
-use util::*;
+use util::{GREEN, GUIDE_GREY, GridPoint, RED, lerp, quartic, smooth_step};
+use time::{Time, BeatF64};
 
 /// A bullet is a simple enemy that moves from point A to point B in some amount
 /// of time. It also has a cool glowy decoration thing for cool glowiness.
@@ -12,7 +13,7 @@ pub struct Bullet {
     pub pos: GridPoint, // Current position
     start_pos: GridPoint, // Position bullet started from
     end_pos: GridPoint, // Position bullet must end up at
-    start_time: f64, // Start of bullet existance.
+    start_time: BeatF64, // Start of bullet existance.
     duration: f64, // Time over which this bullet lives, in beats.
     pub alive: bool,
     glow_size: f32,
@@ -20,22 +21,24 @@ pub struct Bullet {
 }
 
 impl Bullet {
-    pub fn on_spawn(&mut self, start_time: f64) {
+    pub fn on_spawn(&mut self, start_time: BeatF64) {
         self.start_time = start_time;
     }
 
     // TODO: Make this use some sort of percent over duration.
     /// Move bullet towards end position. Also do the cool glow thing.
-    pub fn update(&mut self, curr_time: f64) {
+    pub fn update(&mut self, curr_time: BeatF64) {
         let delta_time = curr_time - self.start_time;
         self.alive = delta_time < self.duration;
-        let total_percent = delta_time / self.duration;
-        let beat_percent = delta_time % 1.0;
+
+        let total_percent = Time::percent_over_duration(self.start_time, curr_time, self.duration);
         self.pos = lerp(self.start_pos, self.end_pos, total_percent as f32);
+
+        let beat_percent = delta_time % 1.0;
         self.glow_size = 15.0 * smooth_step(beat_percent) as f32;
         self.glow_trans = 1.0 - quartic(beat_percent) as f32;
     }
-    
+
     pub fn new(start_pos: GridPoint, end_pos: GridPoint, duration: f64) -> Bullet {
         Bullet {
             pos: start_pos,
