@@ -1,12 +1,13 @@
 use std::collections::VecDeque;
 use std::iter::FromIterator;
 
-use ggez::graphics::{Color, DrawMode, Point2};
+use ggez::graphics::{Color, DrawMode};
 use ggez::*;
 
-use enemy::Bullet;
 use grid::Grid;
 use util::*;
+
+const HIT_TIME_LENGTH: usize = 20; // How many frames the hit timer should be
 
 pub struct Player {
     pos: GridPoint, // The current position of the Player
@@ -14,7 +15,7 @@ pub struct Player {
     // A list of positions the Player attempts to move to, used for animation
     // purposes. Should never be empty (at least 1 value always)
     keyframes: VecDeque<GridPoint>,
-    size: f32,
+    pub size: f32,
     color: Color,
     hit_timer: usize,
 }
@@ -23,27 +24,21 @@ impl Player {
     /// Reset the player in bounds if they try to go out of bounds.
     /// TODO: make sure Keyframes are in bounds as well
     fn handle_boundaries(&mut self, width: f32, height: f32) {
-        let pos = &mut self.pos.0;
-        if pos[1] > height {
-            pos[1] = height;
-        } else if pos[1] < 0.0 {
-            pos[1] = 0.0;
+        if self.pos.y > height {
+            self.pos.y = height;
+        } else if self.pos.y < 0.0 {
+            self.pos.y = 0.0;
         }
 
-        if pos[0] < 0.0 {
-            pos[0] = 0.0;
-        } else if pos[0] > width {
-            pos[0] = width;
+        if self.pos.x < 0.0 {
+            self.pos.x = 0.0;
+        } else if self.pos.x > width {
+            self.pos.x = width;
         }
     }
 
     pub fn on_hit(&mut self) {
-        self.hit_timer = 100;
-    }
-
-    /// TODO: Make more general. This is super specific right now.
-    pub fn hit(&self, enemy: &Bullet) -> bool {
-        distance(self.pos.0, enemy.pos.0) < self.size
+        self.hit_timer = HIT_TIME_LENGTH;
     }
 
     /// Move the Player closer to the next keyframe, and drop that keyframe if
@@ -53,7 +48,7 @@ impl Player {
         if let Some(goal) = self.keyframes.pop_front() {
             let speed = (self.speed * (self.keyframes.len() * 4 + 2) as f32).min(1.0);
             self.pos = lerp(self.pos, goal, speed);
-            if distance(self.pos.0, goal.0) > 0.01 || self.keyframes.len() == 0 {
+            if distance(self.pos.as_point(), goal.as_point()) > 0.01 || self.keyframes.len() == 0 {
                 self.keyframes.push_front(goal);
             }
         }
@@ -64,7 +59,7 @@ impl Player {
         );
 
         self.hit_timer = self.hit_timer.saturating_sub(1);
-        self.color = color_lerp(WHITE, RED, (self.hit_timer as f32) / 100.0);
+        self.color = color_lerp(WHITE, RED, (self.hit_timer as f32) / HIT_TIME_LENGTH as f32);
     }
 
     pub fn draw(&mut self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
@@ -86,12 +81,12 @@ impl Player {
     pub fn key_down_event(&mut self, direction: Direction8) {
         use Direction8::*;
         let mut goal: GridPoint = self.position();
-        goal.0[0] += match direction {
+        goal.x += match direction {
             Left | LeftDown | LeftUp => -1.0,
             Right | RightDown | RightUp => 1.0,
             Up | Down => 0.0,
         };
-        goal.0[1] += match direction {
+        goal.y += match direction {
             Up | LeftUp | RightUp => -1.0,
             Down | LeftDown | RightDown => 1.0,
             Left | Right => 0.0,
@@ -108,9 +103,9 @@ impl Player {
 impl Default for Player {
     fn default() -> Self {
         Player {
-            pos: GridPoint(Point2::new(0.0, 0.0)),
+            pos: GridPoint { x: 0.0, y: 0.0 },
             speed: 0.2,
-            keyframes: VecDeque::from_iter(vec![GridPoint(Point2::new(0.0, 0.0))]),
+            keyframes: VecDeque::from_iter(vec![GridPoint { x: 0.0, y: 0.0 }]),
             size: 0.2,
             color: WHITE,
             hit_timer: 0,

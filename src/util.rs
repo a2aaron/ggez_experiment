@@ -47,9 +47,25 @@ pub const DEBUG_RED: Color = Color {
     a: 1.0,
 };
 
-/// Convience wrapper around Point2, for type enforcement
+/// Coordinates in Grid Space (1.0 GridPoint = 1 Grid Square Length)
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct GridPoint(pub Point2);
+pub struct GridPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl GridPoint {
+    pub fn new_from(point: Point2) -> Self {
+        GridPoint {
+            x: point[0],
+            y: point[1],
+        }
+    }
+
+    pub fn as_point(&self) -> Point2 {
+        Point2::new(self.x, self.y)
+    }
+}
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Direction8 {
@@ -83,8 +99,12 @@ impl Direction4 {
     }
 }
 
+pub fn lerpf32(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
 pub fn lerp(a: GridPoint, b: GridPoint, t: f32) -> GridPoint {
-    GridPoint(a.0 + (b.0 - a.0) * t)
+    GridPoint::new_from(a.as_point() + (b.as_point() - a.as_point()) * t)
 }
 
 // todo : make this not stupid
@@ -95,8 +115,8 @@ pub fn color_lerp(a: Color, b: Color, t: f32) -> Color {
 
     Color::new(
         f32_lerp(a.r, b.r, t),
-        f32_lerp(a.b, b.b, t),
         f32_lerp(a.g, b.g, t),
+        f32_lerp(a.b, b.b, t),
         f32_lerp(a.a, b.a, t),
     )
 }
@@ -112,19 +132,19 @@ pub fn gen_range(lower: isize, upper: isize) -> isize {
 // todo: this is an awful way to do this but w/e make it compile
 /// Return a random GridPoint around another point.
 pub fn rand_around(grid_size: (usize, usize), pos: GridPoint, noise: isize) -> GridPoint {
-    let (pos_x, pos_y) = (pos.0[0] as isize, pos.0[1] as isize);
-    GridPoint(Point2::new(
-        clamp(
+    let (pos_x, pos_y) = (pos.x as isize, pos.y as isize);
+    GridPoint {
+        x: clamp(
             gen_range(pos_x - noise, pos_x + noise),
             0,
             grid_size.0 as isize,
         ) as f32,
-        clamp(
+        y: clamp(
             gen_range(pos_y - noise, pos_y + noise),
             0,
             grid_size.1 as isize,
         ) as f32,
-    ))
+    }
 }
 
 /// Return a random GridPoint along an edge.
@@ -138,7 +158,10 @@ pub fn rand_edge(grid_size: (usize, usize)) -> GridPoint {
         Up => (gen_range(0, width), 0),
         Down => (gen_range(0, width), height),
     };
-    GridPoint(Point2::new(x as f32, y as f32))
+    GridPoint {
+        x: x as f32,
+        y: y as f32,
+    }
 }
 
 pub fn clamp(n: isize, lower: isize, upper: isize) -> isize {

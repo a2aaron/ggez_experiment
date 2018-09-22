@@ -16,31 +16,33 @@ use std::path::PathBuf;
 
 use ggez::audio::Source;
 use ggez::event::{Keycode, Mod};
-use ggez::graphics::{Color, Text, Font, Point2, Drawable};
-use ggez::{Context, ContextBuilder, GameResult, audio, conf, event, graphics};
+use ggez::graphics::{Color, Drawable, Font, Point2, Text};
+use ggez::{audio, conf, event, graphics, Context, ContextBuilder, GameResult};
 
-use enemy::Bullet;
+use enemy::Enemy;
 use grid::Grid;
 use keyboard::KeyboardState;
 use player::Player;
-use time::{Beat, Scheduler, Time, BeatF64};
+use time::{Beat, BeatF64, Scheduler, Time};
 use util::*;
 
 const BPM: f64 = 170.0;
 // Files read via ggez (usually music/font/images)
 const MUSIC_PATH: &str = "/bbkkbkk.ogg";
-const ARIAL_PATH: &str = "/Arial.ttf";
+// const ARIAL_PATH: &str = "/Arial.ttf";
 const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
 // Files manually read by me (usually maps)
 const MAP_PATH: &str = "./resources/bbkkbkk.map";
 
+// Debug
+const USE_MAP: bool = true;
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {
     player: Player,
-    enemies: Vec<Bullet>,
+    enemies: Vec<Box<dyn Enemy>>,
     grid: Grid,
-    background: Color
+    background: Color,
 }
 
 impl World {
@@ -58,7 +60,7 @@ impl World {
         let mut was_hit = false;
         for enemy in self.enemies.iter_mut() {
             enemy.update(Into::<BeatF64>::into(beat_time));
-            if self.player.hit(enemy) {
+            if enemy.intersects(&self.player) {
                 was_hit = true
             }
         }
@@ -68,7 +70,7 @@ impl World {
         }
 
         // Delete all non-alive enemies
-        self.enemies.retain(|e| e.alive);
+        self.enemies.retain(|e| e.is_alive());
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
@@ -137,11 +139,23 @@ impl MainState {
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
     fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
         let beat_time = self.time.beat_time();
-        let string: &str = &format!("Measure: {:2?}, Beat: {:2?}, Offset: {:3?}", beat_time.beat/4, beat_time.beat % 4, beat_time.offset)[..];
+        let string: &str = &format!(
+            "Measure: {:2?}, Beat: {:2?}, Offset: {:3?}",
+            beat_time.beat / 4,
+            beat_time.beat % 4,
+            beat_time.offset
+        )[..];
         let text = Text::new(ctx, string, &self.assets.debug_font)?;
         let screen = graphics::get_screen_coordinates(ctx);
         graphics::set_color(ctx, DEBUG_RED)?;
-        text.draw(ctx, Point2::new(screen.w - text.width() as f32, screen.h - text.height() as f32), 0.0)?;
+        text.draw(
+            ctx,
+            Point2::new(
+                screen.w - text.width() as f32,
+                screen.h - text.height() as f32,
+            ),
+            0.0,
+        )?;
         Ok(())
     }
 }
@@ -159,8 +173,9 @@ impl event::EventHandler for MainState {
         }
 
         self.world.update(ctx, self.time.beat_time());
-
-        self.scheduler.update(&self.time, &mut self.world);
+        if USE_MAP {
+            self.scheduler.update(&self.time, &mut self.world);
+        }
         Ok(())
     }
 

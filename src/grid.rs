@@ -34,11 +34,11 @@ impl Default for Grid {
 impl Grid {
     /// Decorative, makes the glow grid pulse to the music
     pub fn update(&mut self, beat_percent: f64) {
-        let color = 0.6 + 0.4 * smooth_step(1.0 - beat_percent) as f32;
+        let color = 0.6 + 0.2 * smooth_step(1.0 - beat_percent) as f32;
         self.color = Color::new(color, color, color, 1.0);
-        let opacity = 0.05 + 0.6 * smooth_step(1.0 - beat_percent) as f32;
+        let opacity = 0.05 + 0.3 * smooth_step(1.0 - beat_percent) as f32;
         self.glow_color = Color::new(1.0, 1.0, 1.0, opacity);
-        self.glow_line_width = 2.0 + 3.0 * smooth_step(1.0 - beat_percent) as f32;
+        self.glow_line_width = 2.0 + 1.0 * smooth_step(1.0 - beat_percent) as f32;
     }
 
     pub fn draw(&self, ctx: &mut Context) -> GameResult<()> {
@@ -89,10 +89,12 @@ impl Grid {
         mb.build(ctx)
     }
 
+    /// Transform a world-space coordinate into a screen-space coordinate (for drawing)
     pub fn to_screen_coord(&self, grid_point: GridPoint) -> Point2 {
-        (grid_point.0 * self.grid_spacing) + Vector2::new(self.offset[0], self.offset[1])
+        (grid_point.as_point() * self.grid_spacing) + Vector2::new(self.offset[0], self.offset[1])
     }
 
+    /// Transform a world-space length into a screen-space length (for drawing)
     pub fn to_screen_length(&self, length: f32) -> f32 {
         self.grid_spacing * length
     }

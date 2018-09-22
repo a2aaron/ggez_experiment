@@ -1,16 +1,19 @@
 use std::cmp::{Ordering, Reverse};
+use std::collections::HashSet;
 use std::collections::{binary_heap::PeekMut, BinaryHeap};
+use std::f32::consts::PI;
 use std::fmt;
+use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
-use std::collections::HashSet;
-use std::fs::File;
+use std::ops;
 use std::time::{Duration, Instant};
 
 use ggez::timer;
 
-use enemy::Bullet;
-use util::*;
+use enemy;
+use enemy::{Bullet, Enemy, Laser};
+use util;
 use World;
 
 #[derive(Debug, Default)]
@@ -20,10 +23,10 @@ pub struct Scheduler {
 
 #[derive(Debug)]
 struct ParseState {
-    section_start: u32, // The starting measure number of this section
-    section_end: u32, // The ending measure number of this section
-    measure_frequency: u32, // How often to apply the event
-    beat_frequency: BeatSet // *Which beats* to apply the event
+    section_start: u32,      // The starting measure number of this section
+    section_end: u32,        // The ending measure number of this section
+    measure_frequency: u32,  // How often to apply the event
+    beat_frequency: BeatSet, // *Which beats* to apply the event
 }
 
 impl ParseState {
@@ -31,7 +34,9 @@ impl ParseState {
     /// Note that these are absolute offsets from the start of the song.
     fn beats(&self) -> Vec<Beat> {
         let mut beats = vec![];
-        for measure in (self.section_start..self.section_end).step_by(self.measure_frequency as usize) {
+        for measure in
+            (self.section_start..self.section_end).step_by(self.measure_frequency as usize)
+        {
             for beat in self.beat_frequency.beats.iter() {
                 beats.push(Beat {
                     beat: measure * 4 + beat.beat - 1,
@@ -57,22 +62,20 @@ impl Default for ParseState {
 /// Convience struct for a set of beats.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct BeatSet {
-    beats: HashSet<Beat>
-    // TODO: more stuff??
+    beats: HashSet<Beat>, // TODO: more stuff??
 }
 
 impl BeatSet {
     /// Construct a new BeatSet from the iteratior. All will have offset 0.
-    fn new<'a>(iter: impl Iterator<Item=&'a u32>) -> BeatSet {
+    fn new<'a>(iter: impl Iterator<Item = &'a u32>) -> BeatSet {
         let mut beats: HashSet<Beat> = Default::default();
         for quarter_note in iter {
             beats.insert(Beat {
-                beat: *quarter_note, offset: 0,
+                beat: *quarter_note,
+                offset: 0,
             });
         }
-        BeatSet {
-            beats: beats
-        }
+        BeatSet { beats: beats }
     }
 }
 
@@ -96,7 +99,6 @@ impl Scheduler {
         }
     }
 
-
     pub fn read_file(file: File) -> Scheduler {
         let mut scheduler: Scheduler = Default::default();
         let mut parse_state: ParseState = Default::default();
@@ -116,16 +118,31 @@ impl Scheduler {
                         parse_state.section_end = end.parse().unwrap();
                         parse_state.measure_frequency = 1;
                         parse_state.beat_frequency = BeatSet::new(vec![1, 2, 3, 4].iter());
-                        },
+                    }
                     ["on", ref rest..] => parse_on_keyword(&mut parse_state, rest),
                     ["spawn", spawn, "spread", spread] => {
                         // Spawn the appropriate bullet and push it into the queue
                         let action = SpawnBullet {
                             num: spawn.parse().unwrap(),
                             spread: spread.parse().unwrap(),
-                            duration: Beat {beat: 4, offset: 0},
+                            duration: Beat { beat: 4, offset: 0 },
                         };
                         for beat in parse_state.beats() {
+                            scheduler.work_queue.push(BeatAction {
+                                beat: Reverse(beat),
+                                action: Box::new(action),
+                            });
+                        }
+                    }
+                    ["laser", "spread", spread] => {
+                        let action = SpawnLaser {
+                            spread: spread.parse().unwrap(),
+                        };
+                        if spread.parse::<isize>().is_err() {
+                            panic!("Expected integer, got {:?}", spread)
+                        }
+                        for beat in parse_state.beats() {
+                            let beat = beat - enemy::LASER_PREDELAY_BEATS;
                             scheduler.work_queue.push(BeatAction {
                                 beat: Reverse(beat),
                                 action: Box::new(action),
@@ -147,7 +164,10 @@ impl Scheduler {
 /// Update the measure and beat frequencies based on a sliced string
 /// Format: ["measure", freq, "beat", which_beats_to_apply]
 fn parse_on_keyword(parse_state: &mut ParseState, measure_beat_frequency: &[&str]) {
-    let beat_index = measure_beat_frequency.iter().position(|&e| e == "beat").unwrap();
+    let beat_index = measure_beat_frequency
+        .iter()
+        .position(|&e| e == "beat")
+        .unwrap();
     let (measure_frequency, beat_frequency) = measure_beat_frequency.split_at(beat_index);
     parse_state.measure_frequency = if measure_frequency[1] == "*" {
         1
@@ -166,7 +186,6 @@ fn parse_on_keyword(parse_state: &mut ParseState, measure_beat_frequency: &[&str
     }
 
     parse_state.beat_frequency = BeatSet::new(beat_numbers.iter());
-
 }
 
 /// Time keeping struct
@@ -186,7 +205,7 @@ impl Time {
             start_time: Instant::now(),
             last_time: Instant::now(),
             current_duration: Duration::new(0, 0),
-            bpm: bpm_to_duration(bpm),
+            bpm: util::bpm_to_duration(bpm),
         }
     }
 
@@ -261,6 +280,22 @@ pub struct Beat {
     pub offset: u8, // offset from the beat, in 1/256th increments
 }
 
+impl ops::Sub for Beat {
+    type Output = Beat;
+    fn sub(self, other: Beat) -> Beat {
+        let beat = if self.offset > other.offset {
+            self.beat.saturating_sub(other.beat)
+        } else {
+            self.beat.saturating_sub(other.beat + 1)
+        };
+        let offset = self.offset.wrapping_sub(other.offset);
+        Beat {
+            beat: beat,
+            offset: offset,
+        }
+    }
+}
+
 /// Beat time is scaled such that 1.0 = 1 beat and 1.5 = 1 beat 128 offset, etc
 impl From<BeatF64> for Beat {
     fn from(beat_time: BeatF64) -> Self {
@@ -294,6 +329,24 @@ impl fmt::Debug for Action {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct SpawnLaser {
+    spread: isize,
+}
+
+impl Action for SpawnLaser {
+    fn preform(&self, world: &mut World, time: &Time) {
+        let mut laser = Laser::new_through_point(
+            util::rand_around(world.grid.grid_size, world.player.position(), self.spread),
+            util::gen_range(0, 6) as f32 * (PI / 6.0),
+            0.4,
+            1.0,
+        );
+        laser.on_spawn(time.f64_time());
+        world.enemies.push(Box::new(laser));
+    }
+}
+
 /// An Action which adds `num` bullets around the player, with some random factor
 #[derive(Clone, Copy)]
 pub struct SpawnBullet {
@@ -305,20 +358,33 @@ pub struct SpawnBullet {
 impl Action for SpawnBullet {
     fn preform(&self, world: &mut World, time: &Time) {
         for _ in 0..self.num {
-            let start_pos = rand_edge(world.grid.grid_size);
-            let end_pos = rand_around(world.grid.grid_size, world.player.position(), self.spread);
+            let start_pos = util::rand_edge(world.grid.grid_size);
+            let end_pos =
+                util::rand_around(world.grid.grid_size, world.player.position(), self.spread);
             let mut bullet = Bullet::new(start_pos, end_pos, self.duration.into());
-            bullet.on_spawn(time.f64_time().into());
-            world.enemies.push(bullet);
+            bullet.on_spawn(time.f64_time());
+            world.enemies.push(Box::new(bullet));
         }
     }
 }
 
 #[test]
 fn test_beat_percent() {
-    assert_eq!(Time::beat_percent(Beat {beat: 1, offset: 0}), 0.0);
-    assert_eq!(Time::beat_percent(Beat {beat: 2, offset: 128}), 0.5);
-    assert_eq!(Time::beat_percent(Beat {beat: 3, offset: 64}), 0.25);
+    assert_eq!(Time::beat_percent(Beat { beat: 1, offset: 0 }), 0.0);
+    assert_eq!(
+        Time::beat_percent(Beat {
+            beat: 2,
+            offset: 128
+        }),
+        0.5
+    );
+    assert_eq!(
+        Time::beat_percent(Beat {
+            beat: 3,
+            offset: 64
+        }),
+        0.25
+    );
 }
 
 #[test]
@@ -350,32 +416,65 @@ fn test_parse_on_keyword() {
     let mut parse_state: ParseState = Default::default();
     parse_on_keyword(&mut parse_state, &["measure", "*", "beat", "*"]);
     assert_eq!(parse_state.measure_frequency, 1);
-    assert_eq!(parse_state.beat_frequency, BeatSet::new(vec![1, 2, 3, 4].iter()));
+    assert_eq!(
+        parse_state.beat_frequency,
+        BeatSet::new(vec![1, 2, 3, 4].iter())
+    );
 }
 
 #[test]
 fn test_new_beat_set() {
     let beat_set1 = BeatSet::new(vec![1, 2, 3, 4].iter());
     let mut beat_set2: BeatSet = Default::default();
-    beat_set2.beats.insert(Beat {beat: 1, offset: 0});
-    beat_set2.beats.insert(Beat {beat: 2, offset: 0});
-    beat_set2.beats.insert(Beat {beat: 3, offset: 0});
-    beat_set2.beats.insert(Beat {beat: 4, offset: 0});
+    beat_set2.beats.insert(Beat { beat: 1, offset: 0 });
+    beat_set2.beats.insert(Beat { beat: 2, offset: 0 });
+    beat_set2.beats.insert(Beat { beat: 3, offset: 0 });
+    beat_set2.beats.insert(Beat { beat: 4, offset: 0 });
     assert_eq!(beat_set1, beat_set2);
 }
 
 #[test]
 fn test_beat_to_f64() {
-    assert_eq!(1.0f64, Beat { beat: 1, offset: 0}.into());
-    assert_eq!(2.0f64 + 1.0/256.0 as f64, Beat { beat: 2, offset: 1}.into());
-    assert_eq!(3.5f64, Beat { beat: 3, offset: 128}.into());
-    assert_eq!(4.25f64, Beat { beat: 4, offset: 64}.into());
+    assert_eq!(1.0f64, Beat { beat: 1, offset: 0 }.into());
+    assert_eq!(
+        2.0f64 + 1.0 / 256.0 as f64,
+        Beat { beat: 2, offset: 1 }.into()
+    );
+    assert_eq!(
+        3.5f64,
+        Beat {
+            beat: 3,
+            offset: 128
+        }.into()
+    );
+    assert_eq!(
+        4.25f64,
+        Beat {
+            beat: 4,
+            offset: 64
+        }.into()
+    );
 }
 
 #[test]
 fn test_f64_to_beat() {
-    assert_eq!(Beat::from(1.0f64), Beat { beat: 1, offset: 0});
-    assert_eq!(Beat::from(2.0f64 + 1.0/256.0 as f64), Beat { beat: 2, offset: 1});
-    assert_eq!(Beat::from(3.5f64), Beat { beat: 3, offset: 128});
-    assert_eq!(Beat::from(4.25f64), Beat { beat: 4, offset: 64});
+    assert_eq!(Beat::from(1.0f64), Beat { beat: 1, offset: 0 });
+    assert_eq!(
+        Beat::from(2.0f64 + 1.0 / 256.0 as f64),
+        Beat { beat: 2, offset: 1 }
+    );
+    assert_eq!(
+        Beat::from(3.5f64),
+        Beat {
+            beat: 3,
+            offset: 128
+        }
+    );
+    assert_eq!(
+        Beat::from(4.25f64),
+        Beat {
+            beat: 4,
+            offset: 64
+        }
+    );
 }
