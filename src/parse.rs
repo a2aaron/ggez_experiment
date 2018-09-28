@@ -3,9 +3,8 @@ use std::collections::HashSet;
 use std::collections::{binary_heap::PeekMut, BinaryHeap};
 use std::f32::consts::PI;
 use std::fmt;
-use std::fs::File;
-use std::io::BufRead;
-use std::io::BufReader;
+use std::fs::read_to_string;
+use std::path::Path;
 
 use enemy;
 use enemy::{Bullet, Enemy, Laser};
@@ -95,78 +94,130 @@ impl Scheduler {
             }
         }
     }
-
-    pub fn read_file(file: File) -> Scheduler {
+    pub fn read_file(path: &Path) -> Scheduler {
         let mut scheduler: Scheduler = Default::default();
         let mut parse_state: ParseState = Default::default();
-        let reader = BufReader::new(&file);
-
-        for (i, line) in reader.lines().enumerate() {
-            if let Ok(line) = line {
-                let line = line.trim();
-                if line.starts_with("#") {
-                    continue;
-                }
-                let mut line: Vec<_> = line.split_whitespace().collect();
-                match line[..] {
-                    ["section", start, end] => {
-                        // Reset event frequency changes & update section times
-                        parse_state.section_start = start.parse().unwrap();
-                        parse_state.section_end = end.parse().unwrap();
-                        parse_state.measure_frequency = 1;
-                        parse_state.beat_frequency = BeatSet::new(vec![1, 2, 3, 4].iter());
-                    }
-                    ["on", ref rest..] => parse_on_keyword(&mut parse_state, rest),
-                    ["spawn", spawn, "spread", spread] => {
-                        // Spawn the appropriate bullet and push it into the queue
-                        let action = SpawnBullet {
-                            num: spawn.parse().unwrap(),
-                            spread: spread.parse().unwrap(),
-                            duration: Beat { beat: 4, offset: 0 },
-                        };
-                        for beat in parse_state.beats() {
-                            scheduler.work_queue.push(BeatAction {
-                                beat: Reverse(beat),
-                                action: Box::new(action),
-                            });
-                        }
-                    }
-                    ["laser", "spread", spread] => {
-                        let action = SpawnLaser {
-                            spread: spread.parse().unwrap(),
-                        };
-                        if spread.parse::<isize>().is_err() {
-                            panic!("Expected integer, got {:?}", spread)
-                        }
-                        for beat in parse_state.beats() {
-                            let beat = beat - enemy::LASER_PREDELAY_BEATS;
-                            scheduler.work_queue.push(BeatAction {
-                                beat: Reverse(beat),
-                                action: Box::new(action),
-                            });
-                        }
-                    }
-                    ["rest"] => (),
-                    ["end"] => break,
-                    ref x => panic!("unexpected line in map file: {:?} (line {})", x, i),
-                }
-            } else {
-                break;
-            }
-        }
-        scheduler
+        let tokens = parse(split_lines(&read_to_string(path).unwrap()));
+        unimplemented!();
     }
+}
+
+/// Read in a file, returing a list of strings split by whitespace
+/// Lines starting with # are removed as comments
+fn split_lines<'a>(text: &'a str) -> Vec<Vec<&'a str>> {
+    let mut lines = vec![];
+    for line in text.split("\n") {
+        let line = line.trim();
+        // Remove comments
+        if line.starts_with("#") {
+            continue;
+        }
+        let mut line = line.split_whitespace().collect();
+        lines.push(line);
+    }
+    lines
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Section {
+    start_measure: u32,
+    end_measure: u32,
+    commands: Vec<Commands>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Commands {
+    SpawnBullet {
+        spawn: u32,
+        spread: u32,
+        duration: Beat,
+    },
+    SpawnLaser {
+        spread: u32,
+    },
+    CmdFrequency {
+        measure_frequency: u32,
+        beat_frequency: Vec<u32>,
+    },
+    Skip,
+    Rest,
+    End,
+}
+
+/// Convert a bunch of parsed strings to actual tokens, split by section
+fn parse(lines: Vec<Vec<&str>>) -> Vec<Section> {
+    let mut sections = vec![];
+    let mut lines = lines.iter();
+    let mut line_number = 1;
+
+    let mut first_section = true;
+
+    let mut start_measure = 0;
+    let mut end_measure = 0;
+    let mut commands = vec![];
+
+    while let Some(next_line) = lines.next() {
+        use self::Commands::*;
+        match next_line[..] {
+            ["section", start, end] => {
+                // Skip pushing the very first section to a new section because
+                // we haven't actually read the section yet.
+                if first_section {
+                    first_section = false
+                } else {
+                    sections.push(Section {
+                        start_measure: start_measure,
+                        end_measure: end_measure,
+                        commands: commands,
+                    });
+                }
+                commands = vec![];
+                start_measure = start.parse().unwrap();
+                end_measure = end.parse().unwrap();
+            }
+            ["on", ref rest..] => {
+                commands.push(parse_on_keyword(rest));
+            }
+            ["spawn", spawn, "spread", spread] => {
+                commands.push(SpawnBullet {
+                    spawn: spawn.parse().unwrap(),
+                    spread: spread.parse().unwrap(),
+                    duration: Beat { beat: 4, offset: 0 },
+                });
+            }
+            ["laser", "spread", spread] => {
+                commands.push(SpawnLaser {
+                    spread: spread.parse().unwrap(),
+                });
+            }
+            ["rest"] => commands.push(Rest),
+            ["end"] => commands.push(End),
+            ref x => panic!(
+                "unexpected line in map file: {:?} (line {})",
+                x, line_number
+            ),
+        }
+        line_number += 1;
+    }
+    // Push the last section (there won't be another section token to read, but
+    // we need to push it anyways
+    sections.push(Section {
+        start_measure: start_measure,
+        end_measure: end_measure,
+        commands: commands,
+    });
+    sections
 }
 
 /// Update the measure and beat frequencies based on a sliced string
 /// Format: ["measure", freq, "beat", which_beats_to_apply]
-fn parse_on_keyword(parse_state: &mut ParseState, measure_beat_frequency: &[&str]) {
+fn parse_on_keyword(measure_beat_frequency: &[&str]) -> Commands {
     let beat_index = measure_beat_frequency
         .iter()
         .position(|&e| e == "beat")
         .unwrap();
     let (measure_frequency, beat_frequency) = measure_beat_frequency.split_at(beat_index);
-    parse_state.measure_frequency = if measure_frequency[1] == "*" {
+    let measure_frequency = if measure_frequency[1] == "*" {
         1
     } else {
         measure_frequency[1].parse().unwrap()
@@ -181,8 +232,10 @@ fn parse_on_keyword(parse_state: &mut ParseState, measure_beat_frequency: &[&str
             beat_numbers.push(beat_number.parse().unwrap())
         }
     }
-
-    parse_state.beat_frequency = BeatSet::new(beat_numbers.iter());
+    Commands::CmdFrequency {
+        measure_frequency: measure_frequency,
+        beat_frequency: beat_numbers,
+    }
 }
 
 /// A wrapper struct of a Beat and a Boxed Action. The beat has reversed ordering
@@ -266,19 +319,172 @@ impl Action for SpawnBullet {
 }
 
 #[test]
-fn test_parse_on_keyword() {
-    let mut parse_state: ParseState = Default::default();
-    parse_on_keyword(&mut parse_state, &["measure", "420", "beat", "6", "9"]);
-    assert_eq!(parse_state.measure_frequency, 420);
-    assert_eq!(parse_state.beat_frequency, BeatSet::new(vec![6, 9].iter()));
-
-    let mut parse_state: ParseState = Default::default();
-    parse_on_keyword(&mut parse_state, &["measure", "*", "beat", "*"]);
-    assert_eq!(parse_state.measure_frequency, 1);
+fn test_split_lines() {
+    let string = "section 6 9\nmeasure * beat *";
+    let split = split_lines(string);
     assert_eq!(
-        parse_state.beat_frequency,
-        BeatSet::new(vec![1, 2, 3, 4].iter())
+        vec![vec!["section", "6", "9"], vec!["measure", "*", "beat", "*"]],
+        split
     );
+}
+
+#[test]
+fn test_split_lines_comments() {
+    let string = "section 6 9\n# I'm a comment!\nmeasure * beat *";
+    let split = split_lines(string);
+    assert_eq!(
+        vec![vec!["section", "6", "9"], vec!["measure", "*", "beat", "*"]],
+        split
+    );
+}
+
+#[test]
+fn test_parse_on_keyword() {
+    let command = parse_on_keyword(&["measure", "420", "beat", "6", "9"]);
+    assert_eq!(
+        command,
+        Commands::CmdFrequency {
+            measure_frequency: 420,
+            beat_frequency: vec![6, 9]
+        }
+    );
+
+    let command = parse_on_keyword(&["measure", "*", "beat", "*"]);
+    assert_eq!(
+        command,
+        Commands::CmdFrequency {
+            measure_frequency: 1,
+            beat_frequency: vec![1, 2, 3, 4]
+        }
+    );
+}
+
+#[test]
+fn test_parse_trival() {
+    let sections = parse(vec![vec!["section", "0", "1"]]);
+    assert_eq!(
+        sections,
+        vec![Section {
+            start_measure: 0,
+            end_measure: 1,
+            commands: vec![],
+        }]
+    )
+}
+
+#[test]
+fn test_parse_empty_sections() {
+    let sections = parse(vec![
+        vec!["section", "0", "4"],
+        vec!["section", "4", "8"],
+        vec!["section", "8", "12"],
+        vec!["section", "12", "16"],
+    ]);
+    let expected = vec![
+        Section {
+            start_measure: 0,
+            end_measure: 4,
+            commands: vec![],
+        },
+        Section {
+            start_measure: 4,
+            end_measure: 8,
+            commands: vec![],
+        },
+        Section {
+            start_measure: 8,
+            end_measure: 12,
+            commands: vec![],
+        },
+        Section {
+            start_measure: 12,
+            end_measure: 16,
+            commands: vec![],
+        },
+    ];
+    assert_eq!(sections, expected);
+}
+
+#[test]
+fn test_parse_simple() {
+    use self::Commands::*;
+    let sections = parse(vec![
+        vec!["section", "0", "4"],
+        vec!["spawn", "4", "spread", "8"],
+        vec!["laser", "spread", "8"],
+        vec!["rest"],
+        vec!["end"],
+    ]);
+    let expected = vec![Section {
+        start_measure: 0,
+        end_measure: 4,
+        commands: vec![
+            SpawnBullet {
+                spawn: 4,
+                spread: 8,
+                duration: Beat { beat: 4, offset: 0 },
+            },
+            SpawnLaser { spread: 8 },
+            Rest,
+            End,
+        ],
+    }];
+    assert_eq!(sections, expected);
+}
+
+#[test]
+fn test_parse_many_sections() {
+    use self::Commands::*;
+    let sections = parse(vec![
+        vec!["section", "0", "4"],
+        vec!["spawn", "1", "spread", "1"],
+        vec!["laser", "spread", "1"],
+        vec!["section", "4", "8"],
+        vec!["spawn", "2", "spread", "2"],
+        vec!["laser", "spread", "2"],
+        vec!["section", "8", "16"],
+        vec!["spawn", "3", "spread", "3"],
+        vec!["laser", "spread", "3"],
+    ]);
+    let expected = vec![
+        Section {
+            start_measure: 0,
+            end_measure: 4,
+            commands: vec![
+                SpawnBullet {
+                    spawn: 1,
+                    spread: 1,
+                    duration: Beat { beat: 4, offset: 0 },
+                },
+                SpawnLaser { spread: 1 },
+            ],
+        },
+        Section {
+            start_measure: 4,
+            end_measure: 8,
+            commands: vec![
+                SpawnBullet {
+                    spawn: 2,
+                    spread: 2,
+                    duration: Beat { beat: 4, offset: 0 },
+                },
+                SpawnLaser { spread: 2 },
+            ],
+        },
+        Section {
+            start_measure: 8,
+            end_measure: 16,
+            commands: vec![
+                SpawnBullet {
+                    spawn: 3,
+                    spread: 3,
+                    duration: Beat { beat: 4, offset: 0 },
+                },
+                SpawnLaser { spread: 3 },
+            ],
+        },
+    ];
+    assert_eq!(sections, expected);
 }
 
 #[test]
