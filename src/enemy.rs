@@ -6,7 +6,7 @@ use player::Player;
 use time::{Beat, BeatF64, Time};
 use util::{
     color_lerp, distance, lerp, lerpf32, quartic, smooth_step, GridPoint, GREEN, GUIDE_GREY, RED,
-    TRANSPARENT,
+    TRANSPARENT, WHITE,
 };
 
 pub const LASER_PREDELAY: f64 = 4.0;
@@ -98,31 +98,30 @@ impl Enemy for Bullet {
 pub struct Laser {
     start_time: BeatF64,
     durations: LaserDuration,
-    color: Color,
-    thickness_keyframe: (f32, f32), // The hitbox thickness to animate to and from while in active state.
-    width: f32,                     // The lenght of the laser, in gridspace
-    height: f32,                    // The actual thickness of the laser, in gridspace
+    outline_color: Color,
+    outline_keyframes: [(f32, f32); 3], // The outline thickness to animate
+    hitbox_keyframes: [(f32, f32); 3], // The hitbox thickness to animate to and from while in active state.
+    width: f32,                        // The length of the laser, in gridspace
+    outline_thickness: f32,            // Non hitdetecting outline, in gridspace
+    hitbox_thickness: f32,             // In gridspace
     position: GridPoint,
     angle: f32,
     state: LaserState,
     alive: bool,
 }
 impl Laser {
-    pub fn new_through_point(
-        point: GridPoint,
-        angle: f32,
-        thickness: f32,
-        duration: BeatF64,
-    ) -> Laser {
+    pub fn new_through_point(point: GridPoint, angle: f32, duration: BeatF64) -> Laser {
         Laser {
             start_time: 0.0,
             durations: LaserDuration::new(duration),
-            thickness_keyframe: (thickness, 0.1),
+            outline_keyframes: [(0.0, 0.1), (0.8, 0.4), (0.4, 0.0)],
+            hitbox_keyframes: [(0.0, 0.0), (0.4, 0.1), (0.1, 0.05)],
             position: point,
             angle: angle,
             width: 30.0,
-            height: 0.0,
-            color: TRANSPARENT,
+            outline_thickness: 0.0,
+            hitbox_thickness: 0.0,
+            outline_color: TRANSPARENT,
             state: LaserState::Predelay,
             alive: true,
         }
@@ -143,12 +142,18 @@ impl Enemy for Laser {
         self.state = self.durations.get_state(delta_time);
         let percent_over_state = self.durations.percent_over_state(delta_time) as f32;
         let (start_thickness, end_thickness) = match self.durations.get_state(delta_time) {
-            Predelay => (0.0, 0.1),
-            Active => self.thickness_keyframe,
-            Cooldown => (self.thickness_keyframe.1, self.thickness_keyframe.1 / 1.2),
+            Predelay => self.outline_keyframes[0],
+            Active => self.outline_keyframes[1],
+            Cooldown => self.outline_keyframes[2],
         };
-        self.height = lerpf32(start_thickness, end_thickness, percent_over_state);
+        self.outline_thickness = lerpf32(start_thickness, end_thickness, percent_over_state);
 
+        let (start_thickness, end_thickness) = match self.durations.get_state(delta_time) {
+            Predelay => self.hitbox_keyframes[0],
+            Active => self.hitbox_keyframes[1],
+            Cooldown => self.hitbox_keyframes[2],
+        };
+        self.hitbox_thickness = lerpf32(start_thickness, end_thickness, percent_over_state);
         let (start_color, end_color) = match self.durations.get_state(delta_time) {
             Predelay => (
                 TRANSPARENT,
@@ -162,26 +167,23 @@ impl Enemy for Laser {
             Active => (RED, RED),
             Cooldown => (RED, TRANSPARENT),
         };
-        self.color = color_lerp(start_color, end_color, percent_over_state);
+        self.outline_color = color_lerp(start_color, end_color, percent_over_state);
     }
 
     fn draw(&self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
         let position = grid.to_screen_coord(self.position);
         let width = grid.to_screen_length(self.width);
-        let height = grid.to_screen_length(self.height);
-        graphics::set_color(ctx, self.color)?;
-        // The mesh is done like this so that we draw about the center of the position
-        // this lets us easily rotate the laser about its position.
-        let points = [
-            Point2::new(-width / 2.0, -height / 2.0),
-            Point2::new(width / 2.0, -height / 2.0),
-            Point2::new(width / 2.0, height / 2.0),
-            Point2::new(-width / 2.0, height / 2.0),
-        ];
-        let mesh = MeshBuilder::new()
-            .polygon(DrawMode::Fill, &points)
-            .build(ctx)?;
-        mesh.draw(ctx, position, self.angle)?;
+        let hitbox_thickness = grid.to_screen_length(self.hitbox_thickness);
+        let outline_thickness = grid.to_screen_length(self.outline_thickness);
+        draw_laser_rect(
+            ctx,
+            position,
+            width,
+            outline_thickness,
+            self.angle,
+            self.outline_color,
+        )?;
+        draw_laser_rect(ctx, position, width, hitbox_thickness, self.angle, WHITE)?;
         graphics::set_color(ctx, GREEN)?;
         graphics::circle(ctx, DrawMode::Fill, position, 4.0, 2.0)?;
         Ok(())
@@ -198,12 +200,36 @@ impl Enemy for Laser {
 
         let player_pos = player.position();
         let distance = (a * player_pos.x + b * player_pos.y + c).abs() / (a * a + b * b).sqrt();
-        distance < self.height / 2.0 + player.size
+        distance < self.hitbox_thickness / 2.0 + player.size
     }
 
     fn is_alive(&self) -> bool {
         self.alive
     }
+}
+
+fn draw_laser_rect(
+    ctx: &mut Context,
+    position: Point2,
+    width: f32,
+    thickness: f32,
+    angle: f32,
+    color: Color,
+) -> GameResult<()> {
+    graphics::set_color(ctx, color)?;
+    // The mesh is done like this so that we draw about the center of the position
+    // this lets us easily rotate the laser about its position.
+    let points = [
+        Point2::new(-width / 2.0, -thickness / 2.0),
+        Point2::new(width / 2.0, -thickness / 2.0),
+        Point2::new(width / 2.0, thickness / 2.0),
+        Point2::new(-width / 2.0, thickness / 2.0),
+    ];
+    let mesh = MeshBuilder::new()
+        .polygon(DrawMode::Fill, &points)
+        .build(ctx)?;
+    mesh.draw(ctx, position, angle)?;
+    Ok(())
 }
 
 #[derive(Debug)]

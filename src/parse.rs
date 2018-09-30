@@ -358,7 +358,6 @@ impl SpawnCmd {
                 let mut laser = Laser::new_through_point(
                     util::rand_around(world.grid.grid_size, world.player.position(), spread),
                     util::gen_range(0, 6) as f32 * (PI / 6.0),
-                    0.4,
                     1.0,
                 );
                 laser.on_spawn(time.f64_time());
