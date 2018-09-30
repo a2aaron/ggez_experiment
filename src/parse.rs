@@ -2,7 +2,6 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::HashSet;
 use std::collections::{binary_heap::PeekMut, BinaryHeap};
 use std::f32::consts::PI;
-use std::fmt;
 use std::fs::read_to_string;
 use std::path::Path;
 
@@ -42,13 +41,11 @@ impl ParseState {
         }
         beats
     }
-}
 
-impl Default for ParseState {
-    fn default() -> Self {
+    fn new(section_start: u32, section_end: u32) -> Self {
         ParseState {
-            section_start: 0,
-            section_end: 0,
+            section_start: section_start,
+            section_end: section_end,
             beat_frequency: BeatSet::new(vec![1, 2, 3, 4].iter()),
             measure_frequency: 1,
         }
@@ -96,9 +93,11 @@ impl Scheduler {
     }
     pub fn read_file(path: &Path) -> Scheduler {
         let mut scheduler: Scheduler = Default::default();
-        let mut parse_state: ParseState = Default::default();
-        let tokens = parse(split_lines(&read_to_string(path).unwrap()));
-        unimplemented!();
+        let sections = parse(split_lines(&read_to_string(path).unwrap()));
+        for section in sections {
+            scheduler.work_queue.extend(compile_section(section));
+        }
+        scheduler
     }
 }
 
@@ -109,7 +108,7 @@ fn split_lines<'a>(text: &'a str) -> Vec<Vec<&'a str>> {
     for line in text.split("\n") {
         let line = line.trim();
         // Remove comments
-        if line.starts_with("#") {
+        if line.starts_with("#") || line.is_empty() {
             continue;
         }
         let mut line = line.split_whitespace().collect();
@@ -127,14 +126,7 @@ struct Section {
 
 #[derive(Debug, PartialEq, Eq)]
 enum Commands {
-    SpawnBullet {
-        spawn: u32,
-        spread: u32,
-        duration: Beat,
-    },
-    SpawnLaser {
-        spread: u32,
-    },
+    SpawnObject(SpawnCmd),
     CmdFrequency {
         measure_frequency: u32,
         beat_frequency: Vec<u32>,
@@ -158,6 +150,7 @@ fn parse(lines: Vec<Vec<&str>>) -> Vec<Section> {
 
     while let Some(next_line) = lines.next() {
         use self::Commands::*;
+        use self::SpawnCmd::*;
         match next_line[..] {
             ["section", start, end] => {
                 // Skip pushing the very first section to a new section because
@@ -179,16 +172,16 @@ fn parse(lines: Vec<Vec<&str>>) -> Vec<Section> {
                 commands.push(parse_on_keyword(rest));
             }
             ["spawn", spawn, "spread", spread] => {
-                commands.push(SpawnBullet {
-                    spawn: spawn.parse().unwrap(),
+                commands.push(SpawnObject(SpawnBullet {
+                    num: spawn.parse().unwrap(),
                     spread: spread.parse().unwrap(),
                     duration: Beat { beat: 4, offset: 0 },
-                });
+                }));
             }
             ["laser", "spread", spread] => {
-                commands.push(SpawnLaser {
+                commands.push(SpawnObject(SpawnLaser {
                     spread: spread.parse().unwrap(),
-                });
+                }));
             }
             ["rest"] => commands.push(Rest),
             ["end"] => commands.push(End),
@@ -238,6 +231,48 @@ fn parse_on_keyword(measure_beat_frequency: &[&str]) -> Commands {
     }
 }
 
+fn compile_section(section: Section) -> BinaryHeap<BeatAction> {
+    use self::Commands::*;
+    let mut parse_state = ParseState::new(section.start_measure, section.end_measure);
+    let mut beat_actions = BinaryHeap::new();
+    for cmd in section.commands {
+        match cmd {
+            SpawnObject(spawn_cmd) => {
+                for beat in parse_state.beats() {
+                    let beat_action = match spawn_cmd {
+                        SpawnCmd::SpawnLaser { .. } => BeatAction {
+                            beat: Reverse(beat - enemy::LASER_PREDELAY_BEATS),
+                            action: spawn_cmd,
+                        },
+                        _ => BeatAction {
+                            beat: Reverse(beat),
+                            action: spawn_cmd,
+                        },
+                    };
+                    beat_actions.push(beat_action)
+                }
+            }
+            CmdFrequency {
+                measure_frequency,
+                beat_frequency,
+            } => {
+                parse_state.measure_frequency = measure_frequency;
+                parse_state.beat_frequency = BeatSet::new(beat_frequency.iter());
+            }
+            Skip => {
+                unimplemented!();
+            }
+            Rest => {
+                continue;
+            }
+            End => {
+                break;
+            }
+        }
+    }
+    beat_actions
+}
+
 /// A wrapper struct of a Beat and a Boxed Action. The beat has reversed ordering
 /// to allow for the Scheduler to actually get the latest beat times.
 #[derive(Debug)]
@@ -245,7 +280,20 @@ struct BeatAction {
     // Stored in reverse ordering so that we can get the _earliest_ beat when in
     // the scheduler, rather than the latest.
     beat: Reverse<Beat>, // for the binary heap's ordering
-    action: Box<Action>,
+    action: SpawnCmd,
+}
+
+impl BeatAction {
+    // Return a dummy BeatAction that only holds a beat
+    fn dummy(beat: u32, offset: u8) -> BeatAction {
+        BeatAction {
+            beat: Reverse(Beat {
+                beat: beat,
+                offset: offset,
+            }),
+            action: SpawnCmd::DummyCmd,
+        }
+    }
 }
 
 impl PartialEq for BeatAction {
@@ -269,53 +317,183 @@ impl Ord for BeatAction {
 }
 
 /// An action makes some modification to the world.
-pub trait Action {
+pub trait Action: Eq {
     fn preform(&self, world: &mut World, time: &Time);
 }
 
-impl fmt::Debug for Action {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Action")
-    }
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+enum SpawnCmd {
+    /// An Action which adds `num` bullets around the player, with some random factor
+    SpawnBullet {
+        num: usize,
+        spread: isize,
+        duration: Beat,
+    },
+    SpawnLaser {
+        spread: isize,
+    },
+    /// Does nothing, good for testing
+    DummyCmd,
 }
 
-#[derive(Clone, Copy)]
-pub struct SpawnLaser {
-    spread: isize,
-}
-
-impl Action for SpawnLaser {
+impl SpawnCmd {
     fn preform(&self, world: &mut World, time: &Time) {
-        let mut laser = Laser::new_through_point(
-            util::rand_around(world.grid.grid_size, world.player.position(), self.spread),
-            util::gen_range(0, 6) as f32 * (PI / 6.0),
-            0.4,
-            1.0,
-        );
-        laser.on_spawn(time.f64_time());
-        world.enemies.push(Box::new(laser));
-    }
-}
-
-/// An Action which adds `num` bullets around the player, with some random factor
-#[derive(Clone, Copy)]
-pub struct SpawnBullet {
-    num: usize,
-    spread: isize,
-    duration: Beat,
-}
-
-impl Action for SpawnBullet {
-    fn preform(&self, world: &mut World, time: &Time) {
-        for _ in 0..self.num {
-            let start_pos = util::rand_edge(world.grid.grid_size);
-            let end_pos =
-                util::rand_around(world.grid.grid_size, world.player.position(), self.spread);
-            let mut bullet = Bullet::new(start_pos, end_pos, self.duration.into());
-            bullet.on_spawn(time.f64_time());
-            world.enemies.push(Box::new(bullet));
+        use self::SpawnCmd::*;
+        match *self {
+            SpawnBullet {
+                num,
+                spread,
+                duration,
+            } => {
+                for _ in 0..num {
+                    let start_pos = util::rand_edge(world.grid.grid_size);
+                    let end_pos =
+                        util::rand_around(world.grid.grid_size, world.player.position(), spread);
+                    let mut bullet = Bullet::new(start_pos, end_pos, duration.into());
+                    bullet.on_spawn(time.f64_time());
+                    world.enemies.push(Box::new(bullet));
+                }
+            }
+            SpawnLaser { spread } => {
+                let mut laser = Laser::new_through_point(
+                    util::rand_around(world.grid.grid_size, world.player.position(), spread),
+                    util::gen_range(0, 6) as f32 * (PI / 6.0),
+                    0.4,
+                    1.0,
+                );
+                laser.on_spawn(time.f64_time());
+                world.enemies.push(Box::new(laser));
+            }
+            DummyCmd => {} // Do nothing, this is a dummy
         }
     }
+}
+
+#[test]
+fn test_compile_empty_section() {
+    let section = Section {
+        start_measure: 0,
+        end_measure: 4,
+        commands: vec![],
+    };
+    let expected = BinaryHeap::<BeatAction>::new();
+    assert_eq!(
+        expected.into_sorted_vec(),
+        compile_section(section).into_sorted_vec()
+    );
+}
+
+#[test]
+fn test_compile_spawn_simple() {
+    use std::iter::FromIterator;
+
+    use self::Commands::*;
+    use self::SpawnCmd::*;
+
+    let section = Section {
+        start_measure: 0,
+        end_measure: 1,
+        commands: vec![SpawnObject(DummyCmd)],
+    };
+    let expected: Vec<BeatAction> = vec![
+        BeatAction::dummy(0, 0),
+        BeatAction::dummy(1, 0),
+        BeatAction::dummy(2, 0),
+        BeatAction::dummy(3, 0),
+    ];
+    let expected = BinaryHeap::<BeatAction>::from_iter(expected.into_iter());
+    assert_eq!(
+        expected.into_sorted_vec(),
+        compile_section(section).into_sorted_vec()
+    );
+}
+
+#[test]
+fn test_compile_laser_predelay() {
+    use std::iter::FromIterator;
+
+    use self::Commands::*;
+    use self::SpawnCmd::*;
+
+    let section = Section {
+        start_measure: 2,
+        end_measure: 3,
+        commands: vec![SpawnObject(SpawnLaser { spread: 1 })],
+    };
+    let expected: Vec<BeatAction> = vec![
+        BeatAction {
+            beat: Reverse(
+                Beat {
+                    beat: 2 * 4 + 0,
+                    offset: 0,
+                } - enemy::LASER_PREDELAY_BEATS,
+            ),
+            action: SpawnLaser { spread: 1 },
+        },
+        BeatAction {
+            beat: Reverse(
+                Beat {
+                    beat: 2 * 4 + 1,
+                    offset: 0,
+                } - enemy::LASER_PREDELAY_BEATS,
+            ),
+            action: SpawnLaser { spread: 1 },
+        },
+        BeatAction {
+            beat: Reverse(
+                Beat {
+                    beat: 2 * 4 + 2,
+                    offset: 0,
+                } - enemy::LASER_PREDELAY_BEATS,
+            ),
+            action: SpawnLaser { spread: 1 },
+        },
+        BeatAction {
+            beat: Reverse(
+                Beat {
+                    beat: 2 * 4 + 3,
+                    offset: 0,
+                } - enemy::LASER_PREDELAY_BEATS,
+            ),
+            action: SpawnLaser { spread: 1 },
+        },
+    ];
+    let expected = BinaryHeap::<BeatAction>::from_iter(expected.into_iter());
+    assert_eq!(
+        expected.into_sorted_vec(),
+        compile_section(section).into_sorted_vec()
+    );
+}
+
+#[test]
+fn test_compile_beat_freq() {
+    use std::iter::FromIterator;
+
+    use self::Commands::*;
+    use self::SpawnCmd::*;
+
+    let section = Section {
+        start_measure: 0,
+        end_measure: 4,
+        commands: vec![
+            CmdFrequency {
+                measure_frequency: 2,
+                beat_frequency: vec![1, 3],
+            },
+            SpawnObject(DummyCmd),
+        ],
+    };
+    let expected: Vec<BeatAction> = vec![
+        BeatAction::dummy(0, 0),
+        BeatAction::dummy(2, 0),
+        BeatAction::dummy(4 * 2 + 0, 0),
+        BeatAction::dummy(4 * 2 + 2, 0),
+    ];
+    let expected = BinaryHeap::<BeatAction>::from_iter(expected.into_iter());
+    assert_eq!(
+        expected.into_sorted_vec(),
+        compile_section(section).into_sorted_vec()
+    );
 }
 
 #[test]
@@ -331,6 +509,17 @@ fn test_split_lines() {
 #[test]
 fn test_split_lines_comments() {
     let string = "section 6 9\n# I'm a comment!\nmeasure * beat *";
+    let split = split_lines(string);
+    assert_eq!(
+        vec![vec!["section", "6", "9"], vec!["measure", "*", "beat", "*"]],
+        split
+    );
+}
+
+#[test]
+fn test_trim_whitespace() {
+    let string =
+        "   \t\t   section    6   9 \n \n   \n \n\n       measure  *     beat   *    \n \n  \n \n ";
     let split = split_lines(string);
     assert_eq!(
         vec![vec!["section", "6", "9"], vec!["measure", "*", "beat", "*"]],
@@ -408,6 +597,7 @@ fn test_parse_empty_sections() {
 #[test]
 fn test_parse_simple() {
     use self::Commands::*;
+    use self::SpawnCmd::*;
     let sections = parse(vec![
         vec!["section", "0", "4"],
         vec!["spawn", "4", "spread", "8"],
@@ -419,12 +609,12 @@ fn test_parse_simple() {
         start_measure: 0,
         end_measure: 4,
         commands: vec![
-            SpawnBullet {
-                spawn: 4,
+            SpawnObject(SpawnBullet {
+                num: 4,
                 spread: 8,
                 duration: Beat { beat: 4, offset: 0 },
-            },
-            SpawnLaser { spread: 8 },
+            }),
+            SpawnObject(SpawnLaser { spread: 8 }),
             Rest,
             End,
         ],
@@ -435,6 +625,7 @@ fn test_parse_simple() {
 #[test]
 fn test_parse_many_sections() {
     use self::Commands::*;
+    use self::SpawnCmd::*;
     let sections = parse(vec![
         vec!["section", "0", "4"],
         vec!["spawn", "1", "spread", "1"],
@@ -451,36 +642,36 @@ fn test_parse_many_sections() {
             start_measure: 0,
             end_measure: 4,
             commands: vec![
-                SpawnBullet {
-                    spawn: 1,
+                SpawnObject(SpawnBullet {
+                    num: 1,
                     spread: 1,
                     duration: Beat { beat: 4, offset: 0 },
-                },
-                SpawnLaser { spread: 1 },
+                }),
+                SpawnObject(SpawnLaser { spread: 1 }),
             ],
         },
         Section {
             start_measure: 4,
             end_measure: 8,
             commands: vec![
-                SpawnBullet {
-                    spawn: 2,
+                SpawnObject(SpawnBullet {
+                    num: 2,
                     spread: 2,
                     duration: Beat { beat: 4, offset: 0 },
-                },
-                SpawnLaser { spread: 2 },
+                }),
+                SpawnObject(SpawnLaser { spread: 2 }),
             ],
         },
         Section {
             start_measure: 8,
             end_measure: 16,
             commands: vec![
-                SpawnBullet {
-                    spawn: 3,
+                SpawnObject(SpawnBullet {
+                    num: 3,
                     spread: 3,
                     duration: Beat { beat: 4, offset: 0 },
-                },
-                SpawnLaser { spread: 3 },
+                }),
+                SpawnObject(SpawnLaser { spread: 3 }),
             ],
         },
     ];
