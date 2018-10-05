@@ -187,3 +187,7 @@ pub fn smooth_step(n: f64) -> f64 {
 pub fn quartic(n: f64) -> f64 {
     n * n * n * n
 }
+
+pub fn late_attack(n: f32) -> f32 {
+    (n * n / 4.0) + 5.0 * (n - 0.3) * (n - 0.3) * (n - 0.3) * (n - 0.3) * (n - 0.3)
+}

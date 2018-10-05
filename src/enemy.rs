@@ -4,6 +4,7 @@ use ggez::{graphics, Context, GameResult};
 use grid::Grid;
 use player::Player;
 use time::{Beat, BeatF64, Time};
+use util;
 use util::{
     color_lerp, distance, lerp, lerpf32, quartic, smooth_step, GridPoint, GREEN, GUIDE_GREY, RED,
     TRANSPARENT, WHITE,
@@ -99,11 +100,11 @@ pub struct Laser {
     start_time: BeatF64,
     durations: LaserDuration,
     outline_color: Color,
-    outline_keyframes: [(f32, f32); 3], // The outline thickness to animate
-    hitbox_keyframes: [(f32, f32); 3], // The hitbox thickness to animate to and from while in active state.
-    width: f32,                        // The length of the laser, in gridspace
-    outline_thickness: f32,            // Non hitdetecting outline, in gridspace
-    hitbox_thickness: f32,             // In gridspace
+    outline_keyframes: Envelope, // The outline thickness to animate
+    hitbox_keyframes: Envelope, // The hitbox thickness to animate to and from while in active state.
+    width: f32,                 // The length of the laser, in gridspace
+    outline_thickness: f32,     // Non hitdetecting outline, in gridspace
+    hitbox_thickness: f32,      // In gridspace
     position: GridPoint,
     angle: f32,
     state: LaserState,
@@ -114,8 +115,16 @@ impl Laser {
         Laser {
             start_time: 0.0,
             durations: LaserDuration::new(duration),
-            outline_keyframes: [(0.0, 0.1), (0.8, 0.4), (0.4, 0.0)],
-            hitbox_keyframes: [(0.0, 0.0), (0.4, 0.1), (0.1, 0.05)],
+            outline_keyframes: Envelope {
+                predelay_keyframes: vec![(0.0, 0.1), (1.0, 0.3)],
+                active_keyframes: vec![(0.0, 0.6), (1.0, 0.2)],
+                cooldown_keyframes: vec![(0.0, 0.2), (1.0, 0.0)],
+            },
+            hitbox_keyframes: Envelope {
+                predelay_keyframes: vec![(0.0, 0.0), (0.0, 0.0)],
+                active_keyframes: vec![(0.0, 0.3), (0.1, 0.2), (1.0, 0.0)],
+                cooldown_keyframes: vec![(0.0, 0.0), (1.0, 0.0)],
+            },
             position: point,
             angle: angle,
             width: 30.0,
@@ -141,20 +150,13 @@ impl Enemy for Laser {
         use self::LaserState::*;
         self.state = self.durations.get_state(delta_time);
         let percent_over_state = self.durations.percent_over_state(delta_time) as f32;
-        let (start_thickness, end_thickness) = match self.durations.get_state(delta_time) {
-            Predelay => self.outline_keyframes[0],
-            Active => self.outline_keyframes[1],
-            Cooldown => self.outline_keyframes[2],
-        };
-        self.outline_thickness = lerpf32(start_thickness, end_thickness, percent_over_state);
-
-        let (start_thickness, end_thickness) = match self.durations.get_state(delta_time) {
-            Predelay => self.hitbox_keyframes[0],
-            Active => self.hitbox_keyframes[1],
-            Cooldown => self.hitbox_keyframes[2],
-        };
-        self.hitbox_thickness = lerpf32(start_thickness, end_thickness, percent_over_state);
-        let (start_color, end_color) = match self.durations.get_state(delta_time) {
+        self.outline_thickness = self
+            .outline_keyframes
+            .lin_interp(self.state, percent_over_state);
+        self.hitbox_thickness = self
+            .hitbox_keyframes
+            .lin_interp(self.state, percent_over_state);
+        let (start_color, end_color) = match self.state {
             Predelay => (
                 TRANSPARENT,
                 Color {
@@ -233,6 +235,42 @@ fn draw_laser_rect(
 }
 
 #[derive(Debug)]
+struct Envelope {
+    predelay_keyframes: Vec<(f32, f32)>,
+    active_keyframes: Vec<(f32, f32)>,
+    cooldown_keyframes: Vec<(f32, f32)>,
+}
+
+impl Envelope {
+    fn lin_interp(&self, state: LaserState, t: f32) -> f32 {
+        use self::LaserState::*;
+        let keyframes = match state {
+            Predelay => &self.predelay_keyframes,
+            Active => &self.active_keyframes,
+            Cooldown => &self.cooldown_keyframes,
+        };
+        match keyframes.binary_search_by(|v| v.0.partial_cmp(&t).expect("Could not compare value"))
+        {
+            Ok(index) => keyframes[index].1,
+            Err(index) => {
+                if index == keyframes.len() {
+                    return keyframes[index - 1].1;
+                }
+                let next_point = GridPoint {
+                    x: keyframes[index].0,
+                    y: keyframes[index].1,
+                };
+                let prev_point = GridPoint {
+                    x: keyframes[index - 1].0,
+                    y: keyframes[index - 1].1,
+                };
+                util::lerp(prev_point, next_point, t).y
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
 struct LaserDuration {
     predelay: BeatF64, // The amount of time to show a predelay warning
     active: BeatF64,   // The amount of time to actually do hit detection
@@ -276,6 +314,10 @@ impl LaserDuration {
             Active => self.predelay + self.active,
             Cooldown => self.predelay + self.active + self.cooldown,
         }
+    }
+
+    fn percent_over_total(&self, state: LaserState, delta_time: BeatF64) -> f64 {
+        delta_time / self.total_duration(state)
     }
 }
 
