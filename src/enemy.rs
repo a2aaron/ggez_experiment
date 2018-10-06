@@ -6,13 +6,14 @@ use player::Player;
 use time::{Beat, BeatF64, Time};
 use util;
 use util::{
-    color_lerp, distance, lerp, lerpf32, quartic, smooth_step, GridPoint, GREEN, GUIDE_GREY, RED,
-    TRANSPARENT, WHITE,
+    color_lerp, distance, lerp, quartic, smooth_step, GridPoint, GREEN, RED, TRANSPARENT, WHITE,
 };
 
 pub const LASER_PREDELAY: f64 = 4.0;
 pub const LASER_PREDELAY_BEATS: Beat = Beat { beat: 4, offset: 0 };
 
+const BULLET_GUIDE_RADIUS: f32 = 10.0;
+const BULLET_GUIDE_WIDTH: f32 = 1.0;
 pub trait Enemy {
     fn on_spawn(&mut self, start_time: BeatF64);
     fn update(&mut self, curr_time: BeatF64);
@@ -74,16 +75,20 @@ impl Enemy for Bullet {
         let pos = grid.to_screen_coord(self.pos);
         let end_pos = grid.to_screen_coord(self.end_pos);
         // TODO: Maybe use a mesh? This is probably really slow
+        // Draw the guide
+        graphics::set_color(ctx, GREEN)?;
+        graphics::circle(ctx, DrawMode::Line(0.5), end_pos, BULLET_GUIDE_RADIUS, 0.1)?;
+        let distance = distance(pos, end_pos);
+        if distance > BULLET_GUIDE_RADIUS {
+            let scale_factor = (distance - BULLET_GUIDE_RADIUS) / distance;
+            let delta = (end_pos - pos) * scale_factor;
+            graphics::line(ctx, &[pos, pos + delta], BULLET_GUIDE_WIDTH)?;
+        }
         // Draw the bullet itself.
         graphics::set_color(ctx, RED)?;
         graphics::circle(ctx, DrawMode::Fill, pos, 5.0, 2.0)?;
         graphics::set_color(ctx, Color::new(1.0, 0.0, 0.0, self.glow_trans))?;
         graphics::circle(ctx, DrawMode::Fill, pos, self.glow_size, 2.0)?;
-        // Draw the guide
-        graphics::set_color(ctx, GREEN)?;
-        graphics::circle(ctx, DrawMode::Line(0.5), end_pos, 10.0, 2.0)?;
-        graphics::set_color(ctx, GUIDE_GREY)?;
-        graphics::line(ctx, &[pos, end_pos], 1.0)?;
         Ok(())
     }
 
