@@ -10,10 +10,15 @@ use util::{
 };
 
 pub const LASER_PREDELAY: f64 = 4.0;
+pub const LASER_DURATION: f64 = 1.0;
 pub const LASER_PREDELAY_BEATS: Beat = Beat { beat: 4, offset: 0 };
+
+const LASER_COOLDOWN: f64 = 1.0;
 
 const BULLET_GUIDE_RADIUS: f32 = 10.0;
 const BULLET_GUIDE_WIDTH: f32 = 1.0;
+pub const BULLET_DURATION_BEATS: Beat = Beat { beat: 4, offset: 0 };
+
 pub trait Enemy {
     fn on_spawn(&mut self, start_time: BeatF64);
     fn update(&mut self, curr_time: BeatF64);
@@ -287,7 +292,7 @@ impl LaserDuration {
         LaserDuration {
             predelay: LASER_PREDELAY,
             active: active_duration,
-            cooldown: 1.0,
+            cooldown: LASER_COOLDOWN,
         }
     }
 
