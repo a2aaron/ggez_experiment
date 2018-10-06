@@ -223,8 +223,12 @@ impl event::EventHandler for MainState {
 
 pub fn main() {
     let mut cb = ContextBuilder::new("visual", "a2aaron")
-        .window_setup(conf::WindowSetup::default().title("Rythym"))
-        .window_mode(conf::WindowMode::default().dimensions(640, 480));
+        .window_setup(
+            conf::WindowSetup::default()
+                .title("ʀᴛʜᴍ")
+                .samples(8)
+                .unwrap(),
+        ).window_mode(conf::WindowMode::default().dimensions(640, 480));
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         // Add the resources path so we can use it.
         let mut path = PathBuf::from(manifest_dir);
