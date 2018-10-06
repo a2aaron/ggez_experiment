@@ -175,7 +175,7 @@ fn parse(lines: Vec<Vec<&str>>) -> Vec<Section> {
                 commands.push(SpawnObject(SpawnBullet {
                     num: spawn.parse().unwrap(),
                     spread: spread.parse().unwrap(),
-                    duration: Beat { beat: 4, offset: 0 },
+                    duration: enemy::BULLET_DURATION_BEATS,
                 }));
             }
             ["laser", "spread", spread] => {
@@ -358,8 +358,7 @@ impl SpawnCmd {
                 let mut laser = Laser::new_through_point(
                     util::rand_around(world.grid.grid_size, world.player.position(), spread),
                     util::gen_range(0, 6) as f32 * (PI / 6.0),
-                    0.4,
-                    1.0,
+                    enemy::LASER_DURATION,
                 );
                 laser.on_spawn(time.f64_time());
                 world.enemies.push(Box::new(laser));

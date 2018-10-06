@@ -71,7 +71,7 @@ impl Player {
             DrawMode::Fill,
             pos,
             grid.to_screen_length(self.size),
-            2.0,
+            0.1,
         )?;
         graphics::set_color(ctx, RED)?;
         graphics::circle(ctx, DrawMode::Fill, goal, 3.0, 2.0)?;
