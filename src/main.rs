@@ -6,12 +6,13 @@ extern crate rand;
 mod enemy;
 mod grid;
 mod keyboard;
+mod parse;
 mod player;
 mod time;
 mod util;
 
 use std::env;
-use std::fs::File;
+use std::path::Path;
 use std::path::PathBuf;
 
 use ggez::audio::Source;
@@ -22,8 +23,9 @@ use ggez::{audio, conf, event, graphics, Context, ContextBuilder, GameResult};
 use enemy::Enemy;
 use grid::Grid;
 use keyboard::KeyboardState;
+use parse::Scheduler;
 use player::Player;
-use time::{Beat, BeatF64, Scheduler, Time};
+use time::{Beat, BeatF64, Time};
 use util::*;
 
 const BPM: f64 = 170.0;
@@ -130,7 +132,7 @@ impl MainState {
             music: audio::Source::new(ctx, MUSIC_PATH)?,
             time: Time::new(BPM),
             started: false,
-            scheduler: Scheduler::read_file(File::open(MAP_PATH).unwrap()),
+            scheduler: Scheduler::read_file(Path::new(MAP_PATH)),
             assets: Assets::new(ctx),
         };
         Ok(s)
@@ -190,7 +192,7 @@ impl event::EventHandler for MainState {
                     self.music.stop();
                     drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
                     self.world.reset();
-                    self.scheduler = Scheduler::read_file(File::open(MAP_PATH).unwrap())
+                    self.scheduler = Scheduler::read_file(Path::new(MAP_PATH))
                 } else {
                     // Start the game. Also play the music.
                     self.started = true;
