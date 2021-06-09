@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
 use std::iter::FromIterator;
 
+use ggez::graphics::DrawParam;
+use ggez::graphics::Drawable;
+use ggez::graphics::MeshBuilder;
 use ggez::graphics::{Color, DrawMode};
 use ggez::*;
 
@@ -53,10 +56,7 @@ impl Player {
             }
         }
 
-        self.handle_boundaries(
-            ctx.conf.window_mode.width as f32,
-            ctx.conf.window_mode.height as f32,
-        );
+        self.handle_boundaries(crate::WINDOW_WIDTH, crate::WINDOW_HEIGHT);
 
         self.hit_timer = self.hit_timer.saturating_sub(1);
         self.color = color_lerp(WHITE, RED, (self.hit_timer as f32) / HIT_TIME_LENGTH as f32);
@@ -65,16 +65,20 @@ impl Player {
     pub fn draw(&mut self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
         let pos = grid.to_screen_coord(self.pos);
         let goal = grid.to_screen_coord(self.position());
-        graphics::set_color(ctx, self.color)?;
-        graphics::circle(
-            ctx,
-            DrawMode::Fill,
+        let mut player = MeshBuilder::new();
+        player.circle(
+            DrawMode::fill(),
             pos,
             grid.to_screen_length(self.size),
             0.1,
-        )?;
-        graphics::set_color(ctx, RED)?;
-        graphics::circle(ctx, DrawMode::Fill, goal, 3.0, 2.0)?;
+            self.color,
+        );
+
+        let mut goal_circle = MeshBuilder::new();
+        goal_circle.circle(DrawMode::fill(), goal, 3.0, 2.0, RED);
+
+        player.build(ctx)?.draw(ctx, DrawParam::default())?;
+        goal_circle.build(ctx)?.draw(ctx, DrawParam::default())?;
         Ok(())
     }
 

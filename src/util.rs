@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use ggez::graphics::{Color, Point2};
+use ggez::graphics::Color;
+use ggez::nalgebra as na;
 use ggez::timer;
 
 use rand::{thread_rng, Rng};
@@ -55,15 +56,15 @@ pub struct GridPoint {
 }
 
 impl GridPoint {
-    pub fn new_from(point: Point2) -> Self {
+    pub fn new_from(point: na::Point2<f32>) -> Self {
         GridPoint {
             x: point[0],
             y: point[1],
         }
     }
 
-    pub fn as_point(&self) -> Point2 {
-        Point2::new(self.x, self.y)
+    pub fn as_point(&self) -> na::Point2<f32> {
+        na::Point2::new(self.x, self.y)
     }
 }
 
@@ -89,7 +90,7 @@ pub enum Direction4 {
 impl Direction4 {
     pub fn rand() -> Direction4 {
         use Direction4::*;
-        match thread_rng().gen_range(0, 4) {
+        match thread_rng().gen_range(0..4) {
             0 => Left,
             1 => Right,
             2 => Up,
@@ -126,7 +127,7 @@ pub fn gen_range(lower: isize, upper: isize) -> isize {
     if lower == upper {
         return lower;
     }
-    thread_rng().gen_range(lower, upper)
+    thread_rng().gen_range(lower..upper)
 }
 
 // todo: this is an awful way to do this but w/e make it compile
@@ -168,7 +169,7 @@ pub fn clamp(n: isize, lower: isize, upper: isize) -> isize {
     n.min(upper).max(lower)
 }
 
-pub fn distance(a: Point2, b: Point2) -> f32 {
+pub fn distance(a: na::Point2<f32>, b: na::Point2<f32>) -> f32 {
     ((a[0] - b[0]).powf(2.0) + (a[1] - b[1]).powf(2.0)).sqrt()
 }
 

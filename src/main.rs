@@ -1,5 +1,3 @@
-#![feature(slice_patterns)]
-
 extern crate ggez;
 extern crate rand;
 
@@ -12,12 +10,12 @@ mod time;
 mod util;
 
 use std::env;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use ggez::audio::Source;
-use ggez::event::{Keycode, Mod};
-use ggez::graphics::{Color, Drawable, Font, Point2, Text};
+use ggez::audio::{SoundSource, Source};
+
+use ggez::event::{KeyCode, KeyMods};
+use ggez::graphics::{mint::Point2, Color, DrawParam, Drawable, Font, Scale, Text, TextFragment};
 use ggez::{audio, conf, event, graphics, Context, ContextBuilder, GameResult};
 
 use enemy::Enemy;
@@ -38,6 +36,9 @@ const MAP_PATH: &str = "./resources/bbkkbkk.map";
 
 // Debug
 const USE_MAP: bool = true;
+
+pub const WINDOW_WIDTH: f32 = 640.0;
+pub const WINDOW_HEIGHT: f32 = 480.0;
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {
@@ -109,7 +110,7 @@ struct Assets {
 impl Assets {
     fn new(ctx: &mut Context) -> Assets {
         Assets {
-            debug_font: Font::new(ctx, FIRACODE_PATH, 18).unwrap(),
+            debug_font: Font::new(ctx, FIRACODE_PATH).unwrap(),
         }
     }
 }
@@ -141,22 +142,28 @@ impl MainState {
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
     fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
         let beat_time = self.time.beat_time();
-        let string: &str = &format!(
+        let text = &format!(
             "Measure: {:2?}, Beat: {:2?}, Offset: {:3?}",
             beat_time.beat / 4,
             beat_time.beat % 4,
             beat_time.offset
         )[..];
-        let text = Text::new(ctx, string, &self.assets.debug_font)?;
-        let screen = graphics::get_screen_coordinates(ctx);
-        graphics::set_color(ctx, DEBUG_RED)?;
+        let fragment = TextFragment {
+            text: text.to_string(),
+            color: Some(DEBUG_RED),
+            font: Some(self.assets.debug_font),
+            scale: Some(Scale::uniform(18.0)),
+        };
+        let text = Text::new(fragment);
+        let text_width = text.width(ctx) as f32;
+        let text_height = text.height(ctx) as f32;
+        let screen = graphics::screen_coordinates(ctx);
         text.draw(
             ctx,
-            Point2::new(
-                screen.w - text.width() as f32,
-                screen.h - text.height() as f32,
-            ),
-            0.0,
+            DrawParam::default().dest(Point2 {
+                x: screen.w - text_width,
+                y: screen.h - text_height,
+            }),
         )?;
         Ok(())
     }
@@ -181,42 +188,44 @@ impl event::EventHandler for MainState {
         Ok(())
     }
 
-    fn key_down_event(&mut self, ctx: &mut Context, keycode: Keycode, _keymod: Mod, _repeat: bool) {
-        use Keycode::*;
-        match keycode {
-            P => {
-                if self.started {
-                    // Stop the game, pausing the music, fetching a new Source instance, and
-                    // rebuild the scheduler work queue.
-                    self.started = false;
-                    self.music.stop();
-                    drop(self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap());
-                    self.world.reset();
-                    self.scheduler = Scheduler::read_file(Path::new(MAP_PATH))
-                } else {
-                    // Start the game. Also play the music.
-                    self.started = true;
-                    self.world.reset();
-                    self.time.reset();
-                    drop(self.music.play());
-                }
+    fn key_down_event(
+        &mut self,
+        ctx: &mut Context,
+        keycode: KeyCode,
+        _keymod: KeyMods,
+        _repeat: bool,
+    ) {
+        use KeyCode::*;
+        if keycode == P {
+            if self.started {
+                // Stop the game, pausing the music, fetching a new Source instance, and
+                // rebuild the scheduler work queue.
+                self.started = false;
+                self.music.stop();
+                self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
+                self.world.reset();
+                self.scheduler = Scheduler::read_file(Path::new(MAP_PATH))
+            } else {
+                // Start the game. Also play the music.
+                self.started = true;
+                self.world.reset();
+                self.time.reset();
+                drop(self.music.play());
             }
-            _ => (),
         }
 
         self.keyboard.update(keycode, true);
     }
 
-    fn key_up_event(&mut self, _ctx: &mut Context, keycode: Keycode, _keymod: Mod, _repeat: bool) {
+    fn key_up_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods) {
         self.keyboard.update(keycode, false);
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        graphics::clear(ctx);
-        graphics::set_background_color(ctx, self.world.background);
+        graphics::clear(ctx, self.world.background);
         self.world.draw(ctx)?;
         self.draw_debug_time(ctx)?;
-        graphics::present(ctx);
+        graphics::present(ctx)?;
         Ok(())
     }
 }
@@ -226,9 +235,9 @@ pub fn main() {
         .window_setup(
             conf::WindowSetup::default()
                 .title("ʀᴛʜᴍ")
-                .samples(8)
-                .unwrap(),
-        ).window_mode(conf::WindowMode::default().dimensions(640, 480));
+                .samples(ggez::conf::NumSamples::Eight),
+        )
+        .window_mode(conf::WindowMode::default().dimensions(WINDOW_WIDTH, WINDOW_HEIGHT));
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
         // Add the resources path so we can use it.
         let mut path = PathBuf::from(manifest_dir);
@@ -241,7 +250,7 @@ pub fn main() {
     } else {
         println!("Not building from cargo");
     }
-    let ctx = &mut cb.build().unwrap();
-    let state = &mut MainState::new(ctx).unwrap();
-    event::run(ctx, state).unwrap();
+    let (mut ctx, mut events_loop) = cb.build().unwrap();
+    let mut state = MainState::new(&mut ctx).unwrap();
+    ggez::event::run(&mut ctx, &mut events_loop, &mut state).unwrap();
 }

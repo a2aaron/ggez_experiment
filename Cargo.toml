@@ -1,8 +1,8 @@
 [package]
-name = "ggez_experiment"
+name = "rthm"
 version = "0.1.0"
 authors = ["Aaron Kofsky <a2aarontothe2@gmail.com>"]
 
 [dependencies]
-ggez = "*"
-rand = "*"
+ggez = "0.5.1"
+rand = "0.8.0"

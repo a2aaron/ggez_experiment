@@ -76,10 +76,7 @@ impl ops::Sub for Beat {
             self.beat.saturating_sub(other.beat + 1)
         };
         let offset = self.offset.wrapping_sub(other.offset);
-        Beat {
-            beat: beat,
-            offset: offset,
-        }
+        Beat { beat, offset }
     }
 }
 
@@ -155,14 +152,16 @@ fn test_beat_to_f64() {
         Beat {
             beat: 3,
             offset: 128
-        }.into()
+        }
+        .into()
     );
     assert_eq!(
         4.25f64,
         Beat {
             beat: 4,
             offset: 64
-        }.into()
+        }
+        .into()
     );
 }
 

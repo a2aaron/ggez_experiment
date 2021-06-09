@@ -1,5 +1,7 @@
-use ggez::graphics::{Color, DrawMode, Drawable, MeshBuilder, Point2};
-use ggez::{graphics, Context, GameResult};
+use ggez::graphics::DrawParam;
+use ggez::graphics::{Color, DrawMode, Drawable, MeshBuilder};
+use ggez::nalgebra as na;
+use ggez::{Context, GameResult};
 
 use grid::Grid;
 use player::Player;
@@ -46,10 +48,10 @@ impl Bullet {
     pub fn new(start_pos: GridPoint, end_pos: GridPoint, duration: BeatF64) -> Bullet {
         Bullet {
             pos: start_pos,
-            start_pos: start_pos,
-            end_pos: end_pos,
+            start_pos,
+            end_pos,
             start_time: 0.0,
-            duration: duration,
+            duration,
             alive: true,
             glow_size: 0.0,
             glow_trans: 0.0,
@@ -81,24 +83,38 @@ impl Enemy for Bullet {
         let end_pos = grid.to_screen_coord(self.end_pos);
         // TODO: Maybe use a mesh? This is probably really slow
         // Draw the guide
-        graphics::set_color(ctx, GREEN)?;
-        graphics::circle(ctx, DrawMode::Line(0.5), end_pos, BULLET_GUIDE_RADIUS, 0.1)?;
+        let mut guide = MeshBuilder::new();
+        guide.circle(
+            DrawMode::stroke(0.5),
+            end_pos,
+            BULLET_GUIDE_RADIUS,
+            0.1,
+            GREEN,
+        );
         let distance = distance(pos, end_pos);
         if distance > BULLET_GUIDE_RADIUS {
             let scale_factor = (distance - BULLET_GUIDE_RADIUS) / distance;
             let delta = (end_pos - pos) * scale_factor;
-            graphics::line(ctx, &[pos, pos + delta], BULLET_GUIDE_WIDTH)?;
+            guide.line(&[pos, pos + delta], BULLET_GUIDE_WIDTH, GREEN)?;
         }
+
+        let glow_color = Color::new(1.0, 0.0, 0.0, self.glow_trans);
         // Draw the bullet itself.
-        graphics::set_color(ctx, RED)?;
-        graphics::circle(ctx, DrawMode::Fill, pos, 5.0, 2.0)?;
-        graphics::set_color(ctx, Color::new(1.0, 0.0, 0.0, self.glow_trans))?;
-        graphics::circle(ctx, DrawMode::Fill, pos, self.glow_size, 2.0)?;
+        // TODO: consider using draw param "dst" feature here?
+        let mut bullet = MeshBuilder::new();
+        bullet
+            .circle(DrawMode::fill(), pos, 5.0, 2.0, RED)
+            // transparent glow
+            .circle(DrawMode::fill(), pos, self.glow_size, 2.0, glow_color);
+
+        guide.build(ctx)?.draw(ctx, DrawParam::default())?;
+        bullet.build(ctx)?.draw(ctx, DrawParam::default())?;
         Ok(())
     }
 
     fn intersects(&self, player: &Player) -> bool {
-        distance(player.position().as_point(), self.pos.as_point()) < player.size // TODO
+        distance(player.position().as_point(), self.pos.as_point()) < player.size
+        // TODO
     }
 
     fn is_alive(&self) -> bool {
@@ -136,7 +152,7 @@ impl Laser {
                 cooldown_keyframes: vec![(0.0, 0.0), (1.0, 0.0)],
             },
             position: point,
-            angle: angle,
+            angle,
             width: 30.0,
             outline_thickness: 0.0,
             hitbox_thickness: 0.0,
@@ -196,8 +212,10 @@ impl Enemy for Laser {
             self.outline_color,
         )?;
         draw_laser_rect(ctx, position, width, hitbox_thickness, self.angle, WHITE)?;
-        graphics::set_color(ctx, GREEN)?;
-        graphics::circle(ctx, DrawMode::Fill, position, 4.0, 2.0)?;
+        // TODO: why is this here?
+        let mut green_circle = MeshBuilder::new();
+        green_circle.circle(DrawMode::fill(), position, 4.0, 2.0, GREEN);
+        green_circle.build(ctx)?.draw(ctx, DrawParam::default())?;
         Ok(())
     }
 
@@ -222,25 +240,24 @@ impl Enemy for Laser {
 
 fn draw_laser_rect(
     ctx: &mut Context,
-    position: Point2,
+    position: na::Point2<f32>,
     width: f32,
     thickness: f32,
     angle: f32,
     color: Color,
 ) -> GameResult<()> {
-    graphics::set_color(ctx, color)?;
     // The mesh is done like this so that we draw about the center of the position
     // this lets us easily rotate the laser about its position.
     let points = [
-        Point2::new(-width / 2.0, -thickness / 2.0),
-        Point2::new(width / 2.0, -thickness / 2.0),
-        Point2::new(width / 2.0, thickness / 2.0),
-        Point2::new(-width / 2.0, thickness / 2.0),
+        na::Point2::new(-width / 2.0, -thickness / 2.0),
+        na::Point2::new(width / 2.0, -thickness / 2.0),
+        na::Point2::new(width / 2.0, thickness / 2.0),
+        na::Point2::new(-width / 2.0, thickness / 2.0),
     ];
     let mesh = MeshBuilder::new()
-        .polygon(DrawMode::Fill, &points)
+        .polygon(DrawMode::fill(), &points, color)?
         .build(ctx)?;
-    mesh.draw(ctx, position, angle)?;
+    mesh.draw(ctx, DrawParam::default().dest(position).rotation(angle))?;
     Ok(())
 }
 

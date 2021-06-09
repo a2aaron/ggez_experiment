@@ -44,10 +44,10 @@ impl ParseState {
 
     fn new(section_start: u32, section_end: u32) -> Self {
         ParseState {
-            section_start: section_start,
-            section_end: section_end,
-            beat_frequency: BeatSet::new(vec![1, 2, 3, 4].iter()),
+            section_start,
+            section_end,
             measure_frequency: 1,
+            beat_frequency: BeatSet::new(vec![1, 2, 3, 4].iter()),
         }
     }
 }
@@ -68,7 +68,7 @@ impl BeatSet {
                 offset: 0,
             });
         }
-        BeatSet { beats: beats }
+        BeatSet { beats }
     }
 }
 
@@ -159,16 +159,16 @@ fn parse(lines: Vec<Vec<&str>>) -> Vec<Section> {
                     first_section = false
                 } else {
                     sections.push(Section {
-                        start_measure: start_measure,
-                        end_measure: end_measure,
-                        commands: commands,
+                        start_measure,
+                        end_measure,
+                        commands,
                     });
                 }
                 commands = vec![];
                 start_measure = start.parse().unwrap();
                 end_measure = end.parse().unwrap();
             }
-            ["on", ref rest..] => {
+            ["on", ref rest @ ..] => {
                 commands.push(parse_on_keyword(rest));
             }
             ["spawn", spawn, "spread", spread] => {
@@ -195,9 +195,9 @@ fn parse(lines: Vec<Vec<&str>>) -> Vec<Section> {
     // Push the last section (there won't be another section token to read, but
     // we need to push it anyways
     sections.push(Section {
-        start_measure: start_measure,
-        end_measure: end_measure,
-        commands: commands,
+        start_measure,
+        end_measure,
+        commands,
     });
     sections
 }
@@ -205,6 +205,7 @@ fn parse(lines: Vec<Vec<&str>>) -> Vec<Section> {
 /// Update the measure and beat frequencies based on a sliced string
 /// Format: ["measure", freq, "beat", which_beats_to_apply]
 fn parse_on_keyword(measure_beat_frequency: &[&str]) -> Commands {
+    println!("{:?}", measure_beat_frequency);
     let beat_index = measure_beat_frequency
         .iter()
         .position(|&e| e == "beat")
@@ -226,7 +227,7 @@ fn parse_on_keyword(measure_beat_frequency: &[&str]) -> Commands {
         }
     }
     Commands::CmdFrequency {
-        measure_frequency: measure_frequency,
+        measure_frequency,
         beat_frequency: beat_numbers,
     }
 }
@@ -287,10 +288,7 @@ impl BeatAction {
     // Return a dummy BeatAction that only holds a beat
     fn dummy(beat: u32, offset: u8) -> BeatAction {
         BeatAction {
-            beat: Reverse(Beat {
-                beat: beat,
-                offset: offset,
-            }),
+            beat: Reverse(Beat { beat, offset }),
             action: SpawnCmd::DummyCmd,
         }
     }

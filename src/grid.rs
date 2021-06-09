@@ -1,13 +1,16 @@
-use ggez::graphics::{Color, Mesh, MeshBuilder, Point2, Vector2};
+use ggez::graphics::DrawParam;
+use ggez::graphics::{Color, Mesh, MeshBuilder};
 use ggez::*;
+
+use ggez::nalgebra as na;
 
 use util::*;
 
 /// The grid that enemies and the player live on.
 /// Also has a "glow" effect that is just decorative.
 pub struct Grid {
-    offset: Point2, // Offset in position from upper right corner
-    glow_offset: Point2,
+    offset: na::Point2<f32>, // Offset in position from upper right corner
+    glow_offset: na::Point2<f32>,
     grid_spacing: f32,
     pub grid_size: (usize, usize),
     line_width: f32,
@@ -19,8 +22,8 @@ pub struct Grid {
 impl Default for Grid {
     fn default() -> Self {
         Grid {
-            offset: Point2::new(15.0f32, 15.0f32),
-            glow_offset: Point2::new(14.5f32, 15.5f32),
+            offset: na::Point2::new(15.0f32, 15.0f32),
+            glow_offset: na::Point2::new(14.5f32, 15.5f32),
             grid_spacing: 50.0,
             grid_size: (12, 9),
             line_width: 1.0,
@@ -42,17 +45,16 @@ impl Grid {
     }
 
     pub fn draw(&self, ctx: &mut Context) -> GameResult<()> {
-        graphics::set_color(ctx, self.color)?;
-        let grid_mesh = self.mesh(ctx, self.line_width)?;
-        graphics::draw(ctx, &grid_mesh, self.offset, 0.0)?;
-        graphics::set_color(ctx, self.glow_color)?;
-        let glow_mesh = self.mesh(ctx, self.glow_line_width)?;
-        graphics::draw(ctx, &glow_mesh, self.glow_offset, 0.0)?;
+        let grid_mesh = self.mesh(ctx, self.line_width, self.color)?;
+        let glow_mesh = self.mesh(ctx, self.glow_line_width, self.glow_color)?;
+
+        graphics::draw(ctx, &grid_mesh, DrawParam::default().dest(self.offset))?;
+        graphics::draw(ctx, &glow_mesh, DrawParam::default().dest(self.glow_offset))?;
         Ok(())
     }
 
     // Build the grid, returning a nice mesh.
-    fn mesh(&self, ctx: &mut Context, line_width: f32) -> GameResult<Mesh> {
+    fn mesh(&self, ctx: &mut Context, line_width: f32, color: Color) -> GameResult<Mesh> {
         // Use a meshbuilder for speed and also ease of doing this.
         let mut mb = MeshBuilder::new();
         let max_x = self.grid_spacing * self.grid_size.0 as f32;
@@ -60,38 +62,43 @@ impl Grid {
         for i in 0..self.grid_size.0 {
             mb.line(
                 &[
-                    Point2::new(self.grid_spacing * i as f32, 0.0),
-                    Point2::new(self.grid_spacing * i as f32, max_y),
+                    na::Point2::new(self.grid_spacing * i as f32, 0.0),
+                    na::Point2::new(self.grid_spacing * i as f32, max_y),
                 ],
                 line_width,
-            );
+                color,
+            )?;
         }
 
         for i in 0..self.grid_size.1 {
             mb.line(
                 &[
-                    Point2::new(0.0, self.grid_spacing * i as f32),
-                    Point2::new(max_x, self.grid_spacing * i as f32),
+                    na::Point2::new(0.0, self.grid_spacing * i as f32),
+                    na::Point2::new(max_x, self.grid_spacing * i as f32),
                 ],
                 line_width,
-            );
+                color,
+            )?;
         }
 
         mb.line(
-            &[Point2::new(max_x, 0.0), Point2::new(max_x, max_y)],
+            &[na::Point2::new(max_x, 0.0), na::Point2::new(max_x, max_y)],
             line_width,
-        );
+            color,
+        )?;
 
         mb.line(
-            &[Point2::new(0.0, max_y), Point2::new(max_x, max_y)],
+            &[na::Point2::new(0.0, max_y), na::Point2::new(max_x, max_y)],
             line_width,
-        );
+            color,
+        )?;
         mb.build(ctx)
     }
 
     /// Transform a world-space coordinate into a screen-space coordinate (for drawing)
-    pub fn to_screen_coord(&self, grid_point: GridPoint) -> Point2 {
-        (grid_point.as_point() * self.grid_spacing) + Vector2::new(self.offset[0], self.offset[1])
+    pub fn to_screen_coord(&self, grid_point: GridPoint) -> na::Point2<f32> {
+        (grid_point.as_point() * self.grid_spacing)
+            + na::Vector2::new(self.offset[0], self.offset[1])
     }
 
     /// Transform a world-space length into a screen-space length (for drawing)

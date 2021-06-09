@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use ggez::event::Keycode;
+use ggez::event::KeyCode;
 
 use util::Direction8;
 
@@ -20,8 +20,8 @@ pub struct KeyboardState {
 }
 
 impl KeyboardState {
-    pub fn update(&mut self, keycode: Keycode, is_down: bool) {
-        use Keycode::*;
+    pub fn update(&mut self, keycode: KeyCode, is_down: bool) {
+        use KeyCode::*;
         match keycode {
             Left => self.left.update(is_down),
             Right => self.right.update(is_down),
