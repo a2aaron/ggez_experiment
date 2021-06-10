@@ -50,7 +50,7 @@ impl Player {
             let speed = (self.speed * (self.keyframes.len() * 4 + 2) as f32).min(1.0);
             self.pos = lerp(self.pos, goal, speed);
             if na::distance(&self.pos.as_point(), &goal.as_point()) > 0.01
-                || self.keyframes.len() == 0
+                || self.keyframes.is_empty()
             {
                 self.keyframes.push_front(goal);
             }

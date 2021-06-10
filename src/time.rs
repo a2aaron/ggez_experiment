@@ -103,6 +103,7 @@ impl Into<BeatF64> for Beat {
 pub type BeatF64 = f64;
 
 #[test]
+#[allow(clippy::float_cmp)]
 fn test_beat_percent() {
     assert_eq!(Time::beat_percent(Beat { beat: 1, offset: 0 }), 0.0);
     assert_eq!(
@@ -122,6 +123,7 @@ fn test_beat_percent() {
 }
 
 #[test]
+#[allow(clippy::float_cmp)]
 fn test_over_duration() {
     assert_eq!(Time::percent_over_duration(0.0, 1.0, 10.0), 0.1);
     assert_eq!(Time::percent_over_duration(0.0, 5.0, 10.0), 0.5);
@@ -141,12 +143,10 @@ fn test_time() {
 }
 
 #[test]
+#[allow(clippy::float_cmp)]
 fn test_beat_to_f64() {
     assert_eq!(1.0f64, Beat { beat: 1, offset: 0 }.into());
-    assert_eq!(
-        2.0f64 + 1.0 / 256.0 as f64,
-        Beat { beat: 2, offset: 1 }.into()
-    );
+    assert_eq!(2.0f64 + 1.0 / 256.0_f64, Beat { beat: 2, offset: 1 }.into());
     assert_eq!(
         3.5f64,
         Beat {
