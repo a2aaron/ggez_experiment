@@ -45,7 +45,7 @@ impl Player {
     /// Move the Player closer to the next keyframe, and drop that keyframe if
     /// sufficiently close. The last keyframe never drops as that is the latest
     /// intended position.
-    pub fn update(&mut self, ctx: &mut Context) {
+    pub fn update(&mut self, _ctx: &mut Context) {
         if let Some(goal) = self.keyframes.pop_front() {
             let speed = (self.speed * (self.keyframes.len() * 4 + 2) as f32).min(1.0);
             self.pos = lerp(self.pos, goal, speed);

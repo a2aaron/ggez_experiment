@@ -457,7 +457,7 @@ fn test_compile_laser_predelay() {
 
 #[test]
 fn test_compile_beat_freq() {
-    use std::iter::FromIterator;
+    
 
     use self::Commands::*;
     use self::SpawnCmd::*;
