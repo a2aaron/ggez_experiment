@@ -1,5 +1,4 @@
-use ggez::graphics::DrawParam;
-use ggez::graphics::{Color, Mesh, MeshBuilder};
+use ggez::graphics::{Color, DrawParam, Mesh, MeshBuilder};
 use ggez::*;
 
 use ggez::nalgebra as na;

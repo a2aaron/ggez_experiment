@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 use ggez::audio::{SoundSource, Source};
 
 use ggez::event::{KeyCode, KeyMods};
-use ggez::graphics::{mint::Point2, Color, DrawParam, Drawable, Font, Scale, Text, TextFragment};
+use ggez::graphics::mint::Point2;
+use ggez::graphics::{Color, DrawParam, Drawable, Font, Scale, Text, TextFragment};
 use ggez::{audio, conf, event, graphics, Context, ContextBuilder, GameResult};
 
 use enemy::Enemy;

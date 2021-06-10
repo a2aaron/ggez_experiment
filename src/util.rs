@@ -1,8 +1,7 @@
 use std::time::Duration;
 
 use ggez::graphics::Color;
-use ggez::nalgebra as na;
-use ggez::timer;
+use ggez::{nalgebra as na, timer};
 
 use rand::{thread_rng, Rng};
 
@@ -135,16 +134,8 @@ pub fn gen_range(lower: isize, upper: isize) -> isize {
 pub fn rand_around(grid_size: (usize, usize), pos: GridPoint, noise: isize) -> GridPoint {
     let (pos_x, pos_y) = (pos.x as isize, pos.y as isize);
     GridPoint {
-        x: clamp(
-            gen_range(pos_x - noise, pos_x + noise),
-            0,
-            grid_size.0 as isize,
-        ) as f32,
-        y: clamp(
-            gen_range(pos_y - noise, pos_y + noise),
-            0,
-            grid_size.1 as isize,
-        ) as f32,
+        x: gen_range(pos_x - noise, pos_x + noise).clamp(0, grid_size.0 as isize) as f32,
+        y: gen_range(pos_y - noise, pos_y + noise).clamp(0, grid_size.1 as isize) as f32,
     }
 }
 
@@ -163,14 +154,6 @@ pub fn rand_edge(grid_size: (usize, usize)) -> GridPoint {
         x: x as f32,
         y: y as f32,
     }
-}
-
-pub fn clamp(n: isize, lower: isize, upper: isize) -> isize {
-    n.min(upper).max(lower)
-}
-
-pub fn distance(a: na::Point2<f32>, b: na::Point2<f32>) -> f32 {
-    ((a[0] - b[0]).powf(2.0) + (a[1] - b[1]).powf(2.0)).sqrt()
 }
 
 pub fn bpm_to_duration(bpm: f64) -> Duration {

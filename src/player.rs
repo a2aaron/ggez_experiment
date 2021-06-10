@@ -1,14 +1,12 @@
 use std::collections::VecDeque;
 use std::iter::FromIterator;
 
-use ggez::graphics::DrawParam;
-use ggez::graphics::Drawable;
-use ggez::graphics::MeshBuilder;
-use ggez::graphics::{Color, DrawMode};
-use ggez::*;
+use ggez::graphics::{Color, DrawMode, DrawParam, Drawable, MeshBuilder};
+use ggez::{nalgebra as na, Context, GameResult};
 
 use grid::Grid;
-use util::*;
+
+use crate::util::{color_lerp, lerp, Direction8, GridPoint, RED, WHITE};
 
 const HIT_TIME_LENGTH: usize = 20; // How many frames the hit timer should be
 
@@ -51,7 +49,9 @@ impl Player {
         if let Some(goal) = self.keyframes.pop_front() {
             let speed = (self.speed * (self.keyframes.len() * 4 + 2) as f32).min(1.0);
             self.pos = lerp(self.pos, goal, speed);
-            if distance(self.pos.as_point(), goal.as_point()) > 0.01 || self.keyframes.len() == 0 {
+            if na::distance(&self.pos.as_point(), &goal.as_point()) > 0.01
+                || self.keyframes.len() == 0
+            {
                 self.keyframes.push_front(goal);
             }
         }

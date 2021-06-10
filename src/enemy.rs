@@ -1,15 +1,11 @@
-use ggez::graphics::DrawParam;
-use ggez::graphics::{Color, DrawMode, Drawable, MeshBuilder};
-use ggez::nalgebra as na;
-use ggez::{Context, GameResult};
+use ggez::graphics::{Color, DrawMode, DrawParam, Drawable, MeshBuilder};
+use ggez::{nalgebra as na, Context, GameResult};
 
 use grid::Grid;
 use player::Player;
 use time::{Beat, BeatF64, Time};
 use util;
-use util::{
-    color_lerp, distance, lerp, quartic, smooth_step, GridPoint, GREEN, RED, TRANSPARENT, WHITE,
-};
+use util::{color_lerp, lerp, quartic, smooth_step, GridPoint, GREEN, RED, TRANSPARENT, WHITE};
 
 pub const LASER_PREDELAY: f64 = 4.0;
 pub const LASER_DURATION: f64 = 1.0;
@@ -91,7 +87,7 @@ impl Enemy for Bullet {
             0.1,
             GREEN,
         );
-        let distance = distance(pos, end_pos);
+        let distance = na::distance(&pos, &end_pos);
         if distance > BULLET_GUIDE_RADIUS {
             let scale_factor = (distance - BULLET_GUIDE_RADIUS) / distance;
             let delta = (end_pos - pos) * scale_factor;
@@ -113,7 +109,7 @@ impl Enemy for Bullet {
     }
 
     fn intersects(&self, player: &Player) -> bool {
-        distance(player.position().as_point(), self.pos.as_point()) < player.size
+        na::distance(&player.position().as_point(), &self.pos.as_point()) < player.size
         // TODO
     }
 

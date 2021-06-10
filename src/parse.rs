@@ -1,15 +1,13 @@
 use std::cmp::{Ordering, Reverse};
-use std::collections::HashSet;
-use std::collections::{binary_heap::PeekMut, BinaryHeap};
+use std::collections::binary_heap::PeekMut;
+use std::collections::{BinaryHeap, HashSet};
 use std::f32::consts::PI;
 use std::fs::read_to_string;
 use std::path::Path;
 
-use enemy;
 use enemy::{Bullet, Enemy, Laser};
 use time::{Beat, Time};
-use util;
-use World;
+use {enemy, util, World};
 
 #[derive(Debug, Default)]
 pub struct Scheduler {
