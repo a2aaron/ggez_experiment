@@ -2,6 +2,7 @@
 section 0 3
     rest
 section 4 7
+    laser spread 4
     spawn 1 spread 4
 # TODO: maybe have "on measure x skip"? would look cleaner
 # Skip measure 8 ("Let the bass kick")

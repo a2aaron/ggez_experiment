@@ -81,7 +81,7 @@ impl World {
         self.grid.draw(ctx)?;
         self.player.draw(ctx, &self.grid)?;
         for enemy in self.enemies.iter() {
-            enemy.draw(ctx, &self.grid)?;
+            enemy.draw(ctx, &self.grid);
         }
         Ok(())
     }

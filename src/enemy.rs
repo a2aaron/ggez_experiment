@@ -1,4 +1,4 @@
-use ggez::graphics::{Color, DrawMode, DrawParam, Drawable, MeshBuilder};
+use ggez::graphics::{Color, DrawMode, DrawParam, Drawable, Mesh, MeshBuilder, Scale};
 use ggez::{nalgebra as na, Context, GameResult};
 
 use grid::Grid;
@@ -206,12 +206,13 @@ impl Enemy for Laser {
             outline_thickness,
             self.angle,
             self.outline_color,
-        )?;
-        draw_laser_rect(ctx, position, width, hitbox_thickness, self.angle, WHITE)?;
+        )
+        .unwrap();
+        draw_laser_rect(ctx, position, width, hitbox_thickness, self.angle, WHITE).unwrap();
         // TODO: why is this here?
-        let mut green_circle = MeshBuilder::new();
-        green_circle.circle(DrawMode::fill(), position, 4.0, 2.0, GREEN);
-        green_circle.build(ctx)?.draw(ctx, DrawParam::default())?;
+        let green_circle =
+            Mesh::new_circle(ctx, DrawMode::fill(), position, 4.0, 2.0, GREEN).unwrap();
+        green_circle.draw(ctx, DrawParam::default())?;
         Ok(())
     }
 
@@ -245,15 +246,19 @@ fn draw_laser_rect(
     // The mesh is done like this so that we draw about the center of the position
     // this lets us easily rotate the laser about its position.
     let points = [
-        na::Point2::new(-width / 2.0, -thickness / 2.0),
-        na::Point2::new(width / 2.0, -thickness / 2.0),
-        na::Point2::new(width / 2.0, thickness / 2.0),
-        na::Point2::new(-width / 2.0, thickness / 2.0),
+        na::Point2::new(1.0, 1.0),
+        na::Point2::new(1.0, -1.0),
+        na::Point2::new(-1.0, -1.0),
+        na::Point2::new(-1.0, 1.0),
     ];
-    let mesh = MeshBuilder::new()
-        .polygon(DrawMode::fill(), &points, color)?
-        .build(ctx)?;
-    mesh.draw(ctx, DrawParam::default().dest(position).rotation(angle))?;
+    let mesh = Mesh::new_polygon(ctx, DrawMode::fill(), &points, color).unwrap();
+    mesh.draw(
+        ctx,
+        DrawParam::default()
+            .dest(position)
+            .scale([width, thickness])
+            .rotation(angle),
+    )?;
     Ok(())
 }
 
