@@ -101,15 +101,15 @@ impl Scheduler {
 
 /// Read in a file, returing a list of strings split by whitespace
 /// Lines starting with # are removed as comments
-fn split_lines<'a>(text: &'a str) -> Vec<Vec<&'a str>> {
+fn split_lines(text: &str) -> Vec<Vec<&str>> {
     let mut lines = vec![];
-    for line in text.split("\n") {
+    for line in text.lines() {
         let line = line.trim();
         // Remove comments
-        if line.starts_with("#") || line.is_empty() {
+        if line.starts_with('#') || line.is_empty() {
             continue;
         }
-        let mut line = line.split_whitespace().collect();
+        let line = line.split_whitespace().collect();
         lines.push(line);
     }
     lines
@@ -137,7 +137,6 @@ enum Commands {
 /// Convert a bunch of parsed strings to actual tokens, split by section
 fn parse(lines: Vec<Vec<&str>>) -> Vec<Section> {
     let mut sections = vec![];
-    let mut lines = lines.iter();
     let mut line_number = 1;
 
     let mut first_section = true;
@@ -146,7 +145,7 @@ fn parse(lines: Vec<Vec<&str>>) -> Vec<Section> {
     let mut end_measure = 0;
     let mut commands = vec![];
 
-    while let Some(next_line) = lines.next() {
+    for next_line in lines.iter() {
         use self::Commands::*;
         use self::SpawnCmd::*;
         match next_line[..] {
@@ -380,8 +379,6 @@ fn test_compile_empty_section() {
 
 #[test]
 fn test_compile_spawn_simple() {
-    use std::iter::FromIterator;
-
     use self::Commands::*;
     use self::SpawnCmd::*;
 
@@ -396,7 +393,7 @@ fn test_compile_spawn_simple() {
         BeatAction::dummy(2, 0),
         BeatAction::dummy(3, 0),
     ];
-    let expected = BinaryHeap::<BeatAction>::from_iter(expected.into_iter());
+    let expected: BinaryHeap<_> = expected.into_iter().collect();
     assert_eq!(
         expected.into_sorted_vec(),
         compile_section(section).into_sorted_vec()
@@ -405,8 +402,6 @@ fn test_compile_spawn_simple() {
 
 #[test]
 fn test_compile_laser_predelay() {
-    use std::iter::FromIterator;
-
     use self::Commands::*;
     use self::SpawnCmd::*;
 
@@ -419,7 +414,7 @@ fn test_compile_laser_predelay() {
         BeatAction {
             beat: Reverse(
                 Beat {
-                    beat: 2 * 4 + 0,
+                    beat: 2 * 4,
                     offset: 0,
                 } - enemy::LASER_PREDELAY_BEATS,
             ),
@@ -453,7 +448,7 @@ fn test_compile_laser_predelay() {
             action: SpawnLaser { spread: 1 },
         },
     ];
-    let expected = BinaryHeap::<BeatAction>::from_iter(expected.into_iter());
+    let expected: BinaryHeap<_> = expected.into_iter().collect();
     assert_eq!(
         expected.into_sorted_vec(),
         compile_section(section).into_sorted_vec()
@@ -481,10 +476,10 @@ fn test_compile_beat_freq() {
     let expected: Vec<BeatAction> = vec![
         BeatAction::dummy(0, 0),
         BeatAction::dummy(2, 0),
-        BeatAction::dummy(4 * 2 + 0, 0),
+        BeatAction::dummy(4 * 2, 0),
         BeatAction::dummy(4 * 2 + 2, 0),
     ];
-    let expected = BinaryHeap::<BeatAction>::from_iter(expected.into_iter());
+    let expected: BinaryHeap<_> = expected.into_iter().collect();
     assert_eq!(
         expected.into_sorted_vec(),
         compile_section(section).into_sorted_vec()

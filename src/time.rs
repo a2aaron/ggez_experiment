@@ -169,7 +169,7 @@ fn test_beat_to_f64() {
 fn test_f64_to_beat() {
     assert_eq!(Beat::from(1.0f64), Beat { beat: 1, offset: 0 });
     assert_eq!(
-        Beat::from(2.0f64 + 1.0 / 256.0 as f64),
+        Beat::from(2.0f64 + 1.0 / 256.0f64),
         Beat { beat: 2, offset: 1 }
     );
     assert_eq!(

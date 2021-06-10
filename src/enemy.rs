@@ -1,4 +1,4 @@
-use ggez::graphics::{Color, DrawMode, DrawParam, Drawable, Mesh, MeshBuilder, Scale};
+use ggez::graphics::{Color, DrawMode, DrawParam, Drawable, Mesh, MeshBuilder};
 use ggez::{nalgebra as na, Context, GameResult};
 
 use grid::Grid;
@@ -206,12 +206,10 @@ impl Enemy for Laser {
             outline_thickness,
             self.angle,
             self.outline_color,
-        )
-        .unwrap();
-        draw_laser_rect(ctx, position, width, hitbox_thickness, self.angle, WHITE).unwrap();
-        // TODO: why is this here?
-        let green_circle =
-            Mesh::new_circle(ctx, DrawMode::fill(), position, 4.0, 2.0, GREEN).unwrap();
+        )?;
+        draw_laser_rect(ctx, position, width, hitbox_thickness, self.angle, WHITE)?;
+        // (probably debug, show the center point of the lazer)
+        let green_circle = Mesh::new_circle(ctx, DrawMode::fill(), position, 4.0, 2.0, GREEN)?;
         green_circle.draw(ctx, DrawParam::default())?;
         Ok(())
     }
