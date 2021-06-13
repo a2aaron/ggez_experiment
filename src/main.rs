@@ -1,36 +1,30 @@
+#![feature(trait_alias)]
+
 extern crate ggez;
 extern crate rand;
 
-mod enemy;
-mod grid;
-mod keyboard;
-mod parse;
-mod player;
-mod time;
-mod util;
-
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use ggez::audio::{SoundSource, Source};
 
 use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::mint::Point2;
-use ggez::graphics::{Color, DrawParam, Drawable, Font, Scale, Text, TextFragment};
+use ggez::graphics::{
+    Color, DrawMode, DrawParam, Drawable, Font, Mesh, Rect, Scale, Text, TextFragment,
+};
 use ggez::{audio, conf, event, graphics, Context, ContextBuilder, GameResult};
 
-use enemy::Enemy;
-use grid::Grid;
-use keyboard::KeyboardState;
-use parse::Scheduler;
-use player::Player;
-use time::{Beat, BeatF64, Time};
-use util::*;
+use time::Time;
 
-const BPM: f64 = 170.0;
-// Files read via ggez (usually music/font/images)
-const MUSIC_PATH: &str = "/bbkkbkk.ogg";
-// const ARIAL_PATH: &str = "/Arial.ttf";
+mod color;
+mod ease;
+mod time;
+
+const BPM: f64 = 120.0; // 170.0;
+                        // Files read via ggez (usually music/font/images)
+const MUSIC_PATH: &str = "/metronome120.ogg"; // "/bbkkbkk.ogg";
+                                              // const ARIAL_PATH: &str = "/Arial.ttf";
 const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
 // Files manually read by me (usually maps)
 const MAP_PATH: &str = "./resources/bbkkbkk.map";
@@ -43,60 +37,22 @@ pub const WINDOW_HEIGHT: f32 = 480.0;
 
 /// Contains all the information abou the world and it's game elements
 pub struct World {
-    player: Player,
-    enemies: Vec<Box<dyn Enemy>>,
-    grid: Grid,
     background: Color,
 }
 
 impl World {
-    fn update(&mut self, ctx: &mut Context, beat_time: Beat) {
-        let beat_percent = Time::beat_percent(beat_time);
-        // Set the background as appropriate
-        let color = (rev_quad(beat_percent) / 10.0) as f32;
-        self.background = Color::new(color, color, color, 1.0);
-
-        // Update everything
-        self.grid.update(beat_percent);
-        self.player.update(ctx);
-
-        // Collision check. Also update enemies.
-        let mut was_hit = false;
-        for enemy in self.enemies.iter_mut() {
-            enemy.update(Into::<BeatF64>::into(beat_time));
-            if enemy.intersects(&self.player) {
-                was_hit = true
-            }
-        }
-
-        if was_hit {
-            self.player.on_hit();
-        }
-
-        // Delete all non-alive enemies
-        self.enemies.retain(|e| e.is_alive());
-    }
+    fn update(&mut self, ctx: &mut Context) {}
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        self.grid.draw(ctx)?;
-        self.player.draw(ctx, &self.grid)?;
-        for enemy in self.enemies.iter() {
-            enemy.draw(ctx, &self.grid)?;
-        }
         Ok(())
     }
 
-    fn reset(&mut self) {
-        self.enemies.clear();
-    }
+    fn reset(&mut self) {}
 }
 
 impl Default for World {
     fn default() -> Self {
         World {
-            player: Default::default(),
-            enemies: Default::default(),
-            grid: Default::default(),
             background: Color::new(0.0, 0.0, 0.0, 1.0),
         }
     }
@@ -117,9 +73,7 @@ impl Assets {
 }
 
 struct MainState {
-    scheduler: Scheduler,
     world: World,
-    keyboard: KeyboardState,
     time: Time,
     music: Source,
     assets: Assets,
@@ -129,12 +83,10 @@ struct MainState {
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
         let s = MainState {
-            keyboard: Default::default(),
             world: Default::default(),
             music: audio::Source::new(ctx, MUSIC_PATH)?,
-            time: Time::new(BPM),
+            time: Time::new(BPM, time::Seconds(0.0)),
             started: false,
-            scheduler: Scheduler::read_file(Path::new(MAP_PATH)),
             assets: Assets::new(ctx),
         };
         Ok(s)
@@ -142,16 +94,17 @@ impl MainState {
 
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
     fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
-        let beat_time = self.time.beat_time();
-        let text = &format!(
-            "Measure: {:2?}, Beat: {:2?}, Offset: {:3?}",
-            beat_time.beat / 4,
-            beat_time.beat % 4,
-            beat_time.offset
-        )[..];
+        let beat_time = self.time.get_beats();
+        // let text = &format!(
+        //     "Measure: {:2?}, Beat: {:2?}, Offset: {:3?}",
+        //     beat_time.beat / 4,
+        //     beat_time.beat % 4,
+        //     beat_time.offset
+        // )[..];
+        let text = format!("Beat: {:.2?}", beat_time.0);
         let fragment = TextFragment {
             text: text.to_string(),
-            color: Some(DEBUG_RED),
+            color: Some(color::DEBUG_RED),
             font: Some(self.assets.debug_font),
             scale: Some(Scale::uniform(18.0)),
         };
@@ -178,14 +131,9 @@ impl event::EventHandler for MainState {
 
         self.time.update();
 
-        if let Ok(direction) = self.keyboard.direction() {
-            self.world.player.key_down_event(direction);
-        }
+        ggez::graphics::window(ctx).set_title(&format!("{}", ggez::timer::fps(ctx)));
 
-        self.world.update(ctx, self.time.beat_time());
-        if USE_MAP {
-            self.scheduler.update(&self.time, &mut self.world);
-        }
+        ggez::timer::yield_now();
         Ok(())
     }
 
@@ -205,7 +153,6 @@ impl event::EventHandler for MainState {
                 self.music.stop();
                 self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
                 self.world.reset();
-                self.scheduler = Scheduler::read_file(Path::new(MAP_PATH))
             } else {
                 // Start the game. Also play the music.
                 self.started = true;
@@ -214,17 +161,26 @@ impl event::EventHandler for MainState {
                 drop(self.music.play());
             }
         }
-
-        self.keyboard.update(keycode, true);
     }
 
-    fn key_up_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods) {
-        self.keyboard.update(keycode, false);
-    }
+    fn key_up_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods) {}
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        graphics::clear(ctx, self.world.background);
-        self.world.draw(ctx)?;
+        let beat_number = self.time.get_beats().0 as i32 % 4;
+        let beat_percent = self.time.get_beat_percentage() as f32;
+        graphics::clear(ctx, ggez::graphics::BLACK);
+        let color = crate::ease::color_lerp(crate::color::RED, ggez::graphics::WHITE, beat_percent);
+        let square =
+            Mesh::new_rectangle(ctx, DrawMode::fill(), Rect::new(0.0, 0.0, 1.0, 1.0), color)
+                .unwrap();
+        let dest = match beat_number {
+            0 => [100.0, 100.0],
+            1 => [100.0, 200.0],
+            2 => [200.0, 200.0],
+            _ => [200.0, 100.0],
+        };
+
+        square.draw(ctx, DrawParam::default().dest(dest).scale([100.0, 100.0]))?;
         self.draw_debug_time(ctx)?;
         graphics::present(ctx)?;
         Ok(())
@@ -236,7 +192,8 @@ pub fn main() {
         .window_setup(
             conf::WindowSetup::default()
                 .title("ʀᴛʜᴍ")
-                .samples(ggez::conf::NumSamples::Eight),
+                .samples(ggez::conf::NumSamples::Eight)
+                .vsync(true),
         )
         .window_mode(conf::WindowMode::default().dimensions(WINDOW_WIDTH, WINDOW_HEIGHT));
     if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
