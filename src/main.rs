@@ -1,8 +1,5 @@
 #![feature(trait_alias)]
 
-extern crate ggez;
-extern crate rand;
-
 use std::env;
 use std::path::PathBuf;
 
@@ -13,13 +10,20 @@ use ggez::graphics::mint::Point2;
 use ggez::graphics::{
     Color, DrawMode, DrawParam, Drawable, Font, Mesh, Rect, Scale, Text, TextFragment,
 };
-use ggez::{audio, conf, event, graphics, Context, ContextBuilder, GameResult};
+use ggez::{audio, conf, event, graphics, timer, Context, ContextBuilder, GameResult};
 
+use keyboard::KeyboardState;
+use player::Player;
 use time::Time;
 
 mod color;
 mod ease;
+mod keyboard;
+mod player;
 mod time;
+mod util;
+
+const TARGET_FPS: u32 = 60;
 
 const BPM: f64 = 120.0; // 170.0;
                         // Files read via ggez (usually music/font/images)
@@ -34,29 +38,6 @@ const USE_MAP: bool = true;
 
 pub const WINDOW_WIDTH: f32 = 640.0;
 pub const WINDOW_HEIGHT: f32 = 480.0;
-
-/// Contains all the information abou the world and it's game elements
-pub struct World {
-    background: Color,
-}
-
-impl World {
-    fn update(&mut self, ctx: &mut Context) {}
-
-    fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        Ok(())
-    }
-
-    fn reset(&mut self) {}
-}
-
-impl Default for World {
-    fn default() -> Self {
-        World {
-            background: Color::new(0.0, 0.0, 0.0, 1.0),
-        }
-    }
-}
 
 /// Stores assets like fonts, music, sprite images, etc
 /// TODO: Add music stuff here.
@@ -73,21 +54,23 @@ impl Assets {
 }
 
 struct MainState {
-    world: World,
     time: Time,
     music: Source,
+    keyboard: KeyboardState,
     assets: Assets,
     started: bool,
+    player: Player,
 }
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
         let s = MainState {
-            world: Default::default(),
+            keyboard: KeyboardState::default(),
             music: audio::Source::new(ctx, MUSIC_PATH)?,
             time: Time::new(BPM, time::Seconds(0.0)),
             started: false,
             assets: Assets::new(ctx),
+            player: Player::new(),
         };
         Ok(s)
     }
@@ -101,7 +84,10 @@ impl MainState {
         //     beat_time.beat % 4,
         //     beat_time.offset
         // )[..];
-        let text = format!("Beat: {:.2?}", beat_time.0);
+        let text = format!(
+            "Beat: {:.2?}\nPlayer position: {:.2?}",
+            beat_time.0, self.player.pos
+        );
         let fragment = TextFragment {
             text: text.to_string(),
             color: Some(color::DEBUG_RED),
@@ -128,12 +114,16 @@ impl event::EventHandler for MainState {
         if !self.started {
             return Ok(());
         }
+        // Lock the framerate at 60 FPS
+        while timer::check_update_time(ctx, TARGET_FPS) {
+            let physics_delta_time = 1.0 / f64::from(TARGET_FPS);
 
-        self.time.update();
+            self.time.update();
+
+            self.player.update(physics_delta_time, &self.keyboard);
+        }
 
         ggez::graphics::window(ctx).set_title(&format!("{}", ggez::timer::fps(ctx)));
-
-        ggez::timer::yield_now();
         Ok(())
     }
 
@@ -144,26 +134,28 @@ impl event::EventHandler for MainState {
         _keymod: KeyMods,
         _repeat: bool,
     ) {
-        use KeyCode::*;
-        if keycode == P {
+        if keycode == KeyCode::P {
             if self.started {
                 // Stop the game, pausing the music, fetching a new Source instance, and
                 // rebuild the scheduler work queue.
                 self.started = false;
                 self.music.stop();
                 self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
-                self.world.reset();
+                // self.world.reset();
             } else {
                 // Start the game. Also play the music.
                 self.started = true;
-                self.world.reset();
+                // self.world.reset();
                 self.time.reset();
                 drop(self.music.play());
             }
         }
+        self.keyboard.update(keycode, true);
     }
 
-    fn key_up_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods) {}
+    fn key_up_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods) {
+        self.keyboard.update(keycode, false);
+    }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         let beat_number = self.time.get_beats().0 as i32 % 4;
@@ -181,6 +173,13 @@ impl event::EventHandler for MainState {
         };
 
         square.draw(ctx, DrawParam::default().dest(dest).scale([100.0, 100.0]))?;
+
+        let player_mesh = self.player.get_mesh(ctx)?;
+        player_mesh.draw(
+            ctx,
+            DrawParam::default().dest(self.player.pos.as_screen_coords()),
+        )?;
+
         self.draw_debug_time(ctx)?;
         graphics::present(ctx)?;
         Ok(())
