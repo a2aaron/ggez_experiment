@@ -47,6 +47,10 @@ impl KeyboardState {
             (true, false, false, true) => Ok(Direction8::LeftDown),
             (false, true, true, false) => Ok(Direction8::RightUp),
             (false, true, false, true) => Ok(Direction8::RightDown),
+            (true, false, true, true) => Ok(Direction8::Left),
+            (false, true, true, true) => Ok(Direction8::Right),
+            (true, true, true, false) => Ok(Direction8::Up),
+            (true, true, false, true) => Ok(Direction8::Down),
             _ => Err("Not a direction!"),
         }
     }

@@ -4,16 +4,19 @@ use std::env;
 use std::path::PathBuf;
 
 use ggez::audio::{SoundSource, Source};
+use ggez::GameError;
 
 use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::mint::Point2;
 use ggez::graphics::{
     Color, DrawMode, DrawParam, Drawable, Font, Mesh, Rect, Scale, Text, TextFragment,
 };
-use ggez::{audio, conf, event, graphics, timer, Context, ContextBuilder, GameResult};
+use ggez::{
+    audio, conf, event, graphics, nalgebra as na, timer, Context, ContextBuilder, GameResult,
+};
 
 use keyboard::KeyboardState;
-use player::Player;
+use player::{Player, WorldPos};
 use time::Time;
 
 mod color;
@@ -84,46 +87,84 @@ impl MainState {
         //     beat_time.beat % 4,
         //     beat_time.offset
         // )[..];
+        let delta = ggez::timer::delta(ctx);
         let text = format!(
-            "Beat: {:.2?}\nPlayer position: {:.2?}",
-            beat_time.0, self.player.pos
+            "Beat: {:.2?}\nPlayer position: {:.2?} ({:.2?}, {:.2?})\nDelta: {:.2?}",
+            beat_time.0,
+            self.player.pos,
+            self.player.pos.as_screen_coords().x,
+            self.player.pos.as_screen_coords().y,
+            delta
         );
         let fragment = TextFragment {
-            text: text.to_string(),
+            text,
             color: Some(color::DEBUG_RED),
             font: Some(self.assets.debug_font),
             scale: Some(Scale::uniform(18.0)),
         };
         let text = Text::new(fragment);
-        let text_width = text.width(ctx) as f32;
         let text_height = text.height(ctx) as f32;
         let screen = graphics::screen_coordinates(ctx);
         text.draw(
             ctx,
             DrawParam::default().dest(Point2 {
-                x: screen.w - text_width,
-                y: screen.h - text_height,
+                x: screen.x,
+                y: screen.y + screen.h - text_height,
             }),
         )?;
+        Ok(())
+    }
+
+    fn draw_debug_world_lines(&self, ctx: &mut Context) -> Result<(), GameError> {
+        let origin = WorldPos::origin().as_screen_coords();
+        Mesh::new_line(
+            ctx,
+            &[
+                (origin + na::Vector2::new(-5.0, 0.0)),
+                (origin + na::Vector2::new(5.0, 0.0)),
+            ],
+            2.0,
+            crate::color::DEBUG_RED,
+        )?
+        .draw(ctx, DrawParam::default())?;
+        Mesh::new_line(
+            ctx,
+            &[
+                (origin + na::Vector2::new(0.0, 5.0)),
+                (origin + na::Vector2::new(0.0, -5.0)),
+            ],
+            2.0,
+            crate::color::DEBUG_RED,
+        )?
+        .draw(ctx, DrawParam::default())?;
+
+        let rect = WorldPos::as_screen_rect(WorldPos::origin(), 100.0, 100.0);
+        Mesh::new_rectangle(ctx, DrawMode::stroke(2.0), rect, crate::color::DEBUG_RED)?
+            .draw(ctx, DrawParam::default())?;
+
+        let rect = WorldPos::as_screen_rect(WorldPos::origin(), 10.0, 10.0);
+        Mesh::new_rectangle(ctx, DrawMode::stroke(2.0), rect, crate::color::DEBUG_RED)?
+            .draw(ctx, DrawParam::default())?;
+
         Ok(())
     }
 }
 
 impl event::EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
-        if !self.started {
-            return Ok(());
-        }
         // Lock the framerate at 60 FPS
         while timer::check_update_time(ctx, TARGET_FPS) {
+            if !self.started {
+                return Ok(());
+            }
             let physics_delta_time = 1.0 / f64::from(TARGET_FPS);
 
             self.time.update();
 
             self.player.update(physics_delta_time, &self.keyboard);
+            ggez::graphics::window(ctx).set_title(&format!("{}", ggez::timer::fps(ctx)));
         }
 
-        ggez::graphics::window(ctx).set_title(&format!("{}", ggez::timer::fps(ctx)));
         Ok(())
     }
 
@@ -158,9 +199,11 @@ impl event::EventHandler for MainState {
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
+        graphics::clear(ctx, ggez::graphics::BLACK);
+        // ggez::graphics::set_screen_coordinates(ctx, Rect::new(-320.0, 240.0, 640.0, -480.0))?;
+
         let beat_number = self.time.get_beats().0 as i32 % 4;
         let beat_percent = self.time.get_beat_percentage() as f32;
-        graphics::clear(ctx, ggez::graphics::BLACK);
         let color = crate::ease::color_lerp(crate::color::RED, ggez::graphics::WHITE, beat_percent);
         let square =
             Mesh::new_rectangle(ctx, DrawMode::fill(), Rect::new(0.0, 0.0, 1.0, 1.0), color)
@@ -181,7 +224,10 @@ impl event::EventHandler for MainState {
         )?;
 
         self.draw_debug_time(ctx)?;
+        self.draw_debug_world_lines(ctx)?;
+
         graphics::present(ctx)?;
+        ggez::timer::yield_now();
         Ok(())
     }
 }

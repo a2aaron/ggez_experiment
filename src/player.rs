@@ -1,41 +1,60 @@
-use ggez::graphics::{Color, DrawMode, Mesh};
+use derive_more::From;
+
+use ggez::graphics::{Color, DrawMode, Mesh, Rect};
 use ggez::{nalgebra as na, Context};
 
 use crate::keyboard::KeyboardState;
+use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 const HIT_TIME_LENGTH: f64 = 3.0; // How many seconds the hit timer should be
 
-// The size, in pixels, that the "world screen" is. This is a square. Note that
-// the center of this square is considered the origin.
-const WORLD_SCREEN_SIZE: f64 = 400.0;
-// The position that the very edge of the world screen is considered to be. This
-// means the top right corner is at WorldPos (100.0, 100.0), while the bottom
-// left is at WorldPos (-100.0, -100.0)
-const WORLD_BOUNDS: f64 = 100.0;
+/// How many pixels that a unit distance in WorldPosition translates to. Here,
+/// this means that if two things are 1.0 WorldPos units apart, they are 4 pixels
+/// apart in screen space.
+pub const WORLD_SCALE_FACTOR: f32 = 4.0;
 
 /// A position in "world space". This is defined as a square whose origin is at
 /// the center of the world, and may range from positive to negative along both
 /// axes. The axes are oriented like a standard Cartesian plane.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, From)]
 pub struct WorldPos {
-    x: f64,
-    y: f64,
+    pub x: f64,
+    pub y: f64,
 }
 
 impl WorldPos {
+    pub fn origin() -> WorldPos {
+        WorldPos { x: 0.0, y: 0.0 }
+    }
     pub fn as_screen_coords(&self) -> na::Point2<f32> {
-        let center_x = WORLD_SCREEN_SIZE / 2.0;
-        let center_y = WORLD_SCREEN_SIZE / 2.0;
-        let scale_factor = WORLD_SCREEN_SIZE / WORLD_BOUNDS;
+        // The origin, in screen coordinates. This is the spot that WorldPos at
+        // (0.0, 0.0) shows up at.
+        let screen_origin = (WINDOW_WIDTH / 2.0, WINDOW_HEIGHT / 2.0);
         na::Point2::new(
-            (center_x + self.x * scale_factor) as f32,
-            (center_y - self.y * scale_factor) as f32,
+            screen_origin.0 + WORLD_SCALE_FACTOR * self.x as f32,
+            screen_origin.1 - WORLD_SCALE_FACTOR * self.y as f32,
         )
     }
 
     pub fn as_screen_length(x: f64) -> f32 {
-        let scale_factor = WORLD_SCREEN_SIZE / WORLD_BOUNDS;
-        (x * scale_factor) as f32
+        x as f32 * WORLD_SCALE_FACTOR
+    }
+
+    // Return a Rect with its units in screen-space. Note th
+    pub fn as_screen_rect(center_point: WorldPos, w: f64, h: f64) -> Rect {
+        let (x, y) = (center_point.x, center_point.y);
+        // Get the upper left corner of the rectangle.
+        let corner_point = WorldPos {
+            x: x - w / 2.0,
+            y: y + h / 2.0,
+        };
+        let screen_point = corner_point.as_screen_coords();
+        Rect::new(
+            screen_point.x,
+            screen_point.y,
+            WorldPos::as_screen_length(w),
+            WorldPos::as_screen_length(h),
+        )
     }
 }
 
@@ -51,8 +70,8 @@ impl Player {
     pub fn new() -> Player {
         Player {
             pos: WorldPos { x: 0.0, y: 0.0 },
-            speed: 50.0,
-            size: 5.0,
+            speed: 100.0,
+            size: 2.0,
             color: crate::color::WHITE,
             hit_timer: 0.0,
         }
