@@ -1,8 +1,10 @@
-use derive_more::From;
+use derive_more::{Add, From, Sub};
 
 use ggez::graphics::{Color, DrawMode, Mesh, Rect};
-use ggez::{nalgebra as na, Context};
+use ggez::{nalgebra as na, Context, GameResult};
 
+use crate::color::{RED, WHITE};
+use crate::ease::{color_lerp, Lerp};
 use crate::keyboard::KeyboardState;
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
@@ -16,7 +18,7 @@ pub const WORLD_SCALE_FACTOR: f32 = 4.0;
 /// A position in "world space". This is defined as a square whose origin is at
 /// the center of the world, and may range from positive to negative along both
 /// axes. The axes are oriented like a standard Cartesian plane.
-#[derive(Debug, Clone, Copy, From)]
+#[derive(Debug, Clone, Copy, From, Add, Sub)]
 pub struct WorldPos {
     pub x: f64,
     pub y: f64,
@@ -56,6 +58,19 @@ impl WorldPos {
             WorldPos::as_screen_length(h),
         )
     }
+
+    pub fn distance(a: WorldPos, b: WorldPos) -> f64 {
+        ((a.x - b.x).abs().powi(2) + (a.y - b.y).abs().powi(2)).sqrt()
+    }
+}
+
+impl Lerp for WorldPos {
+    fn lerp_unclamped(a: Self, b: Self, t: f64) -> Self {
+        WorldPos {
+            x: f64::lerp_unclamped(a.x, b.x, t),
+            y: f64::lerp_unclamped(a.y, b.y, t),
+        }
+    }
 }
 
 pub struct Player {
@@ -70,26 +85,10 @@ impl Player {
     pub fn new() -> Player {
         Player {
             pos: WorldPos { x: 0.0, y: 0.0 },
-            speed: 100.0,
+            speed: 10.0,
             size: 2.0,
             color: crate::color::WHITE,
             hit_timer: 0.0,
-        }
-    }
-
-    /// Reset the player in bounds if they try to go out of bounds.
-    /// TODO: make sure Keyframes are in bounds as well
-    fn handle_boundaries(&mut self, width: f64, height: f64) {
-        if self.pos.y > height {
-            self.pos.y = height;
-        } else if self.pos.y < 0.0 {
-            self.pos.y = 0.0;
-        }
-
-        if self.pos.x < 0.0 {
-            self.pos.x = 0.0;
-        } else if self.pos.x > width {
-            self.pos.x = width;
         }
     }
 
@@ -116,13 +115,16 @@ impl Player {
 
             self.pos.x += delta_x * dt * self.speed;
             self.pos.y += delta_y * dt * self.speed;
+
+            self.pos.y = self.pos.y.clamp(-100.0, 100.0);
+            self.pos.x = self.pos.x.clamp(-100.0, 100.0);
         }
 
-        // self.hit_timer = self.hit_timer.saturating_sub(1);
-        // self.color = color_lerp(WHITE, RED, (self.hit_timer as f64) / HIT_TIME_LENGTH as f64);
+        self.hit_timer -= dt;
+        self.color = color_lerp(WHITE, RED, (self.hit_timer as f64) / HIT_TIME_LENGTH as f64);
     }
 
-    pub fn get_mesh(&self, ctx: &mut Context) -> Result<Mesh, ggez::GameError> {
+    pub fn get_mesh(&self, ctx: &mut Context) -> GameResult<Mesh> {
         Mesh::new_circle(
             ctx,
             DrawMode::fill(),

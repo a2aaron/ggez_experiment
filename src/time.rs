@@ -29,6 +29,11 @@ pub fn beat_length(bpm: f64) -> Seconds {
     Seconds(60.0 / bpm)
 }
 
+/// Returns the percent within a beat that we are in.
+pub fn beat_percent(beat: Beats) -> f64 {
+    beat.0 % 1.0
+}
+
 /// Time keeping struct for when music is playing
 #[derive(Debug)]
 pub struct Time {

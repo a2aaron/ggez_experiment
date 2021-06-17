@@ -3,14 +3,13 @@
 use std::env;
 use std::path::PathBuf;
 
+use enemy::{Bullet, Enemy, EnemyLifetime};
 use ggez::audio::{SoundSource, Source};
 use ggez::GameError;
 
 use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::mint::Point2;
-use ggez::graphics::{
-    Color, DrawMode, DrawParam, Drawable, Font, Mesh, Rect, Scale, Text, TextFragment,
-};
+use ggez::graphics::{DrawMode, DrawParam, Drawable, Font, Mesh, Rect, Scale, Text, TextFragment};
 use ggez::{
     audio, conf, event, graphics, nalgebra as na, timer, Context, ContextBuilder, GameResult,
 };
@@ -19,8 +18,11 @@ use keyboard::KeyboardState;
 use player::{Player, WorldPos};
 use time::Time;
 
+use crate::time::Beats;
+
 mod color;
 mod ease;
+mod enemy;
 mod keyboard;
 mod player;
 mod time;
@@ -63,6 +65,8 @@ struct MainState {
     assets: Assets,
     started: bool,
     player: Player,
+    enemies: Vec<Box<dyn Enemy>>,
+    last_beat: Beats,
 }
 
 impl MainState {
@@ -74,8 +78,15 @@ impl MainState {
             started: false,
             assets: Assets::new(ctx),
             player: Player::new(),
+            enemies: vec![],
+            last_beat: Beats(0.0),
         };
         Ok(s)
+    }
+
+    fn reset(&mut self) {
+        self.enemies.clear();
+        self.last_beat = Beats(0.0);
     }
 
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
@@ -161,7 +172,31 @@ impl event::EventHandler for MainState {
 
             self.time.update();
 
+            let curr_time = self.time.get_beats();
+
             self.player.update(physics_delta_time, &self.keyboard);
+            for enemy in self.enemies.iter_mut() {
+                enemy.update(curr_time);
+                if enemy.sdf(self.player.pos) < 0.0 {
+                    self.player.on_hit();
+                }
+            }
+
+            if self.last_beat < curr_time {
+                self.last_beat = Beats(self.last_beat.0 + 1.0);
+                let mut bullet = Box::new(Bullet::new(
+                    util::rand_circle_edge(WorldPos::origin(), 60.0),
+                    WorldPos::origin(),
+                    Beats(4.0),
+                ));
+                bullet.on_spawn(curr_time);
+                self.enemies.push(bullet);
+            }
+
+            // Delete all dead enemies
+            self.enemies
+                .retain(|e| e.lifetime_state(curr_time) != EnemyLifetime::Dead);
+
             ggez::graphics::window(ctx).set_title(&format!("{}", ggez::timer::fps(ctx)));
         }
 
@@ -182,11 +217,11 @@ impl event::EventHandler for MainState {
                 self.started = false;
                 self.music.stop();
                 self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
-                // self.world.reset();
+                self.reset();
             } else {
                 // Start the game. Also play the music.
                 self.started = true;
-                // self.world.reset();
+                self.reset();
                 self.time.reset();
                 drop(self.music.play());
             }
@@ -201,27 +236,15 @@ impl event::EventHandler for MainState {
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         graphics::clear(ctx, ggez::graphics::BLACK);
         // ggez::graphics::set_screen_coordinates(ctx, Rect::new(-320.0, 240.0, 640.0, -480.0))?;
-
-        let beat_number = self.time.get_beats().0 as i32 % 4;
-        let beat_percent = self.time.get_beat_percentage() as f32;
-        let color = crate::ease::color_lerp(crate::color::RED, ggez::graphics::WHITE, beat_percent);
-        let square =
-            Mesh::new_rectangle(ctx, DrawMode::fill(), Rect::new(0.0, 0.0, 1.0, 1.0), color)
-                .unwrap();
-        let dest = match beat_number {
-            0 => [100.0, 100.0],
-            1 => [100.0, 200.0],
-            2 => [200.0, 200.0],
-            _ => [200.0, 100.0],
-        };
-
-        square.draw(ctx, DrawParam::default().dest(dest).scale([100.0, 100.0]))?;
-
         let player_mesh = self.player.get_mesh(ctx)?;
         player_mesh.draw(
             ctx,
             DrawParam::default().dest(self.player.pos.as_screen_coords()),
         )?;
+
+        for enemy in self.enemies.iter() {
+            enemy.draw(ctx)?;
+        }
 
         self.draw_debug_time(ctx)?;
         self.draw_debug_world_lines(ctx)?;

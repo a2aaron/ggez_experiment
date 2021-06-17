@@ -1,13 +1,50 @@
 use std::ops::{Add, Div, Mul, Sub};
+pub trait Lerp: Sized + Copy {
+    /// Lerp between two values. This function will clamp t.
+    fn lerp(a: Self, b: Self, t: f64) -> Self {
+        Lerp::lerp_unclamped(a, b, t.clamp(0.0, 1.0))
+    }
 
-pub trait Lerpable = Add<Self, Output = Self>
-    + Sub<Self, Output = Self>
-    + Mul<f32, Output = Self>
-    + Sized
-    + Copy
-    + Clone;
+    /// Lerp between two values. This function will NOT clamp t.
+    fn lerp_unclamped(a: Self, b: Self, t: f64) -> Self;
+}
 
-pub trait InvLerpable = Sub<Self, Output = Self> + Div<Self, Output = f32> + Sized + Copy + Clone;
+// Inverse Lerp
+pub trait InvLerp: Sized + Copy {
+    /// Returns the "inverse lerp" of a value. The returned value is zero if val == start
+    /// and is 1.0 if val == end. This function is clamped to the [0.0, 1.0] range.
+    fn inv_lerp(start: Self, end: Self, val: Self) -> f64 {
+        InvLerp::inv_lerp_unclamped(start, end, val).clamp(0.0, 1.0)
+    }
+
+    /// Returns the "inverse lerp" of a value. The returned value is zero if val == start
+    /// and is 1.0 if val == end. This function is not clamped to the [0.0, 1.0] range.
+    fn inv_lerp_unclamped(start: Self, end: Self, val: Self) -> f64;
+}
+
+impl Lerp for f32 {
+    fn lerp_unclamped(a: Self, b: Self, t: f64) -> Self {
+        a + (b - a) * t as f32
+    }
+}
+
+impl Lerp for f64 {
+    fn lerp_unclamped(a: Self, b: Self, t: f64) -> Self {
+        a + (b - a) * t
+    }
+}
+
+impl InvLerp for f32 {
+    fn inv_lerp_unclamped(start: Self, end: Self, val: Self) -> f64 {
+        ((val - start) / (end - start)) as f64
+    }
+}
+
+impl InvLerp for f64 {
+    fn inv_lerp_unclamped(start: Self, end: Self, val: Self) -> f64 {
+        (val - start) / (end - start)
+    }
+}
 
 /// An enum representing an ease.
 pub enum Easing<T> {
@@ -19,7 +56,7 @@ pub enum Easing<T> {
         start: T,
         mid: T,
         end: T,
-        split_at: f32,
+        split_at: f64,
     },
     /// Linearly ease from start to end, but snap to the given number of steps.
     /// For example, if start = 1.0, end = 2.0, steps = 3, then the valid values
@@ -29,12 +66,12 @@ pub enum Easing<T> {
     Exponential { start: T, end: T },
 }
 
-impl<T: Lerpable + InvLerpable> Easing<T> {
+impl<T: Lerp> Easing<T> {
     /// Ease using the given interpolation value `t`. `t` is expected to be in
     /// [0.0, 1.0] range.
-    pub fn ease(&self, t: f32) -> T {
+    pub fn ease(&self, t: f64) -> T {
         match *self {
-            Easing::Linear { start, end } => lerp(start, end, t),
+            Easing::Linear { start, end } => T::lerp(start, end, t),
             Easing::SplitLinear {
                 start,
                 mid,
@@ -51,21 +88,23 @@ impl<T: Lerpable + InvLerpable> Easing<T> {
             }
             Easing::SteppedLinear { start, end, steps } => {
                 let stepped_t = snap_float(t, steps);
-                lerp(start, end, stepped_t)
+                T::lerp(start, end, stepped_t)
             }
             Easing::Exponential { start, end } => {
                 let expo_t = ease_in_expo(t);
-                lerp(start, end, expo_t)
+                T::lerp(start, end, expo_t)
             }
         }
     }
+}
 
+impl<T: Lerp + InvLerp> Easing<T> {
     /// Given a value, return the `t` interpolation value such that `ease(t) == val`.
     /// inv_ease assumes easing functions are invertible, which might not be true
     /// for all functions (ex: SplitLinear that does not ease all the way to 1.0)
-    pub fn inv_ease(&self, val: T) -> f32 {
+    pub fn inv_ease(&self, val: T) -> f64 {
         match *self {
-            Easing::Linear { start, end } => inv_lerp(start, end, val),
+            Easing::Linear { start, end } => T::inv_lerp(start, end, val),
             Easing::SplitLinear {
                 start,
                 mid,
@@ -84,11 +123,11 @@ impl<T: Lerpable + InvLerpable> Easing<T> {
                 }
             }
             Easing::SteppedLinear { start, end, steps } => {
-                let t = inv_lerp(start, end, val);
+                let t = T::inv_lerp(start, end, val);
                 snap_float(t, steps)
             }
             Easing::Exponential { start, end } => {
-                let t = inv_lerp(start, end, val);
+                let t = T::inv_lerp(start, end, val);
                 inv_ease_in_expo(t)
             }
         }
@@ -100,71 +139,54 @@ pub struct DiscreteLinear<T, const N: usize> {
 }
 
 impl<T: Eq + Copy + Clone, const N: usize> DiscreteLinear<T, N> {
-    pub fn ease(&self, t: f32) -> T {
-        let index = (t * self.values.len() as f32).floor() as usize;
+    pub fn ease(&self, t: f64) -> T {
+        let index = (t * self.values.len() as f64).floor() as usize;
         self.values[index.clamp(0, self.values.len() - 1)]
     }
 
-    pub fn inv_ease(&self, val: T) -> f32 {
+    pub fn inv_ease(&self, val: T) -> f64 {
         match self.values.iter().position(|&x| x == val) {
-            Some(index) => (index as f32) / (self.values.len() as f32),
+            Some(index) => (index as f64) / (self.values.len() as f64),
             None => 0.0,
         }
     }
 }
 
-/// Lerp between two values. This function is clamped.
-pub fn lerp<T: Lerpable>(start: T, end: T, t: f32) -> T {
-    (end - start) * t.clamp(0.0, 1.0) + start
-}
-
-/// Returns the "inverse lerp" of a value. The returned value is zero if val == start
-/// and is 1.0 if val == end. This function is clamped to the [0.0, 1.0] range.
-pub fn inv_lerp<T: InvLerpable>(start: T, end: T, val: T) -> f32 {
-    ((val - start) / (end - start)).clamp(0.0, 1.0)
-}
-
 /// Map the range [old_start, old_end] to [new_start, new_end]. Note that
 /// lerp(start, end, t) == remap(0.0, 1.0, t, start, end)
 /// inv_lerp(start, end, val) == remap(start, end, val, 0.0, 1.0)
-pub fn remap<T: InvLerpable, U: Lerpable>(
-    old_start: T,
-    old_end: T,
-    val: T,
-    new_start: U,
-    new_end: U,
-) -> U {
-    let t = inv_lerp(old_start, old_end, val);
-    lerp(new_start, new_end, t)
+pub fn remap<T: InvLerp, U: Lerp>(old_start: T, old_end: T, val: T, new_start: U, new_end: U) -> U {
+    let t = T::inv_lerp(old_start, old_end, val);
+    U::lerp(new_start, new_end, t)
 }
 
-pub fn ease_in_expo(x: f32) -> f32 {
+pub fn ease_in_expo(x: f64) -> f64 {
     if x <= 0.0 {
         0.0
     } else {
-        (2.0f32.powf(10.0 * x) - 1.0) / (2.0f32.powf(10.0) - 1.0)
+        (2.0f64.powf(10.0 * x) - 1.0) / (2.0f64.powf(10.0) - 1.0)
     }
 }
 
-pub fn inv_ease_in_expo(x: f32) -> f32 {
+pub fn inv_ease_in_expo(x: f64) -> f64 {
     if x <= 0.0 {
         0.0
     } else {
-        ((2.0f32.powf(10.0) - 1.0) * x + 1.0).log2() / 10.0
+        ((2.0f64.powf(10.0) - 1.0) * x + 1.0).log2() / 10.0
     }
 }
 
-pub fn ease_in_poly(x: f32, i: i32) -> f32 {
+pub fn ease_in_poly(x: f64, i: i32) -> f64 {
     x.powi(i)
 }
 
-/// Snap a float value in range 0.0-1.0 to the nearest f32 region
+/// Snap a float value in range 0.0-1.0 to the nearest f64 region
 /// For example, snap_float(_, 4) will snap a float to either:
 /// 0.0, 0.333, 0.666, or 1.0
-pub fn snap_float(value: f32, num_regions: usize) -> f32 {
+pub fn snap_float(value: f64, num_regions: usize) -> f64 {
     // We subtract one from this denominator because we want there to only be
     // four jumps. See also https://www.desmos.com/calculator/esnnnbfzml
-    let num_regions = num_regions as f32;
+    let num_regions = num_regions as f64;
     (num_regions * value).floor() / (num_regions - 1.0)
 }
 
@@ -172,18 +194,13 @@ pub fn snap_float(value: f32, num_regions: usize) -> f32 {
 pub fn color_lerp(
     a: ggez::graphics::Color,
     b: ggez::graphics::Color,
-    t: impl Into<f32>,
+    t: impl Into<f64>,
 ) -> ggez::graphics::Color {
-    fn f32_lerp(a: f32, b: f32, t: f32) -> f32 {
-        a + (b - a) * t
-    }
-
     let t = t.into();
-
     ggez::graphics::Color::new(
-        f32_lerp(a.r, b.r, t),
-        f32_lerp(a.g, b.g, t),
-        f32_lerp(a.b, b.b, t),
-        f32_lerp(a.a, b.a, t),
+        f32::lerp(a.r, b.r, t),
+        f32::lerp(a.g, b.g, t),
+        f32::lerp(a.b, b.b, t),
+        f32::lerp(a.a, b.a, t),
     )
 }
