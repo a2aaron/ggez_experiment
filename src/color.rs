@@ -21,6 +21,13 @@ pub const GREEN: Color = Color {
     a: 1.0,
 };
 
+pub const BLUE: Color = Color {
+    r: 0.0,
+    g: 0.0,
+    b: 1.0,
+    a: 1.0,
+};
+
 pub const TRANSPARENT: Color = Color {
     r: 0.0,
     g: 0.0,

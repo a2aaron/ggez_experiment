@@ -16,8 +16,10 @@ use ggez::{
 
 use keyboard::KeyboardState;
 use player::{Player, WorldPos};
+use rand::Rng;
 use time::Time;
 
+use crate::enemy::Laser;
 use crate::time::Beats;
 
 mod color;
@@ -67,6 +69,7 @@ struct MainState {
     player: Player,
     enemies: Vec<Box<dyn Enemy>>,
     last_beat: Beats,
+    debug: Option<Box<dyn Enemy>>,
 }
 
 impl MainState {
@@ -80,6 +83,7 @@ impl MainState {
             player: Player::new(),
             enemies: vec![],
             last_beat: Beats(0.0),
+            debug: None,
         };
         Ok(s)
     }
@@ -159,6 +163,41 @@ impl MainState {
 
         Ok(())
     }
+
+    fn draw_debug_hitbox(&self, ctx: &mut Context) -> Result<(), GameError> {
+        if let Some(enemy) = &self.debug {
+            // enemy.draw(ctx)?;
+
+            for x in -20..20 {
+                for y in -20..20 {
+                    let pos = WorldPos {
+                        x: x as f64,
+                        y: y as f64,
+                    };
+                    let sdf = enemy.sdf(pos, self.time.get_beats());
+                    let color = match sdf {
+                        None => crate::color::GUIDE_GREY,
+                        Some(sdf) => crate::ease::color_lerp(
+                            crate::color::RED,
+                            crate::color::GREEN,
+                            (sdf.atan() / (std::f64::consts::PI / 2.0) + 1.0) / 2.0,
+                        ),
+                    };
+                    Mesh::new_circle(
+                        ctx,
+                        DrawMode::fill(),
+                        pos.as_screen_coords(),
+                        1.0,
+                        5.0,
+                        color,
+                    )?
+                    .draw(ctx, DrawParam::default())?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl event::EventHandler for MainState {
@@ -171,14 +210,19 @@ impl event::EventHandler for MainState {
             let physics_delta_time = 1.0 / f64::from(TARGET_FPS);
 
             self.time.update();
-
             let curr_time = self.time.get_beats();
+
+            if let Some(debug) = &mut self.debug {
+                debug.update(curr_time);
+            }
 
             self.player.update(physics_delta_time, &self.keyboard);
             for enemy in self.enemies.iter_mut() {
                 enemy.update(curr_time);
-                if enemy.sdf(self.player.pos) < 0.0 {
-                    self.player.on_hit();
+                if let Some(sdf) = enemy.sdf(self.player.pos, curr_time) {
+                    if sdf < self.player.size {
+                        self.player.on_hit();
+                    }
                 }
             }
 
@@ -191,6 +235,16 @@ impl event::EventHandler for MainState {
                 ));
                 bullet.on_spawn(curr_time);
                 self.enemies.push(bullet);
+
+                let mut laser = Box::new(Laser::new_through_point(
+                    WorldPos::origin(),
+                    dbg!((self.last_beat.0) * std::f64::consts::PI / 12.0),
+                    Beats(1.0),
+                ));
+
+                laser.on_spawn(curr_time);
+                // self.debug = Some(laser);
+                self.enemies.push(laser);
             }
 
             // Delete all dead enemies
@@ -236,19 +290,19 @@ impl event::EventHandler for MainState {
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         graphics::clear(ctx, ggez::graphics::BLACK);
         // ggez::graphics::set_screen_coordinates(ctx, Rect::new(-320.0, 240.0, 640.0, -480.0))?;
+
+        for enemy in self.enemies.iter() {
+            enemy.draw(ctx)?;
+        }
         let player_mesh = self.player.get_mesh(ctx)?;
         player_mesh.draw(
             ctx,
             DrawParam::default().dest(self.player.pos.as_screen_coords()),
         )?;
 
-        for enemy in self.enemies.iter() {
-            enemy.draw(ctx)?;
-        }
-
         self.draw_debug_time(ctx)?;
         self.draw_debug_world_lines(ctx)?;
-
+        self.draw_debug_hitbox(ctx)?;
         graphics::present(ctx)?;
         ggez::timer::yield_now();
         Ok(())

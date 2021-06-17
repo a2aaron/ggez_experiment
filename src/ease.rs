@@ -1,4 +1,3 @@
-use std::ops::{Add, Div, Mul, Sub};
 pub trait Lerp: Sized + Copy {
     /// Lerp between two values. This function will clamp t.
     fn lerp(a: Self, b: Self, t: f64) -> Self {
@@ -46,6 +45,7 @@ impl InvLerp for f64 {
     }
 }
 
+#[derive(Debug, Clone)]
 /// An enum representing an ease.
 pub enum Easing<T> {
     /// Linearly ease from start to end.
@@ -64,15 +64,21 @@ pub enum Easing<T> {
     SteppedLinear { start: T, end: T, steps: usize },
     /// Exponentially ease from start to end.
     Exponential { start: T, end: T },
+    /// Transform an ease into an ease-out (f(x) => 1 - f(1 - x))
+    EaseOut {
+        start: T,
+        end: T,
+        easing: Box<Easing<f64>>,
+    },
 }
 
 impl<T: Lerp> Easing<T> {
     /// Ease using the given interpolation value `t`. `t` is expected to be in
     /// [0.0, 1.0] range.
     pub fn ease(&self, t: f64) -> T {
-        match *self {
-            Easing::Linear { start, end } => T::lerp(start, end, t),
-            Easing::SplitLinear {
+        match self {
+            &Easing::Linear { start, end } => T::lerp(start, end, t),
+            &Easing::SplitLinear {
                 start,
                 mid,
                 end,
@@ -86,13 +92,17 @@ impl<T: Lerp> Easing<T> {
                     remap(split_at, 1.0, t, mid, end)
                 }
             }
-            Easing::SteppedLinear { start, end, steps } => {
+            &Easing::SteppedLinear { start, end, steps } => {
                 let stepped_t = snap_float(t, steps);
                 T::lerp(start, end, stepped_t)
             }
-            Easing::Exponential { start, end } => {
+            &Easing::Exponential { start, end } => {
                 let expo_t = ease_in_expo(t);
                 T::lerp(start, end, expo_t)
+            }
+            Easing::EaseOut { start, end, easing } => {
+                let out_t = 1.0 - easing.ease(1.0 - t);
+                T::lerp(*start, *end, out_t)
             }
         }
     }
@@ -103,9 +113,9 @@ impl<T: Lerp + InvLerp> Easing<T> {
     /// inv_ease assumes easing functions are invertible, which might not be true
     /// for all functions (ex: SplitLinear that does not ease all the way to 1.0)
     pub fn inv_ease(&self, val: T) -> f64 {
-        match *self {
-            Easing::Linear { start, end } => T::inv_lerp(start, end, val),
-            Easing::SplitLinear {
+        match self {
+            &Easing::Linear { start, end } => T::inv_lerp(start, end, val),
+            &Easing::SplitLinear {
                 start,
                 mid,
                 end,
@@ -122,13 +132,17 @@ impl<T: Lerp + InvLerp> Easing<T> {
                     remap(mid, end, val, split_at, 1.0)
                 }
             }
-            Easing::SteppedLinear { start, end, steps } => {
+            &Easing::SteppedLinear { start, end, steps } => {
                 let t = T::inv_lerp(start, end, val);
                 snap_float(t, steps)
             }
-            Easing::Exponential { start, end } => {
+            &Easing::Exponential { start, end } => {
                 let t = T::inv_lerp(start, end, val);
                 inv_ease_in_expo(t)
+            }
+            Easing::EaseOut { easing, start, end } => {
+                let out_t = T::inv_lerp(*start, *end, val);
+                1.0 - easing.inv_ease(1.0 - out_t)
             }
         }
     }

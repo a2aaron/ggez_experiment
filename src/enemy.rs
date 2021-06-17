@@ -1,16 +1,15 @@
 use ggez::graphics::{Color, DrawMode, DrawParam, Drawable, Mesh, MeshBuilder};
 use ggez::{nalgebra as na, Context, GameResult};
 
-use crate::color::RED;
-use crate::ease::Lerp;
+use crate::color::{GREEN, RED, TRANSPARENT, WHITE};
+use crate::ease::{color_lerp, Easing, Lerp};
 use crate::player::WorldPos;
 use crate::time::Beats;
 
-pub const LASER_PREDELAY: f64 = 4.0;
-pub const LASER_DURATION: f64 = 1.0;
-pub const LASER_PREDELAY_BEATS: Beats = Beats(4.0);
+pub const LASER_PREDELAY: Beats = Beats(4.0);
+pub const LASER_DURATION: Beats = Beats(1.0);
 
-const LASER_COOLDOWN: f64 = 1.0;
+const LASER_COOLDOWN: Beats = Beats(0.25);
 
 const BULLET_GUIDE_RADIUS: f32 = 10.0;
 const BULLET_GUIDE_WIDTH: f32 = 1.0;
@@ -19,7 +18,9 @@ pub trait Enemy {
     fn on_spawn(&mut self, start_time: Beats);
     fn update(&mut self, curr_time: Beats);
     fn draw(&self, ctx: &mut Context) -> GameResult<()>;
-    fn sdf(&self, pos: WorldPos) -> f64;
+    /// If None, the enemy has no hitbox, otherwise, positive values give the
+    /// distance to the object and negative values are inside the object.
+    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<f64>;
     fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime;
 }
 
@@ -92,8 +93,8 @@ impl Enemy for Bullet {
         self.glow_trans = 0.5 * (1.0 - beat_percent as f32).powi(4);
     }
 
-    fn sdf(&self, pos: WorldPos) -> f64 {
-        WorldPos::distance(pos, self.pos) - self.size
+    fn sdf(&self, pos: WorldPos, _curr_time: Beats) -> Option<f64> {
+        Some(WorldPos::distance(pos, self.pos) - self.size)
     }
 
     fn draw(&self, ctx: &mut Context) -> GameResult<()> {
@@ -153,202 +154,334 @@ impl Enemy for Bullet {
     }
 }
 
-// pub struct Laser {
-//     start_time: Beats,
-//     durations: LaserDuration,
-//     outline_color: Color,
-//     outline_keyframes: Envelope, // The outline thickness to animate
-//     hitbox_keyframes: Envelope, // The hitbox thickness to animate to and from while in active state.
-//     width: f32,                 // The length of the laser, in gridspace
-//     outline_thickness: f32,     // Non hitdetecting outline, in gridspace
-//     hitbox_thickness: f32,      // In gridspace
-//     position: WorldPos,
-//     angle: f32,
-//     state: LaserState,
-//     alive: bool,
-// }
-// impl Laser {
-//     pub fn new_through_point(point: WorldPos, angle: f32, duration: Beats) -> Laser {
-//         Laser {
-//             start_time: 0.0,
-//             durations: LaserDuration::new(duration),
-//             outline_keyframes: Envelope {
-//                 predelay_keyframes: vec![(0.0, 0.1), (1.0, 0.3)],
-//                 active_keyframes: vec![(0.0, 0.6), (1.0, 0.2)],
-//                 cooldown_keyframes: vec![(0.0, 0.2), (1.0, 0.0)],
-//             },
-//             hitbox_keyframes: Envelope {
-//                 predelay_keyframes: vec![(0.0, 0.0), (0.0, 0.0)],
-//                 active_keyframes: vec![(0.0, 0.3), (0.1, 0.2), (1.0, 0.0)],
-//                 cooldown_keyframes: vec![(0.0, 0.0), (1.0, 0.0)],
-//             },
-//             position: point,
-//             angle,
-//             width: 30.0,
-//             outline_thickness: 0.0,
-//             hitbox_thickness: 0.0,
-//             outline_color: TRANSPARENT,
-//             state: LaserState::Predelay,
-//             alive: true,
-//         }
-//     }
-// }
+pub struct Laser {
+    start_time: Option<Beats>,
+    durations: LaserDuration,
+    outline_color: Color,
+    outline_keyframes: [Easing<f64>; 3], // The outline thickness to animate
+    hitbox_keyframes: [Easing<f64>; 3], // The hitbox thickness to animate to and from while in active state.
+    width: f64,                         // The length of the laser, in World space
+    outline_thickness: f64,             // Non hitdetecting outline, in World space
+    hitbox_thickness: f64,              // In World space
+    position: WorldPos,
+    angle: f64,
+}
+impl Laser {
+    pub fn new_through_point(point: WorldPos, angle: f64, duration: Beats) -> Laser {
+        Laser {
+            start_time: None,
+            durations: LaserDuration::new(duration),
+            outline_keyframes: [
+                Easing::Linear {
+                    start: 1.0,
+                    end: 3.0,
+                },
+                Easing::Linear {
+                    start: 6.0,
+                    end: 0.0,
+                    // easing: Box::new(Easing::Exponential {
+                    //     start: 0.0,
+                    //     end: 1.0,
+                    // }),
+                },
+                Easing::Linear {
+                    start: 0.0,
+                    end: 0.0,
+                },
+            ],
+            hitbox_keyframes: [
+                Easing::Linear {
+                    start: 0.0,
+                    end: 0.0,
+                },
+                Easing::EaseOut {
+                    start: 3.0,
+                    end: 0.0,
+                    easing: Box::new(Easing::Exponential {
+                        start: 0.0,
+                        end: 1.0,
+                    }),
+                },
+                Easing::Linear {
+                    start: 0.0,
+                    end: 0.0,
+                },
+            ],
+            position: point,
+            angle,
+            width: 300.0,
+            outline_thickness: 0.0,
+            hitbox_thickness: 0.0,
+            outline_color: TRANSPARENT,
+        }
+    }
+}
 
-// impl Enemy for Laser {
-//     fn on_spawn(&mut self, start_time: Beats) {
-//         self.start_time = start_time;
-//     }
+impl Enemy for Laser {
+    fn on_spawn(&mut self, start_time: Beats) {
+        self.start_time = Some(start_time);
+    }
 
-//     fn update(&mut self, curr_time: Beats) {
-//         let delta_time = curr_time - self.start_time;
+    fn update(&mut self, curr_time: Beats) {
+        if self.start_time.is_none() {
+            return;
+        }
+        let start_time = self.start_time.unwrap();
+        let delta_time = curr_time - start_time;
 
-//         self.alive = delta_time < self.durations.total_duration(LaserState::Cooldown);
+        let state = self.durations.get_state(delta_time);
+        let index = match state {
+            LaserState::Predelay => 0,
+            LaserState::Active => 1,
+            LaserState::Cooldown => 2,
+        };
 
-//         use self::LaserState::*;
-//         self.state = self.durations.get_state(delta_time);
-//         let percent_over_state = self.durations.percent_over_state(delta_time) as f32;
-//         self.outline_thickness = self
-//             .outline_keyframes
-//             .lin_interp(self.state, percent_over_state);
-//         self.hitbox_thickness = self
-//             .hitbox_keyframes
-//             .lin_interp(self.state, percent_over_state);
-//         let (start_color, end_color) = match self.state {
-//             Predelay => (
-//                 TRANSPARENT,
-//                 Color {
-//                     r: 1.0,
-//                     g: 0.0,
-//                     b: 0.0,
-//                     a: 0.8,
-//                 },
-//             ),
-//             Active => (RED, RED),
-//             Cooldown => (RED, TRANSPARENT),
-//         };
-//         self.outline_color = color_lerp(start_color, end_color, percent_over_state);
-//     }
+        let percent_over_state = self.durations.percent_over_state(delta_time);
 
-//     fn draw(&self, ctx: &mut Context, grid: &Grid) -> GameResult<()> {
-//         let position = grid.to_screen_coord(self.position);
-//         let width = grid.to_screen_length(self.width);
-//         let hitbox_thickness = grid.to_screen_length(self.hitbox_thickness);
-//         let outline_thickness = grid.to_screen_length(self.outline_thickness);
-//         draw_laser_rect(
-//             ctx,
-//             position,
-//             width,
-//             outline_thickness,
-//             self.angle,
-//             self.outline_color,
-//         )?;
-//         draw_laser_rect(ctx, position, width, hitbox_thickness, self.angle, WHITE)?;
-//         // (probably debug, show the center point of the lazer)
-//         let green_circle = Mesh::new_circle(ctx, DrawMode::fill(), position, 4.0, 2.0, GREEN)?;
-//         green_circle.draw(ctx, DrawParam::default())?;
-//         Ok(())
-//     }
+        self.outline_thickness = self.outline_keyframes[index].ease(percent_over_state);
 
-//     fn intersects(&self, player: &Player) -> bool {
-//         if self.state != LaserState::Active {
-//             return false;
-//         }
-//         // We want the perpendicular of the line from the plane to the player
-//         let a = self.angle.sin();
-//         let b = -self.angle.cos();
-//         let c = -(a * self.position.x + b * self.position.y);
+        self.hitbox_thickness = self.hitbox_keyframes[index].ease(percent_over_state);
 
-//         let player_pos = player.position();
-//         let distance = (a * player_pos.x + b * player_pos.y + c).abs() / (a * a + b * b).sqrt();
-//         distance < self.hitbox_thickness / 2.0 + player.size
-//     }
+        let (start_color, end_color) = match state {
+            LaserState::Predelay => (
+                TRANSPARENT,
+                Color {
+                    r: 1.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.8,
+                },
+            ),
+            LaserState::Active => (RED, RED),
+            LaserState::Cooldown => (RED, TRANSPARENT),
+        };
+        self.outline_color = color_lerp(start_color, end_color, percent_over_state);
+    }
 
-//     fn is_alive(&self) -> bool {
-//         self.alive
-//     }
-// }
+    fn draw(&self, ctx: &mut Context) -> GameResult<()> {
+        let position = self.position.as_screen_coords();
+        let width = WorldPos::as_screen_length(self.width);
+        let hitbox_thickness = WorldPos::as_screen_length(self.hitbox_thickness);
+        let outline_thickness = WorldPos::as_screen_length(self.outline_thickness);
+        let angle = self.angle as f32;
+        draw_laser_rect(
+            ctx,
+            position,
+            width,
+            outline_thickness,
+            angle,
+            self.outline_color,
+        )?;
+        draw_laser_rect(ctx, position, width, hitbox_thickness, angle, WHITE)?;
+        // (probably debug, show the center point of the lazer)
+        let green_circle = Mesh::new_circle(ctx, DrawMode::fill(), position, 4.0, 2.0, GREEN)?;
+        green_circle.draw(ctx, DrawParam::default())?;
 
-// fn draw_laser_rect(
-//     ctx: &mut Context,
-//     position: na::Point2<f32>,
-//     width: f32,
-//     thickness: f32,
-//     angle: f32,
-//     color: Color,
-// ) -> GameResult<()> {
-//     // The mesh is done like this so that we draw about the center of the position
-//     // this lets us easily rotate the laser about its position.
-//     let points = [
-//         na::Point2::new(1.0, 1.0),
-//         na::Point2::new(1.0, -1.0),
-//         na::Point2::new(-1.0, -1.0),
-//         na::Point2::new(-1.0, 1.0),
-//     ];
-//     let mesh = Mesh::new_polygon(ctx, DrawMode::fill(), &points, color).unwrap();
-//     mesh.draw(
-//         ctx,
-//         DrawParam::default()
-//             .dest(position)
-//             .scale([width, thickness])
-//             .rotation(angle),
-//     )?;
-//     Ok(())
-// }
+        Ok(())
+    }
 
-// #[derive(Debug)]
-// struct LaserDuration {
-//     predelay: Beats, // The amount of time to show a predelay warning
-//     active: Beats,   // The amount of time to actually do hit detection
-//     cooldown: Beats, // The amount of time to show a "cool off" animation (and disable hit detection)
-// }
+    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<f64> {
+        let start_time = self.start_time?;
+        if self.durations.get_state(curr_time - start_time) != LaserState::Active {
+            return None;
+        }
 
-// impl LaserDuration {
-//     fn new(active_duration: Beats) -> LaserDuration {
-//         LaserDuration {
-//             predelay: LASER_PREDELAY,
-//             active: active_duration,
-//             cooldown: LASER_COOLDOWN,
-//         }
-//     }
+        let width = self.hitbox_thickness;
+        let dist_to_laser = shortest_distance_to_line(
+            na::Point2::new(pos.x, pos.y),
+            na::Point2::new(self.position.x, self.position.y),
+            self.angle,
+        );
+        Some(dist_to_laser - width)
+    }
 
-//     fn get_state(&self, delta_time: Beats) -> LaserState {
-//         if delta_time < self.total_duration(LaserState::Predelay) {
-//             LaserState::Predelay
-//         } else if delta_time < self.total_duration(LaserState::Active) {
-//             LaserState::Active
-//         } else {
-//             LaserState::Cooldown
-//         }
-//     }
+    fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime {
+        if self.start_time.is_none() {
+            EnemyLifetime::Unspawned
+        } else if self.durations.total_duration(LaserState::Cooldown)
+            < curr_time - self.start_time.unwrap()
+        {
+            EnemyLifetime::Dead
+        } else {
+            EnemyLifetime::Alive
+        }
+    }
+}
 
-//     fn percent_over_state(&self, delta_time: Beats) -> f64 {
-//         use self::LaserState::*;
-//         let state = self.get_state(delta_time);
-//         match state {
-//             Predelay => delta_time / self.predelay,
-//             Active => (delta_time - self.predelay) / self.active,
-//             Cooldown => (delta_time - self.predelay - self.active) / self.cooldown,
-//         }
-//     }
+fn draw_laser_rect(
+    ctx: &mut Context,
+    position: na::Point2<f32>,
+    width: f32,
+    thickness: f32,
+    angle: f32,
+    color: Color,
+) -> GameResult<()> {
+    // The mesh is done like this so that we draw about the center of the position
+    // this lets us easily rotate the laser about its position.
+    let points = [
+        na::Point2::new(1.0, 1.0),
+        na::Point2::new(1.0, -1.0),
+        na::Point2::new(-1.0, -1.0),
+        na::Point2::new(-1.0, 1.0),
+    ];
+    let mesh = Mesh::new_polygon(ctx, DrawMode::fill(), &points, color).unwrap();
+    mesh.draw(
+        ctx,
+        DrawParam::default()
+            .dest(position)
+            .scale([width, thickness])
+            .rotation(-angle),
+    )?;
+    Ok(())
+}
 
-//     /// Returns the total duration until this state occurs
-//     fn total_duration(&self, state: LaserState) -> f64 {
-//         use self::LaserState::*;
-//         match state {
-//             Predelay => self.predelay,
-//             Active => self.predelay + self.active,
-//             Cooldown => self.predelay + self.active + self.cooldown,
-//         }
-//     }
+#[derive(Debug)]
+struct LaserDuration {
+    predelay: Beats, // The amount of time to show a predelay warning
+    active: Beats,   // The amount of time to actually do hit detection
+    cooldown: Beats, // The amount of time to show a "cool off" animation (and disable hit detection)
+}
 
-//     fn percent_over_total(&self, state: LaserState, delta_time: Beats) -> f64 {
-//         delta_time / self.total_duration(state)
-//     }
-// }
+impl LaserDuration {
+    fn new(active_duration: Beats) -> LaserDuration {
+        LaserDuration {
+            predelay: LASER_PREDELAY,
+            active: active_duration,
+            cooldown: LASER_COOLDOWN,
+        }
+    }
 
-// #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-// enum LaserState {
-//     Predelay,
-//     Active,
-//     Cooldown,
-// }
+    fn get_state(&self, delta_time: Beats) -> LaserState {
+        if delta_time < self.total_duration(LaserState::Predelay) {
+            LaserState::Predelay
+        } else if delta_time < self.total_duration(LaserState::Active) {
+            LaserState::Active
+        } else {
+            LaserState::Cooldown
+        }
+    }
+
+    /// Return the percent within a particular state.
+    fn percent_over_state(&self, delta_time: Beats) -> f64 {
+        use self::LaserState::*;
+        let state = self.get_state(delta_time);
+        let delta_time = delta_time.0;
+        let predelay = self.predelay.0;
+        let active = self.active.0;
+        let cooldown = self.cooldown.0;
+        match state {
+            Predelay => delta_time / predelay,
+            Active => (delta_time - predelay) / active,
+            Cooldown => (delta_time - predelay - active) / cooldown,
+        }
+    }
+
+    /// Returns the total duration that this state takes up, plus the previous
+    /// states.
+    fn total_duration(&self, state: LaserState) -> Beats {
+        use self::LaserState::*;
+        match state {
+            Predelay => self.predelay,
+            Active => self.predelay + self.active,
+            Cooldown => self.predelay + self.active + self.cooldown,
+        }
+    }
+
+    /// Return the percent of the two states combined
+    fn percent_over_total(&self, state: LaserState, delta_time: Beats) -> f64 {
+        delta_time.0 / self.total_duration(state).0
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum LaserState {
+    Predelay,
+    Active,
+    Cooldown,
+}
+
+/// Return the shortest distance from `pos` to the line defined by `line_pos`
+/// and `angle`. `angle` is in radians and measure the angle between a horizontal
+/// line and the line in question.
+pub fn shortest_distance_to_line(
+    pos: na::Point2<f64>,
+    line_pos: na::Point2<f64>,
+    angle: f64,
+) -> f64 {
+    // We have the vector LP,
+    #[allow(non_snake_case)]
+    let LP_vec: na::Vector2<f64> = pos - line_pos;
+    // The unit vector along the laser
+    let laser_unit_vec = na::Vector2::new(angle.cos(), angle.sin());
+
+    // We now find the angle between the two vectors
+    let dot_prod = LP_vec.dot(&laser_unit_vec);
+
+    // Project LP_vec along laser_unit_vec
+    let proj = dot_prod * laser_unit_vec;
+
+    // Now get the perpendicular, this is the distance to the laser.
+    let perp = LP_vec - proj;
+    perp.norm()
+}
+
+#[cfg(test)]
+mod test {
+    use ggez::nalgebra as na;
+
+    use crate::enemy::shortest_distance_to_line;
+
+    macro_rules! assert_eq_delta {
+        ($x:expr, $y:expr) => {
+            if ($x - $y).abs() > 0.0001 {
+                panic!("{:?} does not approx. equal {:?}", $x, $y);
+            }
+        };
+    }
+
+    #[test]
+    pub fn test_shortest_distance_to_line_horiz() {
+        let pi = std::f64::consts::PI;
+        let sqrt_3 = 3.0_f64.sqrt();
+
+        let origin = na::Point2::origin();
+        let pos = na::Point2::new(1.0, sqrt_3);
+        assert_eq_delta!(shortest_distance_to_line(pos, origin, 0.0), pos.y.abs());
+
+        let origin = na::Point2::origin();
+        let pos = na::Point2::new(1.0, -sqrt_3);
+        assert_eq_delta!(shortest_distance_to_line(pos, origin, pi), pos.y.abs());
+
+        let origin = na::Point2::origin();
+        let pos = na::Point2::new(1.0, -sqrt_3);
+        assert_eq_delta!(
+            shortest_distance_to_line(pos, origin, 2.0 * pi),
+            pos.y.abs()
+        );
+    }
+
+    #[test]
+    pub fn test_shortest_distance_to_line_vert() {
+        let pi = std::f64::consts::PI;
+        let sqrt_3 = 3.0_f64.sqrt();
+
+        let origin = na::Point2::origin();
+        let pos = na::Point2::new(1.0, sqrt_3);
+        assert_eq_delta!(
+            shortest_distance_to_line(pos, origin, pi / 2.0),
+            pos.x.abs()
+        );
+
+        let pos = na::Point2::new(1.0, sqrt_3);
+        assert_eq_delta!(
+            shortest_distance_to_line(pos, origin, 3.0 * pi / 2.0),
+            pos.x.abs()
+        );
+
+        let pos = na::Point2::new(-1.0, -sqrt_3);
+        assert_eq_delta!(
+            shortest_distance_to_line(pos, origin, -pi / 2.0),
+            pos.x.abs()
+        );
+    }
+}
