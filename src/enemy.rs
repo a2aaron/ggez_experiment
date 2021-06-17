@@ -176,16 +176,18 @@ impl Laser {
                     start: 1.0,
                     end: 3.0,
                 },
-                Easing::Linear {
+                Easing::SplitLinear {
                     start: 6.0,
-                    end: 0.0,
+                    end: 1.0,
+                    mid: 2.0,
+                    split_at: 0.6,
                     // easing: Box::new(Easing::Exponential {
                     //     start: 0.0,
                     //     end: 1.0,
                     // }),
                 },
                 Easing::Linear {
-                    start: 0.0,
+                    start: 1.0,
                     end: 0.0,
                 },
             ],
@@ -246,14 +248,14 @@ impl Enemy for Laser {
             LaserState::Predelay => (
                 TRANSPARENT,
                 Color {
-                    r: 1.0,
+                    r: 0.5,
                     g: 0.1,
                     b: 0.1,
-                    a: 0.8,
+                    a: 0.0,
                 },
             ),
-            LaserState::Active => (LASER_RED, LASER_RED),
-            LaserState::Cooldown => (LASER_RED, TRANSPARENT),
+            LaserState::Active => (LASER_RED, TRANSPARENT),
+            LaserState::Cooldown => (TRANSPARENT, TRANSPARENT),
         };
         self.outline_color = color_lerp(start_color, end_color, percent_over_state);
     }
@@ -328,7 +330,7 @@ fn draw_laser_rect(
     // TODO: Setting blend mode on meshes seems to not work. File an issue &
     // investigate why?
     // mesh.set_blend_mode(Some(BlendMode::Add));
-    ggez::graphics::set_blend_mode(ctx, BlendMode::Add)?;
+    ggez::graphics::set_blend_mode(ctx, BlendMode::Lighten)?;
     mesh.draw(
         ctx,
         DrawParam::default()
