@@ -1,6 +1,6 @@
 use rand::{thread_rng, Rng};
 
-use crate::player::WorldPos;
+use crate::world::WorldPos;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Direction8 {
@@ -25,22 +25,10 @@ pub fn rand_circle_edge(center: WorldPos, radius: f64) -> WorldPos {
     }
 }
 
-pub fn rev_quad(n: f64) -> f64 {
-    (1.0 - n) * (1.0 - n)
-}
-
-pub fn smooth_step(n: f64) -> f64 {
-    -2.0 * n * n + 3.0 * n * n
-}
-
 pub fn quartic(n: f64) -> f64 {
     n * n * n * n
 }
 
 pub fn rev_quartic(n: f64) -> f64 {
     1.0 - quartic(1.0 - n)
-}
-
-pub fn late_attack(n: f32) -> f32 {
-    (n * n / 4.0) + 5.0 * (n - 0.3) * (n - 0.3) * (n - 0.3) * (n - 0.3) * (n - 0.3)
 }

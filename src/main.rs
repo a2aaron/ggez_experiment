@@ -9,15 +9,15 @@ use ggez::GameError;
 
 use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::mint::Point2;
-use ggez::graphics::{DrawMode, DrawParam, Drawable, Font, Mesh, Rect, Scale, Text, TextFragment};
+use ggez::graphics::{DrawMode, DrawParam, Drawable, Font, Mesh, Scale, Text, TextFragment};
 use ggez::{
     audio, conf, event, graphics, nalgebra as na, timer, Context, ContextBuilder, GameResult,
 };
 
 use keyboard::KeyboardState;
-use player::{Player, WorldPos};
-use rand::Rng;
+use player::Player;
 use time::Time;
+use world::{WorldLen, WorldPos};
 
 use crate::enemy::Laser;
 use crate::time::Beats;
@@ -29,6 +29,7 @@ mod keyboard;
 mod player;
 mod time;
 mod util;
+mod world;
 
 const TARGET_FPS: u32 = 60;
 
@@ -153,11 +154,11 @@ impl MainState {
         )?
         .draw(ctx, DrawParam::default())?;
 
-        let rect = WorldPos::as_screen_rect(WorldPos::origin(), 100.0, 100.0);
+        let rect = WorldPos::as_screen_rect(WorldPos::origin(), WorldLen(100.0), WorldLen(100.0));
         Mesh::new_rectangle(ctx, DrawMode::stroke(2.0), rect, crate::color::DEBUG_RED)?
             .draw(ctx, DrawParam::default())?;
 
-        let rect = WorldPos::as_screen_rect(WorldPos::origin(), 10.0, 10.0);
+        let rect = WorldPos::as_screen_rect(WorldPos::origin(), WorldLen(10.0), WorldLen(10.0));
         Mesh::new_rectangle(ctx, DrawMode::stroke(2.0), rect, crate::color::DEBUG_RED)?
             .draw(ctx, DrawParam::default())?;
 
@@ -180,7 +181,7 @@ impl MainState {
                         Some(sdf) => crate::ease::color_lerp(
                             crate::color::RED,
                             crate::color::GREEN,
-                            (sdf.atan() / (std::f64::consts::PI / 2.0) + 1.0) / 2.0,
+                            (sdf.0.atan() / (std::f64::consts::PI / 2.0) + 1.0) / 2.0,
                         ),
                     };
                     Mesh::new_circle(
@@ -239,7 +240,7 @@ impl event::EventHandler for MainState {
                 let mut laser = Box::new(Laser::new_through_point(
                     WorldPos::origin(),
                     (self.last_beat.0) * std::f64::consts::PI / 12.0,
-                    Beats(1.0),
+                    Beats(0.25),
                 ));
 
                 laser.on_spawn(curr_time);

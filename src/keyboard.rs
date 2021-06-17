@@ -23,10 +23,10 @@ impl KeyboardState {
     pub fn update(&mut self, keycode: KeyCode, is_down: bool) {
         use KeyCode::*;
         match keycode {
-            Left => self.left.update(is_down),
-            Right => self.right.update(is_down),
-            Up => self.up.update(is_down),
-            Down => self.down.update(is_down),
+            Left | A => self.left.update(is_down),
+            Right | D => self.right.update(is_down),
+            Up | W => self.up.update(is_down),
+            Down | S => self.down.update(is_down),
             Space => self.space.update(is_down),
             _ => (),
         }

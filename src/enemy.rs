@@ -3,8 +3,8 @@ use ggez::{nalgebra as na, Context, GameResult};
 
 use crate::color::{GREEN, LASER_RED, RED, TRANSPARENT, WHITE};
 use crate::ease::{color_lerp, Easing, Lerp};
-use crate::player::WorldPos;
 use crate::time::Beats;
+use crate::world::{WorldLen, WorldPos};
 
 pub const LASER_PREDELAY: Beats = Beats(4.0);
 pub const LASER_DURATION: Beats = Beats(1.0);
@@ -20,7 +20,7 @@ pub trait Enemy {
     fn draw(&self, ctx: &mut Context) -> GameResult<()>;
     /// If None, the enemy has no hitbox, otherwise, positive values give the
     /// distance to the object and negative values are inside the object.
-    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<f64>;
+    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen>;
     fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime;
 }
 
@@ -48,11 +48,11 @@ pub struct Bullet {
     // Time over which this bullet lives, in beats.
     duration: Beats,
     // Size of glowy bit
-    glow_size: f64,
+    glow_size: WorldLen,
     // Transparency of glowy bit.
     glow_trans: f32,
     // The radius of this bullet, in World space
-    size: f64,
+    size: WorldLen,
 }
 
 impl Bullet {
@@ -63,9 +63,9 @@ impl Bullet {
             end_pos,
             start_time: None,
             duration,
-            glow_size: 0.0,
+            glow_size: WorldLen(0.0),
             glow_trans: 0.0,
-            size: 3.0,
+            size: WorldLen(3.0),
         }
     }
 }
@@ -89,11 +89,11 @@ impl Enemy for Bullet {
         self.pos = WorldPos::lerp(self.start_pos, self.end_pos, total_percent);
 
         let beat_percent = delta_time.0 % 1.0;
-        self.glow_size = self.size + 5.0 * crate::util::rev_quartic(beat_percent);
+        self.glow_size = self.size + WorldLen(5.0 * crate::util::rev_quartic(beat_percent));
         self.glow_trans = 0.5 * (1.0 - beat_percent as f32).powi(4);
     }
 
-    fn sdf(&self, pos: WorldPos, _curr_time: Beats) -> Option<f64> {
+    fn sdf(&self, pos: WorldPos, _curr_time: Beats) -> Option<WorldLen> {
         Some(WorldPos::distance(pos, self.pos) - self.size)
     }
 
@@ -125,7 +125,7 @@ impl Enemy for Bullet {
             .circle(
                 DrawMode::fill(),
                 pos,
-                WorldPos::as_screen_length(self.size),
+                self.size.as_screen_length(),
                 2.0,
                 RED,
             )
@@ -133,7 +133,7 @@ impl Enemy for Bullet {
             .circle(
                 DrawMode::fill(),
                 pos,
-                WorldPos::as_screen_length(self.glow_size),
+                self.glow_size.as_screen_length(),
                 2.0,
                 glow_color,
             );
@@ -158,11 +158,14 @@ pub struct Laser {
     start_time: Option<Beats>,
     durations: LaserDuration,
     outline_color: Color,
-    outline_keyframes: [Easing<f64>; 3], // The outline thickness to animate
-    hitbox_keyframes: [Easing<f64>; 3], // The hitbox thickness to animate to and from while in active state.
-    width: f64,                         // The length of the laser, in World space
-    outline_thickness: f64,             // Non hitdetecting outline, in World space
-    hitbox_thickness: f64,              // In World space
+    // The outline thickness to animate, in WorldLen units
+    outline_keyframes: [Easing<f64>; 3],
+    // The hitbox thickness to animate to and from while in active state.
+    // Also in WorldLen units
+    hitbox_keyframes: [Easing<f64>; 3],
+    width: WorldLen,             // The length of the laser
+    outline_thickness: WorldLen, // Non hitdetecting outline
+    hitbox_thickness: WorldLen,  // In World space
     position: WorldPos,
     angle: f64,
 }
@@ -197,23 +200,25 @@ impl Laser {
                     end: 0.0,
                 },
                 Easing::EaseOut {
-                    start: 3.0,
-                    end: 0.0,
+                    start: 2.0,
+                    end: 1.0,
                     easing: Box::new(Easing::Exponential {
                         start: 0.0,
                         end: 1.0,
                     }),
                 },
-                Easing::Linear {
-                    start: 0.0,
+                Easing::SplitLinear {
+                    start: 1.0,
+                    mid: 0.0,
                     end: 0.0,
+                    split_at: 0.5,
                 },
             ],
             position: point,
             angle,
-            width: 300.0,
-            outline_thickness: 0.0,
-            hitbox_thickness: 0.0,
+            width: WorldLen(300.0),
+            outline_thickness: WorldLen(0.0),
+            hitbox_thickness: WorldLen(0.0),
             outline_color: TRANSPARENT,
         }
     }
@@ -239,10 +244,8 @@ impl Enemy for Laser {
         };
 
         let percent_over_state = self.durations.percent_over_state(delta_time);
-
-        self.outline_thickness = self.outline_keyframes[index].ease(percent_over_state);
-
-        self.hitbox_thickness = self.hitbox_keyframes[index].ease(percent_over_state);
+        self.outline_thickness = WorldLen(self.outline_keyframes[index].ease(percent_over_state));
+        self.hitbox_thickness = WorldLen(self.hitbox_keyframes[index].ease(percent_over_state));
 
         let (start_color, end_color) = match state {
             LaserState::Predelay => (
@@ -262,9 +265,9 @@ impl Enemy for Laser {
 
     fn draw(&self, ctx: &mut Context) -> GameResult<()> {
         let position = self.position.as_screen_coords();
-        let width = WorldPos::as_screen_length(self.width);
-        let hitbox_thickness = WorldPos::as_screen_length(self.hitbox_thickness);
-        let outline_thickness = WorldPos::as_screen_length(self.outline_thickness);
+        let width = self.width.as_screen_length();
+        let hitbox_thickness = self.hitbox_thickness.as_screen_length();
+        let outline_thickness = self.outline_thickness.as_screen_length();
         let angle = self.angle as f32;
         draw_laser_rect(
             ctx,
@@ -282,7 +285,7 @@ impl Enemy for Laser {
         Ok(())
     }
 
-    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<f64> {
+    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen> {
         let start_time = self.start_time?;
         if self.durations.get_state(curr_time - start_time) != LaserState::Active {
             return None;
@@ -294,7 +297,7 @@ impl Enemy for Laser {
             na::Point2::new(self.position.x, self.position.y),
             self.angle,
         );
-        Some(dist_to_laser - width)
+        Some(WorldLen(dist_to_laser) - width)
     }
 
     fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime {
@@ -326,7 +329,7 @@ fn draw_laser_rect(
         na::Point2::new(-1.0, -1.0),
         na::Point2::new(-1.0, 1.0),
     ];
-    let mut mesh = Mesh::new_polygon(ctx, DrawMode::fill(), &points, color).unwrap();
+    let mesh = Mesh::new_polygon(ctx, DrawMode::fill(), &points, color).unwrap();
     // TODO: Setting blend mode on meshes seems to not work. File an issue &
     // investigate why?
     // mesh.set_blend_mode(Some(BlendMode::Add));
