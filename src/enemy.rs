@@ -1,7 +1,7 @@
-use ggez::graphics::{Color, DrawMode, DrawParam, Drawable, Mesh, MeshBuilder};
+use ggez::graphics::{BlendMode, Color, DrawMode, DrawParam, Drawable, Mesh, MeshBuilder};
 use ggez::{nalgebra as na, Context, GameResult};
 
-use crate::color::{GREEN, RED, TRANSPARENT, WHITE};
+use crate::color::{GREEN, LASER_RED, RED, TRANSPARENT, WHITE};
 use crate::ease::{color_lerp, Easing, Lerp};
 use crate::player::WorldPos;
 use crate::time::Beats;
@@ -247,13 +247,13 @@ impl Enemy for Laser {
                 TRANSPARENT,
                 Color {
                     r: 1.0,
-                    g: 0.0,
-                    b: 0.0,
+                    g: 0.1,
+                    b: 0.1,
                     a: 0.8,
                 },
             ),
-            LaserState::Active => (RED, RED),
-            LaserState::Cooldown => (RED, TRANSPARENT),
+            LaserState::Active => (LASER_RED, LASER_RED),
+            LaserState::Cooldown => (LASER_RED, TRANSPARENT),
         };
         self.outline_color = color_lerp(start_color, end_color, percent_over_state);
     }
@@ -324,7 +324,11 @@ fn draw_laser_rect(
         na::Point2::new(-1.0, -1.0),
         na::Point2::new(-1.0, 1.0),
     ];
-    let mesh = Mesh::new_polygon(ctx, DrawMode::fill(), &points, color).unwrap();
+    let mut mesh = Mesh::new_polygon(ctx, DrawMode::fill(), &points, color).unwrap();
+    // TODO: Setting blend mode on meshes seems to not work. File an issue &
+    // investigate why?
+    // mesh.set_blend_mode(Some(BlendMode::Add));
+    ggez::graphics::set_blend_mode(ctx, BlendMode::Add)?;
     mesh.draw(
         ctx,
         DrawParam::default()
@@ -332,6 +336,10 @@ fn draw_laser_rect(
             .scale([width, thickness])
             .rotation(-angle),
     )?;
+    // TODO/NOTE: There is no way to get the current blend mode, so we will just
+    // assume Alpha is the default blend mode.
+    ggez::graphics::set_blend_mode(ctx, BlendMode::Alpha)?;
+
     Ok(())
 }
 

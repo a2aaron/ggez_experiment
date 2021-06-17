@@ -48,3 +48,10 @@ pub const DEBUG_RED: Color = Color {
     b: 0.1,
     a: 1.0,
 };
+
+pub const LASER_RED: Color = Color {
+    r: 1.0,
+    g: 0.1,
+    b: 0.1,
+    a: 1.0,
+};

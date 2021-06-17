@@ -238,7 +238,7 @@ impl event::EventHandler for MainState {
 
                 let mut laser = Box::new(Laser::new_through_point(
                     WorldPos::origin(),
-                    dbg!((self.last_beat.0) * std::f64::consts::PI / 12.0),
+                    (self.last_beat.0) * std::f64::consts::PI / 12.0,
                     Beats(1.0),
                 ));
 

@@ -85,7 +85,7 @@ impl Player {
     pub fn new() -> Player {
         Player {
             pos: WorldPos { x: 0.0, y: 0.0 },
-            speed: 10.0,
+            speed: 100.0,
             size: 2.0,
             color: crate::color::WHITE,
             hit_timer: 0.0,
