@@ -1,3 +1,9 @@
+/// This file manages the various conversions to and from the internal "World
+/// space" coordinates and the external screen space coordinates.
+/// World space is such that 1.0 World space unit is visually 4.0 pixels on
+/// screen. Additionally, World space has the y-axis increasing in the upwards
+/// direction (opposite to screen space, where it increases in the downwards
+/// direction)
 use derive_more::{Add, From, Sub};
 use ggez::graphics::Rect;
 use ggez::nalgebra as na;
@@ -6,7 +12,7 @@ use crate::ease::Lerp;
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 /// How many pixels that a unit distance in WorldPosition translates to. Here,
-/// this means that if two things are 1.0 WorldPos units apart, they are 4 pixels
+/// this means that if two things are 1.0 WorldLen units apart, they are 4 pixels
 /// apart in screen space.
 pub const WORLD_SCALE_FACTOR: f32 = 4.0;
 

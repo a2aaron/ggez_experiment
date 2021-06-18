@@ -154,7 +154,12 @@ impl Enemy for Bullet {
     }
 }
 
+/// A rectangular energy beam. This enemy has a couple of states:
+/// Predelay - The warning for the player before the laser activates.
+/// Active - The laser is actively firing and can hurt the player.
+/// Cooldown - The laser is over and the last bits of the laser are fading out.
 pub struct Laser {
+    // The start time of this laser. If negative, the laser has not been spawned yet.
     start_time: Option<Beats>,
     durations: LaserDuration,
     outline_color: Color,

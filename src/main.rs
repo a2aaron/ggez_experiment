@@ -3,6 +3,7 @@
 use std::env;
 use std::path::PathBuf;
 
+use chart::Scheduler;
 use enemy::{Bullet, Enemy, EnemyLifetime};
 use ggez::audio::{SoundSource, Source};
 use ggez::GameError;
@@ -22,6 +23,7 @@ use world::{WorldLen, WorldPos};
 use crate::enemy::Laser;
 use crate::time::Beats;
 
+mod chart;
 mod color;
 mod ease;
 mod enemy;
@@ -33,10 +35,10 @@ mod world;
 
 const TARGET_FPS: u32 = 60;
 
-const BPM: f64 = 120.0; // 170.0;
+const BPM: f64 = 150.0; // 120.0; // 170.0;
                         // Files read via ggez (usually music/font/images)
-const MUSIC_PATH: &str = "/metronome120.ogg"; // "/bbkkbkk.ogg";
-                                              // const ARIAL_PATH: &str = "/Arial.ttf";
+const MUSIC_PATH: &str = "/supersquare.mp3"; //"/metronome120.ogg"; // "/bbkkbkk.ogg";
+                                             // const ARIAL_PATH: &str = "/Arial.ttf";
 const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
 // Files manually read by me (usually maps)
 const MAP_PATH: &str = "./resources/bbkkbkk.map";
@@ -62,6 +64,7 @@ impl Assets {
 }
 
 struct MainState {
+    scheduler: Scheduler,
     time: Time,
     music: Source,
     keyboard: KeyboardState,
@@ -84,6 +87,7 @@ impl MainState {
             player: Player::new(),
             enemies: vec![],
             last_beat: Beats(0.0),
+            scheduler: Scheduler::new(),
             debug: None,
         };
         Ok(s)
@@ -92,6 +96,7 @@ impl MainState {
     fn reset(&mut self) {
         self.enemies.clear();
         self.last_beat = Beats(0.0);
+        self.scheduler = Scheduler::new();
     }
 
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
@@ -226,27 +231,31 @@ impl event::EventHandler for MainState {
                     }
                 }
             }
-
-            if self.last_beat < curr_time {
-                self.last_beat = Beats(self.last_beat.0 + 1.0);
-                let mut bullet = Box::new(Bullet::new(
-                    util::rand_circle_edge(WorldPos::origin(), 60.0),
-                    WorldPos::origin(),
-                    Beats(4.0),
-                ));
-                bullet.on_spawn(curr_time);
-                self.enemies.push(bullet);
-
-                let mut laser = Box::new(Laser::new_through_point(
-                    WorldPos::origin(),
-                    (self.last_beat.0) * std::f64::consts::PI / 12.0,
-                    Beats(0.25),
-                ));
-
-                laser.on_spawn(curr_time);
-                // self.debug = Some(laser);
-                self.enemies.push(laser);
+            if USE_MAP {
+                self.scheduler
+                    .update(self.time.get_beats(), &mut self.enemies);
             }
+
+            // if self.last_beat < curr_time {
+            //     self.last_beat = Beats(self.last_beat.0 + 1.0);
+            //     let mut bullet = Box::new(Bullet::new(
+            //         util::rand_circle_edge(WorldPos::origin(), 60.0),
+            //         WorldPos::origin(),
+            //         Beats(4.0),
+            //     ));
+            //     bullet.on_spawn(curr_time);
+            //     self.enemies.push(bullet);
+
+            //     let mut laser = Box::new(Laser::new_through_point(
+            //         WorldPos::origin(),
+            //         (self.last_beat.0) * std::f64::consts::PI / 12.0,
+            //         Beats(0.25),
+            //     ));
+
+            //     laser.on_spawn(curr_time);
+            //     // self.debug = Some(laser);
+            //     self.enemies.push(laser);
+            // }
 
             // Delete all dead enemies
             self.enemies
@@ -279,6 +288,7 @@ impl event::EventHandler for MainState {
                 self.reset();
                 self.time.reset();
                 drop(self.music.play());
+                self.music.set_volume(0.5);
             }
         }
         self.keyboard.update(keycode, true);
