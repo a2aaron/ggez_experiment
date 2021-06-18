@@ -8,6 +8,8 @@ use crate::enemy::{Bullet, Enemy, Laser};
 use crate::time::Beats;
 use crate::world::WorldPos;
 
+/// This struct contains all the events that occur during a song. It will perform
+/// a set of events every time update is called.
 #[derive(Debug, Default)]
 pub struct Scheduler {
     work_queue: BinaryHeap<BeatAction>,
@@ -15,9 +17,17 @@ pub struct Scheduler {
 impl Scheduler {
     pub fn new() -> Scheduler {
         let mut work_queue = BinaryHeap::new();
-        // for i in 0..24 {
-        //     work_queue
-        // }
+        for i in [16, 18, 20, 22].iter() {
+            let beat = Beats(*i as f64);
+            let action = BeatAction::new(
+                beat,
+                SpawnCmd::SpawnBullet {
+                    start: WorldPos { x: 0.0, y: -50.0 },
+                    end: WorldPos::origin(),
+                },
+            );
+            work_queue.push(action);
+        }
         Scheduler { work_queue }
     }
 
@@ -49,6 +59,15 @@ struct BeatAction {
     // the scheduler, rather than the latest.
     beat: Reverse<Beats>, // for the binary heap's ordering
     action: SpawnCmd,
+}
+
+impl BeatAction {
+    fn new(beat: Beats, action: SpawnCmd) -> BeatAction {
+        BeatAction {
+            beat: Reverse(beat),
+            action,
+        }
+    }
 }
 
 impl PartialEq for BeatAction {

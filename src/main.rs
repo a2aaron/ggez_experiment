@@ -72,7 +72,6 @@ struct MainState {
     started: bool,
     player: Player,
     enemies: Vec<Box<dyn Enemy>>,
-    last_beat: Beats,
     debug: Option<Box<dyn Enemy>>,
 }
 
@@ -86,7 +85,6 @@ impl MainState {
             assets: Assets::new(ctx),
             player: Player::new(),
             enemies: vec![],
-            last_beat: Beats(0.0),
             scheduler: Scheduler::new(),
             debug: None,
         };
@@ -95,7 +93,6 @@ impl MainState {
 
     fn reset(&mut self) {
         self.enemies.clear();
-        self.last_beat = Beats(0.0);
         self.scheduler = Scheduler::new();
     }
 
