@@ -62,29 +62,21 @@ impl Scheduler {
             beat_split: BeatSplitter,
             start_poses: ((f64, f64), (f64, f64)),
         ) -> Vec<BeatAction> {
-            // Schedule the lasers slightly earlier than their actual time
-            // so that the laser pre-delays occurs at the right time.
-            // Since the laser predelay is 4 beats, but the laser constructors
-            // all assume the passed time is for the active phase, if we want
-            // a laser to _fire_ on beat 20, it needs to be spawned in, at latest
-            // beat 16, so that it works correctly.
-            let scheudler_beats = beat_split.add_offset(-LASER_PREDELAY.0).raw_split();
-            let laser_beats = beat_split.split();
             let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
-
-            laser_beats
+            beat_split
+                .split()
                 .iter()
-                .zip(scheudler_beats)
-                .map(|(&(laser_beat, t), scheudled_beat)| {
+                .map(|&(beat, t)| {
                     let start =
                         LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
                     let end = LiveWorldPos::PlayerPos;
                     let action = SpawnCmd::SpawnLaserThruPoints {
                         a: start,
                         b: end,
-                        start_time: laser_beat,
+                        start_time: beat,
                     };
-                    BeatAction::new(scheudled_beat, action)
+                    // beat here is unneeded technically since it uses the SpawnCmd's start_time
+                    BeatAction::new(beat, action)
                 })
                 .collect()
         }
@@ -191,6 +183,8 @@ impl Scheduler {
     }
 }
 
+/// Split a length of time into a number of individual beats. This is useful for
+/// doing something a number of times in a row.
 #[derive(Debug, Clone, Copy)]
 struct BeatSplitter {
     start: f64,
@@ -238,19 +232,6 @@ impl BeatSplitter {
         }
     }
 
-    fn add_offset(self, offset: f64) -> Self {
-        BeatSplitter {
-            start: self.start,
-            duration: self.duration,
-            frequency: self.frequency,
-            offset: offset + self.offset,
-        }
-    }
-
-    fn raw_split(&self) -> Vec<Beats> {
-        self.split().iter().map(|x| x.0).collect()
-    }
-
     fn split(&self) -> Vec<(Beats, f64)> {
         let mut beats = vec![];
         let mut this_beat = self.start;
@@ -267,6 +248,13 @@ impl BeatSplitter {
 
 /// A wrapper struct of a Beat and a Boxed Action. The beat has reversed ordering
 /// to allow for the Scheduler to actually get the latest beat times.
+/// When used in the Scheduler, the action is `perform`'d when `beat` occurs.
+/// Note that some actions may decide to spawn things in the future. For example
+/// a SpawnLazer will immediately add a laser to the list of active enemies, but
+/// the laser will not activate until the time specified by the SpawnLaser
+/// command. This also means that some actions may be scheduled earlier than
+/// needed, and that some actions have a maximum latest time at which they can
+/// get scheduled at all.
 #[derive(Debug)]
 struct BeatAction {
     // Stored in reverse ordering so that we can get the _earliest_ beat when in
@@ -276,7 +264,21 @@ struct BeatAction {
 }
 
 impl BeatAction {
+    /// Create a BeatAction. The action is scheduled at time `beat` if the
+    /// SpawnCmd has no start time of its own, otherwise the action is scheduled
+    /// (probably slightly earlier than the SpawnCmd's start time).
     fn new(beat: Beats, action: SpawnCmd) -> BeatAction {
+        let beat = match action {
+            SpawnCmd::SpawnBullet { .. } => beat,
+            // Schedule the lasers slightly earlier than their actual time
+            // so that the laser pre-delays occurs at the right time.
+            // Since the laser predelay is 4 beats, but the laser constructors
+            // all assume the passed time is for the active phase, if we want
+            // a laser to _fire_ on beat 20, it needs to be spawned in, at latest
+            // beat 16, so that it works correctly.
+            SpawnCmd::SpawnLaser { start_time, .. } => start_time - LASER_PREDELAY,
+            SpawnCmd::SpawnLaserThruPoints { start_time, .. } => start_time - LASER_PREDELAY,
+        };
         BeatAction {
             beat: Reverse(beat),
             action,
