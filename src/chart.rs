@@ -4,9 +4,10 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::binary_heap::PeekMut;
 use std::collections::BinaryHeap;
 
+use crate::ease::Lerp;
 use crate::enemy::{Bullet, Enemy, Laser};
 use crate::time::Beats;
-use crate::world::WorldPos;
+use crate::world::{WorldLen, WorldPos};
 
 /// This struct contains all the events that occur during a song. It will perform
 /// a set of events every time update is called.
@@ -14,20 +15,101 @@ use crate::world::WorldPos;
 pub struct Scheduler {
     work_queue: BinaryHeap<BeatAction>,
 }
+
 impl Scheduler {
     pub fn new() -> Scheduler {
-        let mut work_queue = BinaryHeap::new();
-        for i in [16, 18, 20, 22].iter() {
-            let beat = Beats(*i as f64);
-            let action = BeatAction::new(
-                beat,
-                SpawnCmd::SpawnBullet {
-                    start: WorldPos { x: 0.0, y: -50.0 },
-                    end: WorldPos::origin(),
-                },
-            );
-            work_queue.push(action);
+        fn beat_split(start: f64, duration: f64, split_length: f64) -> Vec<(Beats, f64)> {
+            let mut beats = vec![];
+            let mut this_beat = start;
+            while duration > this_beat - start {
+                beats.push((Beats(this_beat), (this_beat - start) / duration));
+                this_beat += split_length;
+            }
+            beats
         }
+
+        fn make_actions<'a>(
+            beats: &'a [(Beats, f64)],
+            action_spawner: impl Fn(f64) -> SpawnCmd + 'static,
+        ) -> impl Iterator<Item = BeatAction> + 'a {
+            beats
+                .iter()
+                .map(move |(beat, t)| BeatAction::new(*beat, action_spawner(*t)))
+        }
+
+        fn lerp_spawn(
+            start: f64,
+            duration: f64,
+            split_length: f64,
+            start_poses: ((f64, f64), (f64, f64)),
+            end_poses: ((f64, f64), (f64, f64)),
+        ) -> Vec<BeatAction> {
+            let beats = beat_split(start, duration, split_length);
+            let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
+            let end_poses = (WorldPos::from(end_poses.0), WorldPos::from(end_poses.1));
+
+            make_actions(&beats, move |t| SpawnCmd::SpawnBullet {
+                start: WorldPos::lerp(start_poses.0, start_poses.1, t),
+                end: WorldPos::lerp(end_poses.0, end_poses.1, t),
+            })
+            .collect()
+        }
+
+        let mut work_queue = BinaryHeap::new();
+        let origin = (0.0, 0.0);
+        let bottom_left = (-50.0, -50.0);
+        let bottom_right = (50.0, -50.0);
+        let top_left = (-50.0, 50.0);
+        let top_right = (50.0, 50.0);
+
+        work_queue.extend(lerp_spawn(
+            4.0 * 4.0,
+            4.0 * 4.0,
+            4.0,
+            (bottom_left, bottom_right),
+            (origin, origin),
+        ));
+
+        work_queue.extend(lerp_spawn(
+            4.0 * 4.0,
+            4.0 * 4.0,
+            4.0,
+            (top_right, top_left),
+            (origin, origin),
+        ));
+
+        work_queue.extend(lerp_spawn(
+            8.0 * 4.0,
+            4.0 * 4.0,
+            2.0,
+            (top_left, bottom_left),
+            (origin, origin),
+        ));
+
+        work_queue.extend(lerp_spawn(
+            8.0 * 4.0,
+            4.0 * 4.0,
+            2.0,
+            (bottom_right, top_right),
+            (origin, origin),
+        ));
+
+        work_queue.extend(lerp_spawn(
+            12.0 * 4.0,
+            4.0 * 4.0,
+            2.0,
+            (top_right, bottom_right),
+            (top_left, bottom_left),
+        ));
+
+        work_queue.extend(lerp_spawn(
+            12.0 * 4.0 + 1.0,
+            4.0 * 4.0,
+            2.0,
+            (bottom_left, top_left),
+            (bottom_right, top_right),
+        ));
+
         Scheduler { work_queue }
     }
 

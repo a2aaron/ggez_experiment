@@ -29,6 +29,11 @@ impl WorldPos {
     pub fn origin() -> WorldPos {
         WorldPos { x: 0.0, y: 0.0 }
     }
+
+    pub fn new(x: f64, y: f64) -> WorldPos {
+        WorldPos { x, y }
+    }
+
     pub fn as_screen_coords(&self) -> na::Point2<f32> {
         // The origin, in screen coordinates. This is the spot that WorldPos at
         // (0.0, 0.0) shows up at.

@@ -4,7 +4,7 @@ use std::env;
 use std::path::PathBuf;
 
 use chart::Scheduler;
-use enemy::{Bullet, Enemy, EnemyLifetime};
+use enemy::{Enemy, EnemyLifetime};
 use ggez::audio::{SoundSource, Source};
 use ggez::GameError;
 
@@ -19,9 +19,6 @@ use keyboard::KeyboardState;
 use player::Player;
 use time::Time;
 use world::{WorldLen, WorldPos};
-
-use crate::enemy::Laser;
-use crate::time::Beats;
 
 mod chart;
 mod color;
