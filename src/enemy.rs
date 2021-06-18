@@ -15,7 +15,6 @@ const BULLET_GUIDE_RADIUS: f32 = 10.0;
 const BULLET_GUIDE_WIDTH: f32 = 1.0;
 
 pub trait Enemy {
-    fn on_spawn(&mut self, start_time: Beats);
     fn update(&mut self, curr_time: Beats);
     fn draw(&self, ctx: &mut Context) -> GameResult<()>;
     /// If None, the enemy has no hitbox, otherwise, positive values give the
@@ -42,9 +41,8 @@ pub struct Bullet {
     start_pos: WorldPos,
     // Position bullet must end up at
     end_pos: WorldPos,
-    // Start of bullet existance. If this is "None", then the bullet hasn't
-    // spawned yet.
-    start_time: Option<Beats>,
+    // The start of bullet existance.
+    start_time: Beats,
     // Time over which this bullet lives, in beats.
     duration: Beats,
     // Size of glowy bit
@@ -56,12 +54,17 @@ pub struct Bullet {
 }
 
 impl Bullet {
-    pub fn new(start_pos: WorldPos, end_pos: WorldPos, duration: Beats) -> Bullet {
+    pub fn new(
+        start_pos: WorldPos,
+        end_pos: WorldPos,
+        start_time: Beats,
+        duration: Beats,
+    ) -> Bullet {
         Bullet {
             pos: start_pos,
             start_pos,
             end_pos,
-            start_time: None,
+            start_time,
             duration,
             glow_size: WorldLen(0.0),
             glow_trans: 0.0,
@@ -71,10 +74,6 @@ impl Bullet {
 }
 
 impl Enemy for Bullet {
-    fn on_spawn(&mut self, start_time: Beats) {
-        self.start_time = Some(start_time);
-    }
-
     // TODO: Make this use some sort of percent over duration.
     /// Move bullet towards end position. Also do the cool glow thing.
     fn update(&mut self, curr_time: Beats) {
@@ -82,9 +81,7 @@ impl Enemy for Bullet {
             return;
         }
 
-        let start_time = self.start_time.unwrap();
-
-        let delta_time = curr_time - start_time;
+        let delta_time = curr_time - self.start_time;
         let total_percent = delta_time.0 / self.duration.0;
         self.pos = WorldPos::lerp(self.start_pos, self.end_pos, total_percent);
 
@@ -144,9 +141,9 @@ impl Enemy for Bullet {
     }
 
     fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime {
-        if self.start_time.is_none() {
+        if curr_time < self.start_time {
             EnemyLifetime::Unspawned
-        } else if self.duration < curr_time - self.start_time.unwrap() {
+        } else if self.duration < curr_time - self.start_time {
             EnemyLifetime::Dead
         } else {
             EnemyLifetime::Alive
@@ -159,8 +156,9 @@ impl Enemy for Bullet {
 /// Active - The laser is actively firing and can hurt the player.
 /// Cooldown - The laser is over and the last bits of the laser are fading out.
 pub struct Laser {
-    // The start time of this laser. If negative, the laser has not been spawned yet.
-    start_time: Option<Beats>,
+    // The start time of this laser. Note that this is when the laser starts to
+    // appear on screen (ie: when the Predelay phase occurs)
+    start_time: Beats,
     durations: LaserDuration,
     outline_color: Color,
     // The outline thickness to animate, in WorldLen units
@@ -175,10 +173,33 @@ pub struct Laser {
     angle: f64,
 }
 impl Laser {
-    pub fn new_through_point(point: WorldPos, angle: f64, duration: Beats) -> Laser {
+    /// Create a new laser going through the given points.
+    /// start_time marks when the active phase of the laser occurs. Note that
+    /// this means that the laser itself is actually spawned before `start_time`
+    pub fn new_through_points(
+        a: WorldPos,
+        b: WorldPos,
+        start_time: Beats,
+        duration: Beats,
+    ) -> Laser {
+        let dx = a.x - b.x;
+        let dy = a.y - b.y;
+        let angle = (dy / dx).atan();
+        Laser::new_through_point(a, angle, start_time, duration)
+    }
+
+    pub fn new_through_point(
+        point: WorldPos,
+        angle: f64,
+        start_time: Beats,
+        duration: Beats,
+    ) -> Laser {
+        let durations = LaserDuration::new(duration);
         Laser {
-            start_time: None,
-            durations: LaserDuration::new(duration),
+            // Shift the start time back by the predelay amount so that the
+            // active phase occurs at start_time
+            start_time: start_time - durations.predelay,
+            durations,
             outline_keyframes: [
                 Easing::Linear {
                     start: 1.0,
@@ -206,14 +227,14 @@ impl Laser {
                 },
                 Easing::EaseOut {
                     start: 2.0,
-                    end: 1.0,
+                    end: 0.5,
                     easing: Box::new(Easing::Exponential {
                         start: 0.0,
                         end: 1.0,
                     }),
                 },
                 Easing::SplitLinear {
-                    start: 1.0,
+                    start: 0.5,
                     mid: 0.0,
                     end: 0.0,
                     split_at: 0.5,
@@ -230,16 +251,11 @@ impl Laser {
 }
 
 impl Enemy for Laser {
-    fn on_spawn(&mut self, start_time: Beats) {
-        self.start_time = Some(start_time);
-    }
-
     fn update(&mut self, curr_time: Beats) {
-        if self.start_time.is_none() {
+        if self.lifetime_state(curr_time) != EnemyLifetime::Alive {
             return;
         }
-        let start_time = self.start_time.unwrap();
-        let delta_time = curr_time - start_time;
+        let delta_time = curr_time - self.start_time;
 
         let state = self.durations.get_state(delta_time);
         let index = match state {
@@ -252,20 +268,29 @@ impl Enemy for Laser {
         self.outline_thickness = WorldLen(self.outline_keyframes[index].ease(percent_over_state));
         self.hitbox_thickness = WorldLen(self.hitbox_keyframes[index].ease(percent_over_state));
 
-        let (start_color, end_color) = match state {
-            LaserState::Predelay => (
-                TRANSPARENT,
-                Color {
+        self.outline_color = match state {
+            LaserState::Predelay => {
+                let red1 = Color {
+                    r: 0.3,
+                    g: 0.1,
+                    b: 0.1,
+                    a: 0.0,
+                };
+                let red2 = Color {
                     r: 0.5,
                     g: 0.1,
                     b: 0.1,
                     a: 0.0,
-                },
-            ),
-            LaserState::Active => (LASER_RED, TRANSPARENT),
-            LaserState::Cooldown => (TRANSPARENT, TRANSPARENT),
+                };
+                if percent_over_state < 0.25 {
+                    color_lerp(TRANSPARENT, red1, percent_over_state)
+                } else {
+                    color_lerp(red1, red2, (percent_over_state - 0.25) / 0.75)
+                }
+            }
+            LaserState::Active => color_lerp(LASER_RED, TRANSPARENT, percent_over_state),
+            LaserState::Cooldown => color_lerp(TRANSPARENT, TRANSPARENT, percent_over_state),
         };
-        self.outline_color = color_lerp(start_color, end_color, percent_over_state);
     }
 
     fn draw(&self, ctx: &mut Context) -> GameResult<()> {
@@ -291,8 +316,7 @@ impl Enemy for Laser {
     }
 
     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen> {
-        let start_time = self.start_time?;
-        if self.durations.get_state(curr_time - start_time) != LaserState::Active {
+        if self.durations.get_state(curr_time - self.start_time) != LaserState::Active {
             return None;
         }
 
@@ -306,10 +330,9 @@ impl Enemy for Laser {
     }
 
     fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime {
-        if self.start_time.is_none() {
+        if curr_time < self.start_time {
             EnemyLifetime::Unspawned
-        } else if self.durations.total_duration(LaserState::Cooldown)
-            < curr_time - self.start_time.unwrap()
+        } else if self.durations.total_duration(LaserState::Cooldown) < curr_time - self.start_time
         {
             EnemyLifetime::Dead
         } else {

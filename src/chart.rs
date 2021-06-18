@@ -5,9 +5,9 @@ use std::collections::binary_heap::PeekMut;
 use std::collections::BinaryHeap;
 
 use crate::ease::Lerp;
-use crate::enemy::{Bullet, Enemy, Laser};
+use crate::enemy::{Bullet, Enemy, Laser, LASER_PREDELAY};
 use crate::time::Beats;
-use crate::world::{WorldLen, WorldPos};
+use crate::world::WorldPos;
 
 /// This struct contains all the events that occur during a song. It will perform
 /// a set of events every time update is called.
@@ -18,16 +18,6 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new() -> Scheduler {
-        fn beat_split(start: f64, duration: f64, split_length: f64) -> Vec<(Beats, f64)> {
-            let mut beats = vec![];
-            let mut this_beat = start;
-            while duration > this_beat - start {
-                beats.push((Beats(this_beat), (this_beat - start) / duration));
-                this_beat += split_length;
-            }
-            beats
-        }
-
         fn make_actions<'a>(
             beats: &'a [(Beats, f64)],
             action_spawner: impl Fn(f64) -> SpawnCmd + 'static,
@@ -38,21 +28,65 @@ impl Scheduler {
         }
 
         fn lerp_spawn(
-            start: f64,
-            duration: f64,
-            split_length: f64,
+            beat_split: BeatSplitter,
             start_poses: ((f64, f64), (f64, f64)),
             end_poses: ((f64, f64), (f64, f64)),
         ) -> Vec<BeatAction> {
-            let beats = beat_split(start, duration, split_length);
+            let beats = beat_split.split();
             let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
             let end_poses = (WorldPos::from(end_poses.0), WorldPos::from(end_poses.1));
 
-            make_actions(&beats, move |t| SpawnCmd::SpawnBullet {
-                start: WorldPos::lerp(start_poses.0, start_poses.1, t),
-                end: WorldPos::lerp(end_poses.0, end_poses.1, t),
+            make_actions(&beats, move |t| {
+                let start = LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
+                let end = LiveWorldPos::Constant(WorldPos::lerp(end_poses.0, end_poses.1, t));
+                SpawnCmd::SpawnBullet { start, end }
             })
             .collect()
+        }
+
+        fn lerp_spawn_player(
+            beat_split: BeatSplitter,
+            start_poses: ((f64, f64), (f64, f64)),
+        ) -> Vec<BeatAction> {
+            let beats = beat_split.split();
+            let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
+            make_actions(&beats, move |t| {
+                let start = LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
+                let end = LiveWorldPos::PlayerPos;
+                SpawnCmd::SpawnBullet { start, end }
+            })
+            .collect()
+        }
+
+        fn lerp_spawn_laser_player(
+            beat_split: BeatSplitter,
+            start_poses: ((f64, f64), (f64, f64)),
+        ) -> Vec<BeatAction> {
+            // Schedule the lasers slightly earlier than their actual time
+            // so that the laser pre-delays occurs at the right time.
+            // Since the laser predelay is 4 beats, but the laser constructors
+            // all assume the passed time is for the active phase, if we want
+            // a laser to _fire_ on beat 20, it needs to be spawned in, at latest
+            // beat 16, so that it works correctly.
+            let scheudler_beats = beat_split.add_offset(-LASER_PREDELAY.0).raw_split();
+            let laser_beats = beat_split.split();
+            let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
+
+            laser_beats
+                .iter()
+                .zip(scheudler_beats)
+                .map(|(&(laser_beat, t), scheudled_beat)| {
+                    let start =
+                        LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
+                    let end = LiveWorldPos::PlayerPos;
+                    let action = SpawnCmd::SpawnLaserThruPoints {
+                        a: start,
+                        b: end,
+                        start_time: laser_beat,
+                    };
+                    BeatAction::new(scheudled_beat, action)
+                })
+                .collect()
         }
 
         let mut work_queue = BinaryHeap::new();
@@ -62,52 +96,74 @@ impl Scheduler {
         let top_left = (-50.0, 50.0);
         let top_right = (50.0, 50.0);
 
+        let every_4_beats = BeatSplitter {
+            duration: 4.0 * 4.0,
+            frequency: 4.0,
+            ..Default::default()
+        };
+
+        let every_2_beats = BeatSplitter {
+            duration: 4.0 * 4.0,
+            frequency: 2.0,
+            ..Default::default()
+        };
+
+        let every_beat = BeatSplitter {
+            duration: 4.0 * 4.0,
+            frequency: 1.0,
+            ..Default::default()
+        };
+
         work_queue.extend(lerp_spawn(
-            4.0 * 4.0,
-            4.0 * 4.0,
-            4.0,
+            every_4_beats.with_start(4.0 * 4.0),
             (bottom_left, bottom_right),
             (origin, origin),
         ));
 
         work_queue.extend(lerp_spawn(
-            4.0 * 4.0,
-            4.0 * 4.0,
-            4.0,
+            every_4_beats.with_start(4.0 * 4.0),
             (top_right, top_left),
             (origin, origin),
         ));
 
         work_queue.extend(lerp_spawn(
-            8.0 * 4.0,
-            4.0 * 4.0,
-            2.0,
+            every_2_beats.with_start(8.0 * 4.0),
             (top_left, bottom_left),
             (origin, origin),
         ));
 
         work_queue.extend(lerp_spawn(
-            8.0 * 4.0,
-            4.0 * 4.0,
-            2.0,
+            every_2_beats.with_start(8.0 * 4.0),
             (bottom_right, top_right),
             (origin, origin),
         ));
 
         work_queue.extend(lerp_spawn(
-            12.0 * 4.0,
-            4.0 * 4.0,
-            2.0,
+            every_2_beats.with_start(12.0 * 4.0),
             (top_right, bottom_right),
             (top_left, bottom_left),
         ));
 
         work_queue.extend(lerp_spawn(
-            12.0 * 4.0 + 1.0,
-            4.0 * 4.0,
-            2.0,
+            every_2_beats.with_start(12.0 * 4.0).with_offset(1.0),
             (bottom_left, top_left),
             (bottom_right, top_right),
+        ));
+
+        work_queue.extend(lerp_spawn_player(
+            every_beat.with_start(16.0 * 4.0),
+            (top_right, top_left),
+        ));
+
+        work_queue.extend(lerp_spawn_player(
+            every_beat.with_start(16.0 * 4.0).with_offset(0.5),
+            (bottom_left, bottom_right),
+        ));
+
+        // DROP
+        work_queue.extend(lerp_spawn_laser_player(
+            every_beat.with_start(20.0 * 4.0),
+            (origin, origin),
         ));
 
         Scheduler { work_queue }
@@ -116,13 +172,15 @@ impl Scheduler {
     /// Preform the scheduled actions up to the new beat_time
     /// Note that this will execute every action since the last beat_time and
     /// current beat_time.
-    pub fn update(&mut self, time: Beats, enemies: &mut Vec<Box<dyn Enemy>>) {
+    pub fn update(&mut self, time: Beats, enemies: &mut Vec<Box<dyn Enemy>>, player_pos: WorldPos) {
         let rev_beat = Reverse(time);
         loop {
             match self.work_queue.peek_mut() {
                 Some(peaked) => {
                     if (*peaked).beat > rev_beat {
-                        PeekMut::pop(peaked).action.preform(time, enemies)
+                        PeekMut::pop(peaked)
+                            .action
+                            .preform(time, enemies, player_pos)
                     } else {
                         return;
                     }
@@ -130,6 +188,80 @@ impl Scheduler {
                 None => return,
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BeatSplitter {
+    start: f64,
+    duration: f64,
+    frequency: f64,
+    offset: f64,
+}
+
+impl Default for BeatSplitter {
+    fn default() -> BeatSplitter {
+        BeatSplitter {
+            start: 0.0,
+            duration: 4.0 * 4.0, // 4 measures total
+            frequency: 4.0,
+            offset: 0.0,
+        }
+    }
+}
+
+impl BeatSplitter {
+    fn with_start(self, start: f64) -> Self {
+        BeatSplitter {
+            start,
+            duration: self.duration,
+            frequency: self.frequency,
+            offset: self.offset,
+        }
+    }
+
+    fn with_offset(self, offset: f64) -> Self {
+        BeatSplitter {
+            start: self.start,
+            duration: self.duration,
+            frequency: self.frequency,
+            offset,
+        }
+    }
+
+    fn with_duration(self, duration: f64) -> Self {
+        BeatSplitter {
+            start: self.start,
+            duration,
+            frequency: self.frequency,
+            offset: self.offset,
+        }
+    }
+
+    fn add_offset(self, offset: f64) -> Self {
+        BeatSplitter {
+            start: self.start,
+            duration: self.duration,
+            frequency: self.frequency,
+            offset: offset + self.offset,
+        }
+    }
+
+    fn raw_split(&self) -> Vec<Beats> {
+        self.split().iter().map(|x| x.0).collect()
+    }
+
+    fn split(&self) -> Vec<(Beats, f64)> {
+        let mut beats = vec![];
+        let mut this_beat = self.start;
+        while self.duration > this_beat - self.start {
+            beats.push((
+                Beats(this_beat + self.offset),
+                (this_beat - self.start) / self.duration,
+            ));
+            this_beat += self.frequency;
+        }
+        beats
     }
 }
 
@@ -176,23 +308,73 @@ impl Ord for BeatAction {
     }
 }
 
+/// A WorldPosition which depends on some dynamic value (ex: the player's
+/// position).
+#[derive(Debug, Copy, Clone)]
+enum LiveWorldPos {
+    Constant(WorldPos),
+    PlayerPos,
+}
+
+impl LiveWorldPos {
+    fn world_pos(&self, player_pos: WorldPos) -> WorldPos {
+        match self {
+            LiveWorldPos::Constant(pos) => *pos,
+            LiveWorldPos::PlayerPos => player_pos,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 enum SpawnCmd {
-    SpawnBullet { start: WorldPos, end: WorldPos },
-    SpawnLaser { position: WorldPos, angle: f64 },
+    SpawnBullet {
+        start: LiveWorldPos,
+        end: LiveWorldPos,
+    },
+    SpawnLaser {
+        position: LiveWorldPos,
+        angle: f64,
+        start_time: Beats,
+    },
+    SpawnLaserThruPoints {
+        a: LiveWorldPos,
+        b: LiveWorldPos,
+        start_time: Beats,
+    },
 }
 
 impl SpawnCmd {
-    fn preform(&self, time: Beats, enemies: &mut Vec<Box<dyn Enemy>>) {
+    fn preform(&self, curr_time: Beats, enemies: &mut Vec<Box<dyn Enemy>>, player_pos: WorldPos) {
         match *self {
             SpawnCmd::SpawnBullet { start, end } => {
-                let mut bullet = Bullet::new(start, end, Beats(4.0));
-                bullet.on_spawn(time);
+                let bullet = Bullet::new(
+                    start.world_pos(player_pos),
+                    end.world_pos(player_pos),
+                    curr_time,
+                    Beats(4.0),
+                );
                 enemies.push(Box::new(bullet));
             }
-            SpawnCmd::SpawnLaser { position, angle } => {
-                let mut laser = Laser::new_through_point(position, angle, Beats(1.0));
-                laser.on_spawn(time);
+            SpawnCmd::SpawnLaser {
+                position,
+                angle,
+                start_time,
+            } => {
+                let laser = Laser::new_through_point(
+                    position.world_pos(player_pos),
+                    angle,
+                    start_time,
+                    Beats(1.0),
+                );
+                enemies.push(Box::new(laser));
+            }
+            SpawnCmd::SpawnLaserThruPoints { a, b, start_time } => {
+                let laser = Laser::new_through_points(
+                    a.world_pos(player_pos),
+                    b.world_pos(player_pos),
+                    start_time,
+                    Beats(1.0),
+                );
                 enemies.push(Box::new(laser));
             }
         }

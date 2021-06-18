@@ -227,7 +227,7 @@ impl event::EventHandler for MainState {
             }
             if USE_MAP {
                 self.scheduler
-                    .update(self.time.get_beats(), &mut self.enemies);
+                    .update(self.time.get_beats(), &mut self.enemies, self.player.pos);
             }
 
             // if self.last_beat < curr_time {
