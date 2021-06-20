@@ -1,9 +1,13 @@
 use ggez::graphics::{BlendMode, Color, DrawMode, DrawParam, Drawable, Mesh, MeshBuilder};
-use ggez::{nalgebra as na, Context, GameResult};
+use ggez::{mint, Context, GameResult};
+
+use cg::prelude::*;
+use cgmath as cg;
 
 use crate::color::{GREEN, LASER_RED, RED, TRANSPARENT, WHITE};
 use crate::ease::{color_lerp, Easing, Lerp};
 use crate::time::Beats;
+use crate::util;
 use crate::world::{WorldLen, WorldPos};
 
 pub const LASER_PREDELAY: Beats = Beats(4.0);
@@ -97,7 +101,6 @@ impl Enemy for Bullet {
     fn draw(&self, ctx: &mut Context) -> GameResult<()> {
         let pos = self.pos.as_screen_coords();
         let end_pos = self.end_pos.as_screen_coords();
-        // TODO: Maybe use a mesh? This is probably really slow
         // Draw the guide
         let mut guide = MeshBuilder::new();
         guide.circle(
@@ -106,12 +109,18 @@ impl Enemy for Bullet {
             BULLET_GUIDE_RADIUS,
             0.1,
             crate::color::GREEN,
-        );
-        let distance = na::distance(&pos, &end_pos);
+        )?;
+        let cg_pos = util::into_cg(pos);
+        let cg_end_pos = util::into_cg(end_pos);
+        let distance = cg_pos.distance(cg_end_pos);
         if distance > BULLET_GUIDE_RADIUS {
             let scale_factor = (distance - BULLET_GUIDE_RADIUS) / distance;
-            let delta = (end_pos - pos) * scale_factor;
-            guide.line(&[pos, pos + delta], BULLET_GUIDE_WIDTH, crate::color::GREEN)?;
+            let cg_delta = (cg_end_pos - cg_pos) * scale_factor;
+            guide.line(
+                &[pos, util::into_mint(cg_pos + cg_delta)],
+                BULLET_GUIDE_WIDTH,
+                crate::color::GREEN,
+            )?;
         }
 
         let glow_color = Color::new(1.0, 0.0, 0.0, self.glow_trans);
@@ -125,7 +134,7 @@ impl Enemy for Bullet {
                 self.size.as_screen_length(),
                 2.0,
                 RED,
-            )
+            )?
             // transparent glow
             .circle(
                 DrawMode::fill(),
@@ -133,7 +142,7 @@ impl Enemy for Bullet {
                 self.glow_size.as_screen_length(),
                 2.0,
                 glow_color,
-            );
+            )?;
 
         guide.build(ctx)?.draw(ctx, DrawParam::default())?;
         bullet.build(ctx)?.draw(ctx, DrawParam::default())?;
@@ -322,8 +331,8 @@ impl Enemy for Laser {
 
         let width = self.hitbox_thickness;
         let dist_to_laser = shortest_distance_to_line(
-            na::Point2::new(pos.x, pos.y),
-            na::Point2::new(self.position.x, self.position.y),
+            (pos.x, pos.y),
+            (self.position.x, self.position.y),
             self.angle,
         );
         Some(WorldLen(dist_to_laser) - width)
@@ -343,7 +352,7 @@ impl Enemy for Laser {
 
 fn draw_laser_rect(
     ctx: &mut Context,
-    position: na::Point2<f32>,
+    position: mint::Point2<f32>,
     width: f32,
     thickness: f32,
     angle: f32,
@@ -352,10 +361,10 @@ fn draw_laser_rect(
     // The mesh is done like this so that we draw about the center of the position
     // this lets us easily rotate the laser about its position.
     let points = [
-        na::Point2::new(1.0, 1.0),
-        na::Point2::new(1.0, -1.0),
-        na::Point2::new(-1.0, -1.0),
-        na::Point2::new(-1.0, 1.0),
+        util::mint(1.0, 1.0),
+        util::mint(1.0, -1.0),
+        util::mint(-1.0, -1.0),
+        util::mint(-1.0, 1.0),
     ];
     let mesh = Mesh::new_polygon(ctx, DrawMode::fill(), &points, color).unwrap();
     // TODO: Setting blend mode on meshes seems to not work. File an issue &
@@ -445,32 +454,34 @@ enum LaserState {
 /// and `angle`. `angle` is in radians and measure the angle between a horizontal
 /// line and the line in question.
 pub fn shortest_distance_to_line(
-    pos: na::Point2<f64>,
-    line_pos: na::Point2<f64>,
+    pos: impl Into<cg::Point2<f64>>,
+    line_pos: impl Into<cg::Point2<f64>>,
     angle: f64,
 ) -> f64 {
+    let pos = pos.into();
+    let line_pos = line_pos.into();
     // We have the vector LP,
     #[allow(non_snake_case)]
-    let LP_vec: na::Vector2<f64> = pos - line_pos;
+    let LP_vec = pos - line_pos;
     // The unit vector along the laser
-    let laser_unit_vec = na::Vector2::new(angle.cos(), angle.sin());
+    let laser_unit_vec = cg::Vector2::new(angle.cos(), angle.sin());
 
     // We now find the angle between the two vectors
-    let dot_prod = LP_vec.dot(&laser_unit_vec);
+    let dot_prod = LP_vec.dot(laser_unit_vec);
 
     // Project LP_vec along laser_unit_vec
     let proj = dot_prod * laser_unit_vec;
 
     // Now get the perpendicular, this is the distance to the laser.
     let perp = LP_vec - proj;
-    perp.norm()
+    perp.magnitude()
 }
 
 #[cfg(test)]
 mod test {
-    use ggez::nalgebra as na;
-
     use crate::enemy::shortest_distance_to_line;
+    use cg::EuclideanSpace;
+    use cgmath as cg;
 
     macro_rules! assert_eq_delta {
         ($x:expr, $y:expr) => {
@@ -485,16 +496,14 @@ mod test {
         let pi = std::f64::consts::PI;
         let sqrt_3 = 3.0_f64.sqrt();
 
-        let origin = na::Point2::origin();
-        let pos = na::Point2::new(1.0, sqrt_3);
+        let origin = cg::Point2::<f64>::origin();
+        let pos = cg::Point2::new(1.0, sqrt_3);
         assert_eq_delta!(shortest_distance_to_line(pos, origin, 0.0), pos.y.abs());
 
-        let origin = na::Point2::origin();
-        let pos = na::Point2::new(1.0, -sqrt_3);
+        let pos = cg::Point2::new(1.0, -sqrt_3);
         assert_eq_delta!(shortest_distance_to_line(pos, origin, pi), pos.y.abs());
 
-        let origin = na::Point2::origin();
-        let pos = na::Point2::new(1.0, -sqrt_3);
+        let pos = cg::Point2::new(1.0, -sqrt_3);
         assert_eq_delta!(
             shortest_distance_to_line(pos, origin, 2.0 * pi),
             pos.y.abs()
@@ -506,20 +515,20 @@ mod test {
         let pi = std::f64::consts::PI;
         let sqrt_3 = 3.0_f64.sqrt();
 
-        let origin = na::Point2::origin();
-        let pos = na::Point2::new(1.0, sqrt_3);
+        let origin = cg::Point2::<f64>::origin();
+        let pos = cg::Point2::new(1.0, sqrt_3);
         assert_eq_delta!(
             shortest_distance_to_line(pos, origin, pi / 2.0),
             pos.x.abs()
         );
 
-        let pos = na::Point2::new(1.0, sqrt_3);
+        let pos = cg::Point2::new(1.0, sqrt_3);
         assert_eq_delta!(
             shortest_distance_to_line(pos, origin, 3.0 * pi / 2.0),
             pos.x.abs()
         );
 
-        let pos = na::Point2::new(-1.0, -sqrt_3);
+        let pos = cg::Point2::new(-1.0, -sqrt_3);
         assert_eq_delta!(
             shortest_distance_to_line(pos, origin, -pi / 2.0),
             pos.x.abs()

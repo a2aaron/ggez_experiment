@@ -1,3 +1,4 @@
+use ggez::mint;
 use rand::{thread_rng, Rng};
 
 use crate::world::WorldPos;
@@ -12,6 +13,29 @@ pub enum Direction8 {
     LeftDown,
     RightUp,
     RightDown,
+}
+
+pub fn distance(a: &mint::Point2<f32>, b: &mint::Point2<f32>) -> f32 {
+    ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)).sqrt()
+}
+
+pub fn distance_f64(a: &mint::Point2<f64>, b: &mint::Point2<f64>) -> f64 {
+    ((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)).sqrt()
+}
+
+pub fn into_mint<T>(point: cgmath::Point2<T>) -> mint::Point2<T> {
+    mint::Point2 {
+        x: point.x,
+        y: point.y,
+    }
+}
+
+pub fn mint<T>(x: T, y: T) -> mint::Point2<T> {
+    mint::Point2 { x, y }
+}
+
+pub fn into_cg<T>(point: mint::Point2<T>) -> cgmath::Point2<T> {
+    cgmath::Point2::new(point.x, point.y)
 }
 
 /// Return a random WorldPos along the edge of a circle.

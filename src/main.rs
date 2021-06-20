@@ -3,18 +3,16 @@
 use std::env;
 use std::path::PathBuf;
 
-use chart::Scheduler;
-use enemy::{Enemy, EnemyLifetime};
 use ggez::audio::{SoundSource, Source};
-use ggez::GameError;
-
 use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::mint::Point2;
-use ggez::graphics::{DrawMode, DrawParam, Drawable, Font, Mesh, Scale, Text, TextFragment};
-use ggez::{
-    audio, conf, event, graphics, nalgebra as na, timer, Context, ContextBuilder, GameResult,
-};
+use ggez::graphics::{DrawMode, DrawParam, Drawable, Font, Mesh, PxScale, Text, TextFragment};
+use ggez::{audio, conf, event, graphics, timer, Context, ContextBuilder, GameError, GameResult};
 
+use cgmath as cg;
+
+use chart::Scheduler;
+use enemy::{Enemy, EnemyLifetime};
 use keyboard::KeyboardState;
 use player::Player;
 use time::Time;
@@ -50,20 +48,21 @@ pub const WINDOW_HEIGHT: f32 = 480.0;
 /// TODO: Add music stuff here.
 struct Assets {
     debug_font: Font,
+    music: Source,
 }
 
 impl Assets {
-    fn new(ctx: &mut Context) -> Assets {
-        Assets {
-            debug_font: Font::new(ctx, FIRACODE_PATH).unwrap(),
-        }
+    fn new(ctx: &mut Context) -> GameResult<Assets> {
+        Ok(Assets {
+            debug_font: Font::new(ctx, FIRACODE_PATH)?,
+            music: audio::Source::new(ctx, MUSIC_PATH)?,
+        })
     }
 }
 
 struct MainState {
     scheduler: Scheduler,
     time: Time,
-    music: Source,
     keyboard: KeyboardState,
     assets: Assets,
     started: bool,
@@ -76,10 +75,9 @@ impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
         let s = MainState {
             keyboard: KeyboardState::default(),
-            music: audio::Source::new(ctx, MUSIC_PATH)?,
             time: Time::new(BPM, time::Seconds(0.0)),
             started: false,
-            assets: Assets::new(ctx),
+            assets: Assets::new(ctx)?,
             player: Player::new(),
             enemies: vec![],
             scheduler: Scheduler::new(),
@@ -115,7 +113,7 @@ impl MainState {
             text,
             color: Some(color::DEBUG_RED),
             font: Some(self.assets.debug_font),
-            scale: Some(Scale::uniform(18.0)),
+            scale: Some(PxScale::from(18.0)),
         };
         let text = Text::new(fragment);
         let text_height = text.height(ctx) as f32;
@@ -131,12 +129,12 @@ impl MainState {
     }
 
     fn draw_debug_world_lines(&self, ctx: &mut Context) -> Result<(), GameError> {
-        let origin = WorldPos::origin().as_screen_coords();
+        let origin = WorldPos::origin().as_screen_coords_cg();
         Mesh::new_line(
             ctx,
             &[
-                (origin + na::Vector2::new(-5.0, 0.0)),
-                (origin + na::Vector2::new(5.0, 0.0)),
+                util::into_mint(origin + cg::Vector2::new(-5.0, 0.0)),
+                util::into_mint(origin + cg::Vector2::new(5.0, 0.0)),
             ],
             2.0,
             crate::color::DEBUG_RED,
@@ -145,8 +143,8 @@ impl MainState {
         Mesh::new_line(
             ctx,
             &[
-                (origin + na::Vector2::new(0.0, 5.0)),
-                (origin + na::Vector2::new(0.0, -5.0)),
+                util::into_mint(origin + cg::Vector2::new(0.0, 5.0)),
+                util::into_mint(origin + cg::Vector2::new(0.0, -5.0)),
             ],
             2.0,
             crate::color::DEBUG_RED,
@@ -273,16 +271,16 @@ impl event::EventHandler for MainState {
                 // Stop the game, pausing the music, fetching a new Source instance, and
                 // rebuild the scheduler work queue.
                 self.started = false;
-                self.music.stop();
-                self.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
+                self.assets.music.stop(ctx);
+                self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
                 self.reset();
             } else {
                 // Start the game. Also play the music.
                 self.started = true;
                 self.reset();
                 self.time.reset();
-                drop(self.music.play());
-                self.music.set_volume(0.5);
+                drop(self.assets.music.play(ctx));
+                self.assets.music.set_volume(0.5);
             }
         }
         self.keyboard.update(keycode, true);
@@ -293,7 +291,7 @@ impl event::EventHandler for MainState {
     }
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        graphics::clear(ctx, ggez::graphics::BLACK);
+        graphics::clear(ctx, ggez::graphics::Color::BLACK);
         // ggez::graphics::set_screen_coordinates(ctx, Rect::new(-320.0, 240.0, 640.0, -480.0))?;
 
         for enemy in self.enemies.iter() {
@@ -335,7 +333,7 @@ pub fn main() {
     } else {
         println!("Not building from cargo");
     }
-    let (mut ctx, mut events_loop) = cb.build().unwrap();
-    let mut state = MainState::new(&mut ctx).unwrap();
-    ggez::event::run(&mut ctx, &mut events_loop, &mut state).unwrap();
+    let (mut ctx, events_loop) = cb.build().unwrap();
+    let state = MainState::new(&mut ctx).unwrap();
+    ggez::event::run(ctx, events_loop, state);
 }

@@ -6,7 +6,7 @@
 /// direction)
 use derive_more::{Add, From, Sub};
 use ggez::graphics::Rect;
-use ggez::nalgebra as na;
+use ggez::mint;
 
 use crate::ease::Lerp;
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
@@ -34,14 +34,18 @@ impl WorldPos {
         WorldPos { x, y }
     }
 
-    pub fn as_screen_coords(&self) -> na::Point2<f32> {
+    pub fn as_screen_coords_cg(&self) -> cgmath::Point2<f32> {
+        crate::util::into_cg(self.as_screen_coords())
+    }
+
+    pub fn as_screen_coords(&self) -> mint::Point2<f32> {
         // The origin, in screen coordinates. This is the spot that WorldPos at
         // (0.0, 0.0) shows up at.
         let screen_origin = (WINDOW_WIDTH / 2.0, WINDOW_HEIGHT / 2.0);
-        na::Point2::new(
-            screen_origin.0 + WORLD_SCALE_FACTOR * self.x as f32,
-            screen_origin.1 - WORLD_SCALE_FACTOR * self.y as f32,
-        )
+        mint::Point2 {
+            x: screen_origin.0 + WORLD_SCALE_FACTOR * self.x as f32,
+            y: screen_origin.1 - WORLD_SCALE_FACTOR * self.y as f32,
+        }
     }
 
     // Return a Rect with its units in screen-space. Note that the rectangle
