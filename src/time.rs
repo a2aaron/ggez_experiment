@@ -1,10 +1,16 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use derive_more::{Add, Div, From, Mul, Rem, Sub};
 
 /// Unit of time representing seconds
 #[derive(Copy, Clone, Debug, Add, Div, From, Mul, Rem, Sub, PartialEq, PartialOrd)]
 pub struct Seconds(pub f64);
+
+impl Seconds {
+    pub fn as_duration(self) -> Duration {
+        Duration::from_secs_f64(self.0)
+    }
+}
 
 /// Unit of time representing beats
 #[derive(Copy, Clone, Debug, Add, Div, From, Mul, Rem, Sub, PartialEq, PartialOrd)]

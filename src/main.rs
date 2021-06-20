@@ -15,7 +15,7 @@ use chart::Scheduler;
 use enemy::{Enemy, EnemyLifetime};
 use keyboard::KeyboardState;
 use player::Player;
-use time::Time;
+use time::{to_secs, Beats, Time};
 use world::{WorldLen, WorldPos};
 
 mod chart;
@@ -275,10 +275,12 @@ impl event::EventHandler for MainState {
                 self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
                 self.reset();
             } else {
+                let SKIP_AMOUNT = to_secs(Beats(80.0), BPM);
                 // Start the game. Also play the music.
                 self.started = true;
                 self.reset();
-                self.time.reset();
+                self.time = Time::new(BPM, SKIP_AMOUNT);
+                self.assets.music.set_skip_amount(SKIP_AMOUNT.as_duration());
                 drop(self.assets.music.play(ctx));
                 self.assets.music.set_volume(0.5);
             }

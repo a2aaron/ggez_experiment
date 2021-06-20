@@ -194,6 +194,7 @@ impl Laser {
         let dx = a.x - b.x;
         let dy = a.y - b.y;
         let angle = (dy / dx).atan();
+        let angle = if !angle.is_finite() { 0.0 } else { angle };
         Laser::new_through_point(a, angle, start_time, duration)
     }
 
