@@ -10,7 +10,7 @@ use crate::time::Beats;
 use crate::util;
 use crate::world::{WorldLen, WorldPos};
 
-pub const LASER_PREDELAY: Beats = Beats(4.0);
+pub const LASER_WARMUP: Beats = Beats(4.0);
 pub const LASER_DURATION: Beats = Beats(1.0);
 
 const LASER_COOLDOWN: Beats = Beats(0.25);
@@ -20,7 +20,7 @@ const BULLET_GUIDE_WIDTH: f32 = 1.0;
 
 pub trait Enemy {
     fn update(&mut self, curr_time: Beats);
-    fn draw(&self, ctx: &mut Context) -> GameResult<()>;
+    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()>;
     /// If None, the enemy has no hitbox, otherwise, positive values give the
     /// distance to the object and negative values are inside the object.
     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen>;
@@ -30,55 +30,84 @@ pub trait Enemy {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum EnemyLifetime {
     Unspawned, // The enemy has not spawned yet
-    Alive,     // The enemy is currently active
+    Warmup,    // The enemy's hitbox is not active and a warmup animation is shown
+    Active,    // The enemy's hitbox is active
+    Cooldown,  // The enemy's hitbox is not active and a cooldown animation is shown
     Dead,      // The enemy is now dead.
 }
 
-// trait Enemy2 {
-//     fn durations(&self) -> LaserDuration;
-//     fn start_time(&self) -> Beats;
-//     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> WorldLen;
-//     fn update(&mut self, curr_time: Beats);
-//     fn draw(&self, ctx: &mut Context);
-// }
+pub trait EnemyImpl {
+    fn durations(&self) -> EnemyDurations;
+    fn start_time(&self) -> Beats;
+    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> WorldLen;
+    fn update(&mut self, curr_time: Beats);
+    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()>;
+}
 
-// impl<T: Enemy2> Enemy for T {
-//     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen> {
-//         if self.durations().get_state(curr_time - self.start_time()) != LaserState::Active {
-//             None
-//         } else {
-//             Some(self.sdf(pos, curr_time))
-//         }
-//     }
+impl<T: EnemyImpl> Enemy for T {
+    fn update(&mut self, curr_time: Beats) {
+        match self.lifetime_state(curr_time) {
+            EnemyLifetime::Unspawned => (),
+            EnemyLifetime::Dead => (),
+            _ => self.update(curr_time),
+        }
+    }
 
-//     fn update(&mut self, curr_time: Beats) {
-//         if self.lifetime_state(curr_time) != EnemyLifetime::Alive {
-//             return;
-//         }
-//         self.update(curr_time)
-//     }
+    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()> {
+        match self.lifetime_state(curr_time) {
+            EnemyLifetime::Unspawned => Ok(()),
+            EnemyLifetime::Dead => Ok(()),
+            _ => self.draw(ctx, curr_time),
+        }
+    }
 
-//     fn draw(&self, _ctx: &mut Context) -> GameResult<()> {
-//         todo!()
-//         // if self.lifetime_state(curr_time) != EnemyLifetime::Alive {
-//         //     Ok(())
-//         // } else {
-//         //     self.draw(ctx)
-//         // }
-//     }
+    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen> {
+        if self.lifetime_state(curr_time) != EnemyLifetime::Active {
+            None
+        } else {
+            Some(self.sdf(pos, curr_time))
+        }
+    }
 
-//     fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime {
-//         if curr_time < self.start_time() {
-//             EnemyLifetime::Unspawned
-//         } else if self.durations().total_duration(LaserState::Cooldown)
-//             < curr_time - self.start_time()
-//         {
-//             EnemyLifetime::Dead
-//         } else {
-//             EnemyLifetime::Alive
-//         }
-//     }
-// }
+    fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime {
+        let delta_time = curr_time - self.start_time();
+        let warmup = self.durations().warmup;
+        let active = self.durations().active;
+        let cooldown = self.durations().cooldown;
+        if curr_time < Beats(0.0) {
+            EnemyLifetime::Unspawned
+        } else if delta_time < warmup {
+            EnemyLifetime::Warmup
+        } else if delta_time < warmup + active {
+            EnemyLifetime::Active
+        } else if delta_time < warmup + active + cooldown {
+            EnemyLifetime::Cooldown
+        } else {
+            EnemyLifetime::Dead
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EnemyDurations {
+    warmup: Beats,   // The amount of time to show a warmup warning
+    active: Beats,   // The amount of time to actually do hit detection
+    cooldown: Beats, // The amount of time to show a "cool off" animation (and disable hit detection)
+}
+
+impl EnemyDurations {
+    fn percent_over_warmup(&self, delta_time: Beats) -> f64 {
+        delta_time.0 / self.warmup.0
+    }
+
+    fn percent_over_active(&self, delta_time: Beats) -> f64 {
+        (delta_time.0 - self.warmup.0) / self.active.0
+    }
+
+    fn percent_over_cooldown(&self, delta_time: Beats) -> f64 {
+        (delta_time.0 - (self.warmup.0 + self.active.0)) / self.cooldown.0
+    }
+}
 
 /// A bullet is a simple enemy that moves from point A to point B in some amount
 /// of time. It also has a cool glowy decoration thing for cool glowiness.
@@ -123,14 +152,10 @@ impl Bullet {
     }
 }
 
-impl Enemy for Bullet {
+impl EnemyImpl for Bullet {
     // TODO: Make this use some sort of percent over duration.
     /// Move bullet towards end position. Also do the cool glow thing.
     fn update(&mut self, curr_time: Beats) {
-        if self.lifetime_state(curr_time) != EnemyLifetime::Alive {
-            return;
-        }
-
         let delta_time = curr_time - self.start_time;
         let total_percent = delta_time.0 / self.duration.0;
         self.pos = WorldPos::lerp(self.start_pos, self.end_pos, total_percent);
@@ -140,11 +165,11 @@ impl Enemy for Bullet {
         self.glow_trans = 0.5 * (1.0 - beat_percent as f32).powi(4);
     }
 
-    fn sdf(&self, pos: WorldPos, _curr_time: Beats) -> Option<WorldLen> {
-        Some(WorldPos::distance(pos, self.pos) - self.size)
+    fn sdf(&self, pos: WorldPos, _curr_time: Beats) -> WorldLen {
+        WorldPos::distance(pos, self.pos) - self.size
     }
 
-    fn draw(&self, ctx: &mut Context) -> GameResult<()> {
+    fn draw(&self, ctx: &mut Context, _curr_time: Beats) -> GameResult<()> {
         let pos = self.pos.as_screen_coords();
         let end_pos = self.end_pos.as_screen_coords();
         // Draw the guide
@@ -195,14 +220,16 @@ impl Enemy for Bullet {
         Ok(())
     }
 
-    fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime {
-        if curr_time < self.start_time {
-            EnemyLifetime::Unspawned
-        } else if self.duration < curr_time - self.start_time {
-            EnemyLifetime::Dead
-        } else {
-            EnemyLifetime::Alive
+    fn durations(&self) -> EnemyDurations {
+        EnemyDurations {
+            warmup: Beats(0.0),
+            active: self.duration,
+            cooldown: Beats(0.0),
         }
+    }
+
+    fn start_time(&self) -> Beats {
+        self.start_time
     }
 }
 
@@ -214,7 +241,7 @@ pub struct Laser {
     // The start time of this laser. Note that this is when the laser starts to
     // appear on screen (ie: when the Predelay phase occurs)
     start_time: Beats,
-    durations: LaserDuration,
+    durations: EnemyDurations,
     outline_color: Color,
     // The outline thickness to animate, in WorldLen units
     outline_keyframes: [Easing<f64>; 3],
@@ -250,7 +277,11 @@ impl Laser {
         start_time: Beats,
         duration: Beats,
     ) -> Laser {
-        let durations = LaserDuration::new(duration);
+        let durations = EnemyDurations {
+            warmup: LASER_WARMUP,
+            active: duration,
+            cooldown: LASER_COOLDOWN,
+        };
         Laser {
             start_time,
             durations,
@@ -304,26 +335,23 @@ impl Laser {
     }
 }
 
-impl Enemy for Laser {
+impl EnemyImpl for Laser {
     fn update(&mut self, curr_time: Beats) {
-        if self.lifetime_state(curr_time) != EnemyLifetime::Alive {
-            return;
-        }
         let delta_time = curr_time - self.start_time;
 
-        let state = self.durations.get_state(delta_time);
-        let index = match state {
-            LaserState::Predelay => 0,
-            LaserState::Active => 1,
-            LaserState::Cooldown => 2,
+        let state = self.lifetime_state(curr_time);
+        let (index, percent) = match state {
+            EnemyLifetime::Warmup => (0, self.durations.percent_over_warmup(delta_time)),
+            EnemyLifetime::Active => (1, self.durations.percent_over_active(delta_time)),
+            EnemyLifetime::Cooldown => (2, self.durations.percent_over_cooldown(delta_time)),
+            _ => unreachable!(),
         };
 
-        let percent_over_state = self.durations.percent_over_state(delta_time);
-        self.outline_thickness = WorldLen(self.outline_keyframes[index].ease(percent_over_state));
-        self.hitbox_thickness = WorldLen(self.hitbox_keyframes[index].ease(percent_over_state));
+        self.outline_thickness = WorldLen(self.outline_keyframes[index].ease(percent));
+        self.hitbox_thickness = WorldLen(self.hitbox_keyframes[index].ease(percent));
 
         self.outline_color = match state {
-            LaserState::Predelay => {
+            EnemyLifetime::Warmup => {
                 let red1 = Color {
                     r: 0.3,
                     g: 0.1,
@@ -336,18 +364,19 @@ impl Enemy for Laser {
                     b: 0.1,
                     a: 0.0,
                 };
-                if percent_over_state < 0.25 {
-                    color_lerp(TRANSPARENT, red1, percent_over_state)
+                if percent < 0.25 {
+                    color_lerp(TRANSPARENT, red1, percent)
                 } else {
-                    color_lerp(red1, red2, (percent_over_state - 0.25) / 0.75)
+                    color_lerp(red1, red2, (percent - 0.25) / 0.75)
                 }
             }
-            LaserState::Active => color_lerp(LASER_RED, TRANSPARENT, percent_over_state),
-            LaserState::Cooldown => color_lerp(TRANSPARENT, TRANSPARENT, percent_over_state),
+            EnemyLifetime::Active => color_lerp(LASER_RED, TRANSPARENT, percent),
+            EnemyLifetime::Cooldown => color_lerp(TRANSPARENT, TRANSPARENT, percent),
+            _ => unreachable!(),
         };
     }
 
-    fn draw(&self, ctx: &mut Context) -> GameResult<()> {
+    fn draw(&self, ctx: &mut Context, _curr_time: Beats) -> GameResult<()> {
         let position = self.position.as_screen_coords();
         let width = self.width.as_screen_length();
         let hitbox_thickness = self.hitbox_thickness.as_screen_length();
@@ -369,29 +398,22 @@ impl Enemy for Laser {
         Ok(())
     }
 
-    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen> {
-        if self.durations.get_state(curr_time - self.start_time) != LaserState::Active {
-            return None;
-        }
-
+    fn sdf(&self, pos: WorldPos, _curr_time: Beats) -> WorldLen {
         let width = self.hitbox_thickness;
         let dist_to_laser = shortest_distance_to_line(
             (pos.x, pos.y),
             (self.position.x, self.position.y),
             self.angle,
         );
-        Some(WorldLen(dist_to_laser) - width)
+        WorldLen(dist_to_laser) - width
     }
 
-    fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime {
-        if curr_time < self.start_time {
-            EnemyLifetime::Unspawned
-        } else if self.durations.total_duration(LaserState::Cooldown) < curr_time - self.start_time
-        {
-            EnemyLifetime::Dead
-        } else {
-            EnemyLifetime::Alive
-        }
+    fn durations(&self) -> EnemyDurations {
+        self.durations
+    }
+
+    fn start_time(&self) -> Beats {
+        self.start_time
     }
 }
 
@@ -428,71 +450,6 @@ fn draw_laser_rect(
     ggez::graphics::set_blend_mode(ctx, BlendMode::Alpha)?;
 
     Ok(())
-}
-
-#[derive(Debug)]
-struct LaserDuration {
-    predelay: Beats, // The amount of time to show a predelay warning
-    active: Beats,   // The amount of time to actually do hit detection
-    cooldown: Beats, // The amount of time to show a "cool off" animation (and disable hit detection)
-}
-
-impl LaserDuration {
-    fn new(active_duration: Beats) -> LaserDuration {
-        LaserDuration {
-            predelay: LASER_PREDELAY,
-            active: active_duration,
-            cooldown: LASER_COOLDOWN,
-        }
-    }
-
-    fn get_state(&self, delta_time: Beats) -> LaserState {
-        if delta_time < self.total_duration(LaserState::Predelay) {
-            LaserState::Predelay
-        } else if delta_time < self.total_duration(LaserState::Active) {
-            LaserState::Active
-        } else {
-            LaserState::Cooldown
-        }
-    }
-
-    /// Return the percent within a particular state.
-    fn percent_over_state(&self, delta_time: Beats) -> f64 {
-        use self::LaserState::*;
-        let state = self.get_state(delta_time);
-        let delta_time = delta_time.0;
-        let predelay = self.predelay.0;
-        let active = self.active.0;
-        let cooldown = self.cooldown.0;
-        match state {
-            Predelay => delta_time / predelay,
-            Active => (delta_time - predelay) / active,
-            Cooldown => (delta_time - predelay - active) / cooldown,
-        }
-    }
-
-    /// Returns the total duration that this state takes up, plus the previous
-    /// states.
-    fn total_duration(&self, state: LaserState) -> Beats {
-        use self::LaserState::*;
-        match state {
-            Predelay => self.predelay,
-            Active => self.predelay + self.active,
-            Cooldown => self.predelay + self.active + self.cooldown,
-        }
-    }
-
-    /// Return the percent of the two states combined
-    fn percent_over_total(&self, state: LaserState, delta_time: Beats) -> f64 {
-        delta_time.0 / self.total_duration(state).0
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum LaserState {
-    Predelay,
-    Active,
-    Cooldown,
 }
 
 /// Return the shortest distance from `pos` to the line defined by `line_pos`

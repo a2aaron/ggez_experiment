@@ -292,7 +292,7 @@ impl event::EventHandler for MainState {
         // ggez::graphics::set_screen_coordinates(ctx, Rect::new(-320.0, 240.0, 640.0, -480.0))?;
 
         for enemy in self.enemies.iter() {
-            enemy.draw(ctx)?;
+            enemy.draw(ctx, self.time.get_beats())?;
         }
         let player_mesh = self.player.get_mesh(ctx)?;
         player_mesh.draw(

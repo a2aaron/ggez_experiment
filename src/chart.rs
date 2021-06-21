@@ -5,7 +5,7 @@ use std::collections::binary_heap::PeekMut;
 use std::collections::BinaryHeap;
 
 use crate::ease::Lerp;
-use crate::enemy::{Bullet, Enemy, Laser, LASER_PREDELAY};
+use crate::enemy::{Bullet, Enemy, Laser, LASER_WARMUP};
 use crate::time::Beats;
 use crate::world::WorldPos;
 
@@ -274,8 +274,8 @@ impl BeatAction {
             // all assume the passed time is for the active phase, if we want
             // a laser to _fire_ on beat 20, it needs to be spawned in, at latest
             // beat 16, so that it works correctly.
-            SpawnCmd::Laser { .. } => start_time - LASER_PREDELAY,
-            SpawnCmd::LaserThruPoints { .. } => start_time - LASER_PREDELAY,
+            SpawnCmd::Laser { .. } => start_time - LASER_WARMUP,
+            SpawnCmd::LaserThruPoints { .. } => start_time - LASER_WARMUP,
         };
         BeatAction {
             start_time: Reverse(beat),
