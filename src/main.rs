@@ -86,11 +86,6 @@ impl MainState {
         Ok(s)
     }
 
-    fn reset(&mut self) {
-        self.enemies.clear();
-        self.scheduler = Scheduler::new();
-    }
-
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
     fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
         let beat_time = self.time.get_beats();
@@ -271,14 +266,14 @@ impl event::EventHandler for MainState {
                 // Stop the game, pausing the music, fetching a new Source instance, and
                 // rebuild the scheduler work queue.
                 self.started = false;
-                self.assets.music.stop(ctx);
+                drop(self.assets.music.stop(ctx));
                 self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
-                self.reset();
             } else {
                 let SKIP_AMOUNT = to_secs(Beats(80.0), BPM);
                 // Start the game. Also play the music.
                 self.started = true;
-                self.reset();
+                self.enemies.clear();
+                self.scheduler = Scheduler::new();
                 self.time = Time::new(BPM, SKIP_AMOUNT);
                 self.assets.music.set_skip_amount(SKIP_AMOUNT.as_duration());
                 drop(self.assets.music.play(ctx));

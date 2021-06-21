@@ -72,13 +72,6 @@ impl Time {
         self.last_update = Some(Instant::now());
     }
 
-    /// Reset the timer, resetting the current duration to 0. Note that the timer
-    /// will start ticking immediately after call.
-    pub fn reset(&mut self) {
-        self.exact_start = Instant::now();
-        self.last_update = None;
-    }
-
     /// Return the time sinceDuration::from_std( the SongTime started ticking. This is affected by).unwrap()
     /// the `offset` value. Specifically, it adds
     /// If `update()` has not been called since the last `reset()` or `new()` call

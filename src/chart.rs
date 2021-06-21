@@ -28,55 +28,51 @@ impl Scheduler {
         }
 
         fn lerp_spawn(
-            beat_split: BeatSplitter,
+            start_times: BeatSplitter,
             start_poses: ((f64, f64), (f64, f64)),
             end_poses: ((f64, f64), (f64, f64)),
         ) -> Vec<BeatAction> {
-            let beats = beat_split.split();
+            let beats = start_times.split();
             let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
             let end_poses = (WorldPos::from(end_poses.0), WorldPos::from(end_poses.1));
 
             make_actions(&beats, move |t| {
                 let start = LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
                 let end = LiveWorldPos::Constant(WorldPos::lerp(end_poses.0, end_poses.1, t));
-                SpawnCmd::SpawnBullet { start, end }
+                SpawnCmd::Bullet { start, end }
             })
             .collect()
         }
 
         fn lerp_spawn_player(
-            beat_split: BeatSplitter,
+            start_times: BeatSplitter,
             start_poses: ((f64, f64), (f64, f64)),
         ) -> Vec<BeatAction> {
-            let beats = beat_split.split();
+            let beats = start_times.split();
             let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
             make_actions(&beats, move |t| {
                 let start = LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
                 let end = LiveWorldPos::PlayerPos;
-                SpawnCmd::SpawnBullet { start, end }
+                SpawnCmd::Bullet { start, end }
             })
             .collect()
         }
 
         fn lerp_spawn_laser_player(
-            beat_split: BeatSplitter,
+            start_times: BeatSplitter,
             start_poses: ((f64, f64), (f64, f64)),
         ) -> Vec<BeatAction> {
             let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
-            beat_split
+            start_times
                 .split()
                 .iter()
-                .map(|&(beat, t)| {
+                .map(|&(start_time, t)| {
                     let start =
                         LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
                     let end = LiveWorldPos::PlayerPos;
-                    let action = SpawnCmd::SpawnLaserThruPoints {
-                        a: start,
-                        b: end,
-                        start_time: beat,
-                    };
+                    let action = SpawnCmd::LaserThruPoints { a: start, b: end };
                     // beat here is unneeded technically since it uses the SpawnCmd's start_time
-                    BeatAction::new(beat, action)
+                    BeatAction::new(start_time, action)
                 })
                 .collect()
         }
@@ -169,10 +165,12 @@ impl Scheduler {
         loop {
             match self.work_queue.peek_mut() {
                 Some(peaked) => {
-                    if (*peaked).beat > rev_beat {
-                        PeekMut::pop(peaked)
+                    if (*peaked).start_time > rev_beat {
+                        let beat_action = PeekMut::pop(peaked);
+
+                        beat_action
                             .action
-                            .preform(time, enemies, player_pos)
+                            .preform(beat_action.start_time.0, enemies, player_pos)
                     } else {
                         return;
                     }
@@ -259,7 +257,7 @@ impl BeatSplitter {
 struct BeatAction {
     // Stored in reverse ordering so that we can get the _earliest_ beat when in
     // the scheduler, rather than the latest.
-    beat: Reverse<Beats>, // for the binary heap's ordering
+    start_time: Reverse<Beats>, // for the binary heap's ordering
     action: SpawnCmd,
 }
 
@@ -267,20 +265,20 @@ impl BeatAction {
     /// Create a BeatAction. The action is scheduled at time `beat` if the
     /// SpawnCmd has no start time of its own, otherwise the action is scheduled
     /// (probably slightly earlier than the SpawnCmd's start time).
-    fn new(beat: Beats, action: SpawnCmd) -> BeatAction {
+    fn new(start_time: Beats, action: SpawnCmd) -> BeatAction {
         let beat = match action {
-            SpawnCmd::SpawnBullet { .. } => beat,
+            SpawnCmd::Bullet { .. } => start_time,
             // Schedule the lasers slightly earlier than their actual time
             // so that the laser pre-delays occurs at the right time.
             // Since the laser predelay is 4 beats, but the laser constructors
             // all assume the passed time is for the active phase, if we want
             // a laser to _fire_ on beat 20, it needs to be spawned in, at latest
             // beat 16, so that it works correctly.
-            SpawnCmd::SpawnLaser { start_time, .. } => start_time - LASER_PREDELAY,
-            SpawnCmd::SpawnLaserThruPoints { start_time, .. } => start_time - LASER_PREDELAY,
+            SpawnCmd::Laser { .. } => start_time - LASER_PREDELAY,
+            SpawnCmd::LaserThruPoints { .. } => start_time - LASER_PREDELAY,
         };
         BeatAction {
-            beat: Reverse(beat),
+            start_time: Reverse(beat),
             action,
         }
     }
@@ -288,7 +286,7 @@ impl BeatAction {
 
 impl PartialEq for BeatAction {
     fn eq(&self, other: &Self) -> bool {
-        self.beat == other.beat
+        self.start_time == other.start_time
     }
 }
 
@@ -304,8 +302,8 @@ impl Ord for BeatAction {
     fn cmp(&self, other: &Self) -> Ordering {
         //  NOTE: We assume that weird values (like inf or NaN) never happen.
         //  and just assume that returning equal is okay here.
-        self.beat
-            .partial_cmp(&other.beat)
+        self.start_time
+            .partial_cmp(&other.start_time)
             .unwrap_or(Ordering::Equal)
     }
 }
@@ -329,39 +327,33 @@ impl LiveWorldPos {
 
 #[derive(Debug, Copy, Clone)]
 enum SpawnCmd {
-    SpawnBullet {
+    Bullet {
         start: LiveWorldPos,
         end: LiveWorldPos,
     },
-    SpawnLaser {
+    Laser {
         position: LiveWorldPos,
         angle: f64,
-        start_time: Beats,
     },
-    SpawnLaserThruPoints {
+    LaserThruPoints {
         a: LiveWorldPos,
         b: LiveWorldPos,
-        start_time: Beats,
     },
 }
 
 impl SpawnCmd {
-    fn preform(&self, curr_time: Beats, enemies: &mut Vec<Box<dyn Enemy>>, player_pos: WorldPos) {
+    fn preform(&self, start_time: Beats, enemies: &mut Vec<Box<dyn Enemy>>, player_pos: WorldPos) {
         match *self {
-            SpawnCmd::SpawnBullet { start, end } => {
+            SpawnCmd::Bullet { start, end } => {
                 let bullet = Bullet::new(
                     start.world_pos(player_pos),
                     end.world_pos(player_pos),
-                    curr_time,
+                    start_time,
                     Beats(4.0),
                 );
                 enemies.push(Box::new(bullet));
             }
-            SpawnCmd::SpawnLaser {
-                position,
-                angle,
-                start_time,
-            } => {
+            SpawnCmd::Laser { position, angle } => {
                 let laser = Laser::new_through_point(
                     position.world_pos(player_pos),
                     angle,
@@ -370,7 +362,7 @@ impl SpawnCmd {
                 );
                 enemies.push(Box::new(laser));
             }
-            SpawnCmd::SpawnLaserThruPoints { a, b, start_time } => {
+            SpawnCmd::LaserThruPoints { a, b } => {
                 let laser = Laser::new_through_points(
                     a.world_pos(player_pos),
                     b.world_pos(player_pos),

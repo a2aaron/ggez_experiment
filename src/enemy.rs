@@ -34,6 +34,52 @@ pub enum EnemyLifetime {
     Dead,      // The enemy is now dead.
 }
 
+// trait Enemy2 {
+//     fn durations(&self) -> LaserDuration;
+//     fn start_time(&self) -> Beats;
+//     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> WorldLen;
+//     fn update(&mut self, curr_time: Beats);
+//     fn draw(&self, ctx: &mut Context);
+// }
+
+// impl<T: Enemy2> Enemy for T {
+//     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen> {
+//         if self.durations().get_state(curr_time - self.start_time()) != LaserState::Active {
+//             None
+//         } else {
+//             Some(self.sdf(pos, curr_time))
+//         }
+//     }
+
+//     fn update(&mut self, curr_time: Beats) {
+//         if self.lifetime_state(curr_time) != EnemyLifetime::Alive {
+//             return;
+//         }
+//         self.update(curr_time)
+//     }
+
+//     fn draw(&self, _ctx: &mut Context) -> GameResult<()> {
+//         todo!()
+//         // if self.lifetime_state(curr_time) != EnemyLifetime::Alive {
+//         //     Ok(())
+//         // } else {
+//         //     self.draw(ctx)
+//         // }
+//     }
+
+//     fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime {
+//         if curr_time < self.start_time() {
+//             EnemyLifetime::Unspawned
+//         } else if self.durations().total_duration(LaserState::Cooldown)
+//             < curr_time - self.start_time()
+//         {
+//             EnemyLifetime::Dead
+//         } else {
+//             EnemyLifetime::Alive
+//         }
+//     }
+// }
+
 /// A bullet is a simple enemy that moves from point A to point B in some amount
 /// of time. It also has a cool glowy decoration thing for cool glowiness.
 // TODO: Add a predelay for fairness
@@ -183,8 +229,8 @@ pub struct Laser {
 }
 impl Laser {
     /// Create a new laser going through the given points.
-    /// start_time marks when the active phase of the laser occurs. Note that
-    /// this means that the laser itself is actually spawned before `start_time`
+    /// start_time marks when the predelay phase of the laser occurs. Note that
+    /// this means that the laser does not fire exactly at `start_time`
     pub fn new_through_points(
         a: WorldPos,
         b: WorldPos,
@@ -206,9 +252,7 @@ impl Laser {
     ) -> Laser {
         let durations = LaserDuration::new(duration);
         Laser {
-            // Shift the start time back by the predelay amount so that the
-            // active phase occurs at start_time
-            start_time: start_time - durations.predelay,
+            start_time,
             durations,
             outline_keyframes: [
                 Easing::Linear {
