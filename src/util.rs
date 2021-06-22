@@ -1,6 +1,7 @@
 use ggez::mint;
 use rand::{thread_rng, Rng};
 
+use crate::ease::Lerp;
 use crate::world::WorldPos;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -47,6 +48,17 @@ pub fn rand_circle_edge(center: WorldPos, radius: f64) -> WorldPos {
         x: x + center.x,
         y: y + center.y,
     }
+}
+
+/// Return a random WorldPos within some grid. The grid will have side_len total
+/// points, and every point will be scaled to fit inside of the bounds.
+pub fn random_grid(bound_x: (f64, f64), bound_y: (f64, f64), side_len: usize) -> WorldPos {
+    let x_percent = thread_rng().gen_range(0..=side_len) as f64 / (side_len as f64);
+    let y_percent = thread_rng().gen_range(0..=side_len) as f64 / (side_len as f64);
+
+    let x = f64::lerp(bound_x.0, bound_x.1, x_percent);
+    let y = f64::lerp(bound_y.0, bound_y.1, y_percent);
+    WorldPos { x, y }
 }
 
 pub fn quartic(n: f64) -> f64 {

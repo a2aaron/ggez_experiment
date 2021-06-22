@@ -7,6 +7,7 @@ use std::collections::BinaryHeap;
 use crate::ease::Lerp;
 use crate::enemy::{Bullet, CircleBomb, Enemy, Laser, BOMB_WARMUP, LASER_WARMUP};
 use crate::time::Beats;
+use crate::util;
 use crate::world::WorldPos;
 
 /// This struct contains all the events that occur during a song. It will perform
@@ -18,81 +19,9 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new() -> Scheduler {
-        fn make_actions<'a>(
-            beats: &'a [(Beats, f64)],
-            action_spawner: impl Fn(f64) -> SpawnCmd + 'static,
-        ) -> impl Iterator<Item = BeatAction> + 'a {
-            beats
-                .iter()
-                .map(move |(beat, t)| BeatAction::new(*beat, action_spawner(*t)))
-        }
-
-        fn lerp_spawn(
-            start_times: BeatSplitter,
-            start_poses: ((f64, f64), (f64, f64)),
-            end_poses: ((f64, f64), (f64, f64)),
-        ) -> Vec<BeatAction> {
-            let beats = start_times.split();
-            let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
-            let end_poses = (WorldPos::from(end_poses.0), WorldPos::from(end_poses.1));
-
-            make_actions(&beats, move |t| {
-                let start = LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
-                let end = LiveWorldPos::Constant(WorldPos::lerp(end_poses.0, end_poses.1, t));
-                SpawnCmd::Bullet { start, end }
-            })
-            .collect()
-        }
-
-        fn lerp_spawn_player(
-            start_times: BeatSplitter,
-            start_poses: ((f64, f64), (f64, f64)),
-        ) -> Vec<BeatAction> {
-            let beats = start_times.split();
-            let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
-            make_actions(&beats, move |t| {
-                let start = LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
-                let end = LiveWorldPos::PlayerPos;
-                SpawnCmd::Bullet { start, end }
-            })
-            .collect()
-        }
-
-        fn lerp_spawn_laser_player(
-            start_times: BeatSplitter,
-            start_poses: ((f64, f64), (f64, f64)),
-        ) -> Vec<BeatAction> {
-            let start_poses = (WorldPos::from(start_poses.0), WorldPos::from(start_poses.1));
-            start_times
-                .split()
-                .iter()
-                .map(|&(start_time, t)| {
-                    let start =
-                        LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
-                    let end = LiveWorldPos::PlayerPos;
-                    let action = SpawnCmd::LaserThruPoints { a: start, b: end };
-                    BeatAction::new(start_time, action)
-                })
-                .collect()
-        }
-
-        fn lerp_spawn_bomb_player(start_times: BeatSplitter) -> Vec<BeatAction> {
-            start_times
-                .split()
-                .iter()
-                .map(|&(start_time, t)| {
-                    let action = SpawnCmd::CircleBomb {
-                        pos: LiveWorldPos::PlayerPos,
-                    };
-                    BeatAction::new(start_time, action)
-                })
-                .collect()
-        }
-
-        let mut work_queue = BinaryHeap::new();
         let origin = (0.0, 0.0);
-        let bottom_left = (-50.0, -50.0);
-        let bottom_right = (50.0, -50.0);
+        let bot_left = (-50.0, -50.0);
+        let bot_right = (50.0, -50.0);
         let top_left = (-50.0, 50.0);
         let top_right = (50.0, 50.0);
 
@@ -114,63 +43,60 @@ impl Scheduler {
             ..Default::default()
         };
 
-        work_queue.extend(lerp_spawn(
-            every_4_beats.with_start(4.0 * 4.0),
-            (bottom_left, bottom_right),
-            (origin, origin),
-        ));
-
-        work_queue.extend(lerp_spawn(
-            every_4_beats.with_start(4.0 * 4.0),
-            (top_right, top_left),
-            (origin, origin),
-        ));
-
-        work_queue.extend(lerp_spawn(
-            every_2_beats.with_start(8.0 * 4.0),
-            (top_left, bottom_left),
-            (origin, origin),
-        ));
-
-        work_queue.extend(lerp_spawn(
-            every_2_beats.with_start(8.0 * 4.0),
-            (bottom_right, top_right),
-            (origin, origin),
-        ));
-
-        work_queue.extend(lerp_spawn(
-            every_2_beats.with_start(12.0 * 4.0),
-            (top_right, bottom_right),
-            (top_left, bottom_left),
-        ));
-
-        work_queue.extend(lerp_spawn(
-            every_2_beats.with_start(12.0 * 4.0).with_offset(1.0),
-            (bottom_left, top_left),
-            (bottom_right, top_right),
-        ));
-
-        work_queue.extend(lerp_spawn_player(
-            every_beat.with_start(16.0 * 4.0),
-            (top_right, top_left),
-        ));
-
-        work_queue.extend(lerp_spawn_player(
-            every_beat.with_start(16.0 * 4.0).with_offset(0.5),
-            (bottom_left, bottom_right),
-        ));
-
-        // DROP
-        work_queue.extend(lerp_spawn_laser_player(
-            every_beat.with_start(20.0 * 4.0),
-            (origin, origin),
-        ));
-
-        work_queue.extend(lerp_spawn_bomb_player(
-            every_beat.with_start(24.0 * 4.0).with_duration(99.0),
-        ));
-
-        Scheduler { work_queue }
+        let stage = [
+            // Skip first 4 beats
+            // 4 - 7
+            every_4_beats
+                .with_start(4.0 * 4.0)
+                .make_actions(CmdBatch::bullet((bot_left, bot_right), (origin, origin))),
+            every_4_beats
+                .with_start(4.0 * 4.0)
+                .make_actions(CmdBatch::bullet((top_right, top_left), (origin, origin))),
+            // 8 - 11
+            every_2_beats
+                .with_start(8.0 * 4.0)
+                .make_actions(CmdBatch::bullet((top_left, bot_left), (origin, origin))),
+            every_2_beats
+                .with_start(8.0 * 4.0)
+                .make_actions(CmdBatch::bullet((bot_right, top_right), (origin, origin))),
+            // 12 - 15
+            every_2_beats
+                .with_start(12.0 * 4.0)
+                .make_actions(CmdBatch::bullet(
+                    (top_right, bot_right),
+                    (top_left, bot_left),
+                )),
+            every_2_beats
+                .with_start(12.0 * 4.0)
+                .with_offset(1.0)
+                .make_actions(CmdBatch::bullet(
+                    (bot_left, top_left),
+                    (bot_right, top_right),
+                )),
+            // 16 - 19
+            every_beat
+                .with_start(16.0 * 4.0)
+                .make_actions(CmdBatch::bullet_player((top_right, top_left))),
+            every_beat
+                .with_start(16.0 * 4.0)
+                .with_offset(0.5)
+                .make_actions(CmdBatch::bullet_player((bot_left, bot_right))),
+            // DROP 20 - 23
+            every_beat
+                .with_start(20.0 * 4.0)
+                .make_actions(CmdBatch::Laser {
+                    a: CmdBatchPos::player(),
+                    b: CmdBatchPos::origin(),
+                }),
+            every_beat
+                .with_start(20.0 * 4.0)
+                .make_actions(CmdBatch::CircleBomb {
+                    pos: CmdBatchPos::RandomGrid,
+                }),
+        ];
+        Scheduler {
+            work_queue: stage.iter().flatten().cloned().collect::<BinaryHeap<_>>(),
+        }
     }
 
     /// Preform the scheduled actions up to the new beat_time
@@ -258,6 +184,96 @@ impl BeatSplitter {
         }
         beats
     }
+
+    fn make_actions(&self, cmd_batch: CmdBatch) -> Vec<BeatAction> {
+        self.split()
+            .iter()
+            .map(|(start_time, t)| BeatAction::new(*start_time, cmd_batch.get(*t)))
+            .collect()
+    }
+}
+#[derive(Debug, Clone, Copy)]
+enum CmdBatch {
+    Bullet {
+        start: CmdBatchPos,
+        end: CmdBatchPos,
+    },
+    Laser {
+        a: CmdBatchPos,
+        b: CmdBatchPos,
+    },
+    CircleBomb {
+        pos: CmdBatchPos,
+    },
+}
+impl CmdBatch {
+    fn bullet(starts: ((f64, f64), (f64, f64)), ends: ((f64, f64), (f64, f64))) -> CmdBatch {
+        CmdBatch::Bullet {
+            start: CmdBatchPos::Lerped(starts.0, starts.1),
+            end: CmdBatchPos::Lerped(ends.0, ends.1),
+        }
+    }
+
+    fn bullet_player(starts: ((f64, f64), (f64, f64))) -> CmdBatch {
+        CmdBatch::Bullet {
+            start: CmdBatchPos::Lerped(starts.0, starts.1),
+            end: CmdBatchPos::Constant(LiveWorldPos::PlayerPos),
+        }
+    }
+
+    fn get(&self, t: f64) -> SpawnCmd {
+        match self {
+            CmdBatch::Bullet { start, end } => SpawnCmd::Bullet {
+                start: start.get(t),
+                end: end.get(t),
+            },
+            CmdBatch::Laser { a, b } => SpawnCmd::LaserThruPoints {
+                a: a.get(t),
+                b: b.get(t),
+            },
+            CmdBatch::CircleBomb { pos } => SpawnCmd::CircleBomb { pos: pos.get(t) },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+// A position which is static and does not depend on run time information, but
+// maybe depend on the time at which is meant to exist at. This is useful for
+// representing batches of objects.
+enum CmdBatchPos {
+    Lerped((f64, f64), (f64, f64)),
+    Constant(LiveWorldPos),
+    RandomGrid,
+}
+
+impl CmdBatchPos {
+    fn player() -> CmdBatchPos {
+        CmdBatchPos::Constant(LiveWorldPos::PlayerPos)
+    }
+
+    fn origin() -> CmdBatchPos {
+        CmdBatchPos::Constant(LiveWorldPos::origin())
+    }
+
+    fn get(&self, t: f64) -> LiveWorldPos {
+        match *self {
+            CmdBatchPos::Lerped(start, end) => {
+                let a = WorldPos::from(start);
+                let b = WorldPos::from(end);
+                LiveWorldPos::Constant(WorldPos::lerp(a, b, t))
+            }
+            CmdBatchPos::Constant(pos) => pos,
+            CmdBatchPos::RandomGrid => {
+                LiveWorldPos::from(util::random_grid((-50.0, 50.0), (-50.0, 50.0), 10))
+            }
+        }
+    }
+}
+
+impl From<WorldPos> for CmdBatchPos {
+    fn from(x: WorldPos) -> Self {
+        CmdBatchPos::Constant(LiveWorldPos::Constant(x))
+    }
 }
 
 /// A wrapper struct of a Beat and a Boxed Action. The beat has reversed ordering
@@ -269,7 +285,7 @@ impl BeatSplitter {
 /// command. This also means that some actions may be scheduled earlier than
 /// needed, and that some actions have a maximum latest time at which they can
 /// get scheduled at all.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct BeatAction {
     // Stored in reverse ordering so that we can get the _earliest_ beat when in
     // the scheduler, rather than the latest.
@@ -292,7 +308,7 @@ impl BeatAction {
             // beat 16, so that it works correctly.
             SpawnCmd::Laser { .. } => start_time - LASER_WARMUP,
             SpawnCmd::LaserThruPoints { .. } => start_time - LASER_WARMUP,
-            SpawnCmd::CircleBomb { pos } => start_time - BOMB_WARMUP,
+            SpawnCmd::CircleBomb { .. } => start_time - BOMB_WARMUP,
         };
         BeatAction {
             start_time: Reverse(beat),
@@ -326,7 +342,7 @@ impl Ord for BeatAction {
 }
 
 /// A WorldPosition which depends on some dynamic value (ex: the player's
-/// position).
+/// position). This is computed at run time.
 #[derive(Debug, Copy, Clone)]
 enum LiveWorldPos {
     Constant(WorldPos),
@@ -334,11 +350,21 @@ enum LiveWorldPos {
 }
 
 impl LiveWorldPos {
+    fn origin() -> LiveWorldPos {
+        LiveWorldPos::Constant(WorldPos::origin())
+    }
+
     fn world_pos(&self, player_pos: WorldPos) -> WorldPos {
         match self {
             LiveWorldPos::Constant(pos) => *pos,
             LiveWorldPos::PlayerPos => player_pos,
         }
+    }
+}
+
+impl From<WorldPos> for LiveWorldPos {
+    fn from(x: WorldPos) -> Self {
+        LiveWorldPos::Constant(x)
     }
 }
 

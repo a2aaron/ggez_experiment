@@ -272,7 +272,7 @@ impl event::EventHandler for MainState {
                 drop(self.assets.music.stop(ctx));
                 self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
             } else {
-                let SKIP_AMOUNT = to_secs(Beats(80.0), BPM);
+                let SKIP_AMOUNT = to_secs(Beats(80.0 - 4.0 * 4.0), BPM);
                 // Start the game. Also play the music.
                 self.started = true;
                 self.enemies.clear();
