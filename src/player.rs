@@ -2,7 +2,7 @@ use ggez::graphics::{Color, DrawMode, Mesh};
 use ggez::{Context, GameResult};
 
 use crate::color::{RED, WHITE};
-use crate::ease::color_lerp;
+use crate::ease::Lerp;
 use crate::keyboard::KeyboardState;
 use crate::world::{WorldLen, WorldPos};
 
@@ -58,7 +58,7 @@ impl Player {
         }
 
         self.hit_timer -= dt;
-        self.color = color_lerp(WHITE, RED, (self.hit_timer as f64) / HIT_TIME_LENGTH as f64);
+        self.color = Color::lerp(WHITE, RED, (self.hit_timer as f64) / HIT_TIME_LENGTH as f64);
     }
 
     pub fn get_mesh(&self, ctx: &mut Context) -> GameResult<Mesh> {

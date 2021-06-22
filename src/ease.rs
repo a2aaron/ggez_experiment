@@ -1,3 +1,5 @@
+use ggez::graphics::Color;
+
 pub trait Lerp: Sized + Copy {
     /// Lerp between two values. This function will clamp t.
     fn lerp(a: Self, b: Self, t: f64) -> Self {
@@ -42,6 +44,17 @@ impl InvLerp for f32 {
 impl InvLerp for f64 {
     fn inv_lerp_unclamped(start: Self, end: Self, val: Self) -> f64 {
         (val - start) / (end - start)
+    }
+}
+
+impl Lerp for Color {
+    fn lerp_unclamped(a: Self, b: Self, t: f64) -> Self {
+        ggez::graphics::Color::new(
+            f32::lerp(a.r, b.r, t),
+            f32::lerp(a.g, b.g, t),
+            f32::lerp(a.b, b.b, t),
+            f32::lerp(a.a, b.a, t),
+        )
     }
 }
 
@@ -202,19 +215,4 @@ pub fn snap_float(value: f64, num_regions: usize) -> f64 {
     // four jumps. See also https://www.desmos.com/calculator/esnnnbfzml
     let num_regions = num_regions as f64;
     (num_regions * value).floor() / (num_regions - 1.0)
-}
-
-// Lerp a ggez::graphics::Color
-pub fn color_lerp(
-    a: ggez::graphics::Color,
-    b: ggez::graphics::Color,
-    t: impl Into<f64>,
-) -> ggez::graphics::Color {
-    let t = t.into();
-    ggez::graphics::Color::new(
-        f32::lerp(a.r, b.r, t),
-        f32::lerp(a.g, b.g, t),
-        f32::lerp(a.b, b.b, t),
-        f32::lerp(a.a, b.a, t),
-    )
 }

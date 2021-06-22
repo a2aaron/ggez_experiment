@@ -4,8 +4,8 @@ use ggez::{mint, Context, GameResult};
 use cg::prelude::*;
 use cgmath as cg;
 
-use crate::color::{GREEN, LASER_RED, RED, TRANSPARENT, WHITE};
-use crate::ease::{color_lerp, Easing, Lerp};
+use crate::color::{self, GREEN, LASER_RED, RED, TRANSPARENT, WHITE};
+use crate::ease::{Easing, Lerp};
 use crate::time::Beats;
 use crate::util;
 use crate::world::{WorldLen, WorldPos};
@@ -13,11 +13,15 @@ use crate::world::{WorldLen, WorldPos};
 pub const LASER_WARMUP: Beats = Beats(4.0);
 pub const LASER_DURATION: Beats = Beats(1.0);
 
+pub const BOMB_WARMUP: Beats = Beats(4.0);
+
 const LASER_COOLDOWN: Beats = Beats(0.25);
 
 const BULLET_GUIDE_RADIUS: f32 = 10.0;
 const BULLET_GUIDE_WIDTH: f32 = 1.0;
 
+/// The public facing enemy trait that specifies how an enemy behaves over its
+/// lifetime of existence.
 pub trait Enemy {
     fn update(&mut self, curr_time: Beats);
     fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()>;
@@ -36,11 +40,29 @@ pub enum EnemyLifetime {
     Dead,      // The enemy is now dead.
 }
 
+/// The internal enemy implementation trait. This is done so that a blanket impl
+/// can be done that specifies most of the desired default behaviors of enemies.
 pub trait EnemyImpl {
+    /// Return the struct describing the enemy's durations in each phase.
     fn durations(&self) -> EnemyDurations;
+    /// Return when this enemy starts to exist. This may be long before or after
+    /// the current time.
     fn start_time(&self) -> Beats;
+    fn delta_time(&self, curr_time: Beats) -> Beats {
+        curr_time - self.start_time()
+    }
+    fn percent_over_curr_state(&self, curr_time: Beats) -> f64 {
+        self.durations()
+            .percent_over_curr_state(self.delta_time(curr_time))
+    }
+    /// Return the sdf of the enemy. Called only if this enemy's lifetime is
+    /// in Warmup/Active/Cooldown
     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> WorldLen;
+    /// Update the enemy. Called only if this enemy's lifetime is
+    /// in Warmup/Active/Cooldown
     fn update(&mut self, curr_time: Beats);
+    /// Draw the enemy. Called only if this enemy's lifetime is
+    /// in Warmup/Active/Cooldown
     fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()>;
 }
 
@@ -70,7 +92,7 @@ impl<T: EnemyImpl> Enemy for T {
     }
 
     fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime {
-        let delta_time = curr_time - self.start_time();
+        let delta_time = self.delta_time(curr_time);
         let warmup = self.durations().warmup;
         let active = self.durations().active;
         let cooldown = self.durations().cooldown;
@@ -106,6 +128,20 @@ impl EnemyDurations {
 
     fn percent_over_cooldown(&self, delta_time: Beats) -> f64 {
         (delta_time.0 - (self.warmup.0 + self.active.0)) / self.cooldown.0
+    }
+
+    fn percent_over_curr_state(&self, delta_time: Beats) -> f64 {
+        if delta_time < Beats(0.0) {
+            panic!("Delta time cannot be negative")
+        } else if delta_time < self.warmup {
+            self.percent_over_warmup(delta_time)
+        } else if delta_time < self.warmup + self.active {
+            self.percent_over_active(delta_time)
+        } else if delta_time < self.warmup + self.active + self.cooldown {
+            self.percent_over_cooldown(delta_time)
+        } else {
+            panic!("Delta time cannot exceed entire duration")
+        }
     }
 }
 
@@ -156,7 +192,7 @@ impl EnemyImpl for Bullet {
     // TODO: Make this use some sort of percent over duration.
     /// Move bullet towards end position. Also do the cool glow thing.
     fn update(&mut self, curr_time: Beats) {
-        let delta_time = curr_time - self.start_time;
+        let delta_time = self.delta_time(curr_time);
         let total_percent = delta_time.0 / self.duration.0;
         self.pos = WorldPos::lerp(self.start_pos, self.end_pos, total_percent);
 
@@ -337,7 +373,7 @@ impl Laser {
 
 impl EnemyImpl for Laser {
     fn update(&mut self, curr_time: Beats) {
-        let delta_time = curr_time - self.start_time;
+        let delta_time = self.delta_time(curr_time);
 
         let state = self.lifetime_state(curr_time);
         let (index, percent) = match state {
@@ -365,13 +401,13 @@ impl EnemyImpl for Laser {
                     a: 0.0,
                 };
                 if percent < 0.25 {
-                    color_lerp(TRANSPARENT, red1, percent)
+                    Color::lerp(TRANSPARENT, red1, percent)
                 } else {
-                    color_lerp(red1, red2, (percent - 0.25) / 0.75)
+                    Color::lerp(red1, red2, (percent - 0.25) / 0.75)
                 }
             }
-            EnemyLifetime::Active => color_lerp(LASER_RED, TRANSPARENT, percent),
-            EnemyLifetime::Cooldown => color_lerp(TRANSPARENT, TRANSPARENT, percent),
+            EnemyLifetime::Active => Color::lerp(LASER_RED, TRANSPARENT, percent),
+            EnemyLifetime::Cooldown => Color::lerp(TRANSPARENT, TRANSPARENT, percent),
             _ => unreachable!(),
         };
     }
@@ -450,6 +486,103 @@ fn draw_laser_rect(
     ggez::graphics::set_blend_mode(ctx, BlendMode::Alpha)?;
 
     Ok(())
+}
+
+pub struct CircleBomb {
+    // The start time of this laser. Note that this is when the laser starts to
+    // appear on screen (ie: when the Predelay phase occurs)
+    start_time: Beats,
+    position: WorldPos,
+    max_radius: WorldLen,
+}
+
+impl CircleBomb {
+    pub fn new(start_time: Beats, position: WorldPos) -> CircleBomb {
+        CircleBomb {
+            start_time,
+            position,
+            max_radius: WorldLen(10.0),
+        }
+    }
+
+    fn radius(&self, curr_time: Beats) -> WorldLen {
+        match self.lifetime_state(curr_time) {
+            EnemyLifetime::Active => {
+                let t = self
+                    .durations()
+                    .percent_over_active(self.delta_time(curr_time));
+                let t = (t * 4.0).clamp(0.0, 1.0);
+                WorldLen::lerp(WorldLen(0.0), self.max_radius, t)
+            }
+            _ => WorldLen(0.0),
+        }
+    }
+}
+
+impl EnemyImpl for CircleBomb {
+    fn durations(&self) -> EnemyDurations {
+        EnemyDurations {
+            warmup: BOMB_WARMUP,
+            active: Beats(1.0),
+            cooldown: Beats(0.25),
+        }
+    }
+
+    fn start_time(&self) -> Beats {
+        self.start_time
+    }
+
+    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> WorldLen {
+        WorldPos::distance(pos, self.position) - self.radius(curr_time)
+    }
+
+    fn update(&mut self, curr_time: Beats) {
+        // Nothing lmao
+    }
+
+    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()> {
+        let point = self.position.as_screen_coords();
+        let t = self.percent_over_curr_state(curr_time);
+
+        let outline_radius = self.max_radius.as_screen_length();
+        let outline_color = match self.lifetime_state(curr_time) {
+            EnemyLifetime::Warmup => color::WARNING_RED,
+            EnemyLifetime::Active => color::RED,
+            EnemyLifetime::Cooldown => color::TRANSPARENT,
+            _ => unreachable!(),
+        };
+        let outline = Mesh::new_circle(
+            ctx,
+            DrawMode::stroke(1.0),
+            point,
+            outline_radius,
+            1.0,
+            outline_color,
+        )?;
+
+        let inner_radius = match self.lifetime_state(curr_time) {
+            EnemyLifetime::Warmup => WorldLen::lerp(WorldLen(0.0), self.max_radius, t),
+            EnemyLifetime::Active => self.radius(curr_time),
+            EnemyLifetime::Cooldown => WorldLen::lerp(self.max_radius, WorldLen(0.0), t),
+            _ => unreachable!(),
+        }
+        .as_screen_length();
+        let inner_color = match self.lifetime_state(curr_time) {
+            EnemyLifetime::Warmup => Color::lerp(color::DARK_WARNING_RED, color::WARNING_RED, t),
+            EnemyLifetime::Active => color::RED,
+            EnemyLifetime::Cooldown => Color::lerp(color::RED, color::TRANSPARENT, t),
+            _ => unreachable!(),
+        };
+
+        let inner = Mesh::new_circle(ctx, DrawMode::fill(), point, inner_radius, 1.0, inner_color)?;
+
+        ggez::graphics::set_blend_mode(ctx, BlendMode::Lighten)?;
+        outline.draw(ctx, DrawParam::default())?;
+        inner.draw(ctx, DrawParam::default())?;
+        ggez::graphics::set_blend_mode(ctx, BlendMode::Alpha)?;
+
+        Ok(())
+    }
 }
 
 /// Return the shortest distance from `pos` to the line defined by `line_pos`

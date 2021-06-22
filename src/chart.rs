@@ -5,7 +5,7 @@ use std::collections::binary_heap::PeekMut;
 use std::collections::BinaryHeap;
 
 use crate::ease::Lerp;
-use crate::enemy::{Bullet, Enemy, Laser, LASER_WARMUP};
+use crate::enemy::{Bullet, CircleBomb, Enemy, Laser, BOMB_WARMUP, LASER_WARMUP};
 use crate::time::Beats;
 use crate::world::WorldPos;
 
@@ -71,7 +71,19 @@ impl Scheduler {
                         LiveWorldPos::Constant(WorldPos::lerp(start_poses.0, start_poses.1, t));
                     let end = LiveWorldPos::PlayerPos;
                     let action = SpawnCmd::LaserThruPoints { a: start, b: end };
-                    // beat here is unneeded technically since it uses the SpawnCmd's start_time
+                    BeatAction::new(start_time, action)
+                })
+                .collect()
+        }
+
+        fn lerp_spawn_bomb_player(start_times: BeatSplitter) -> Vec<BeatAction> {
+            start_times
+                .split()
+                .iter()
+                .map(|&(start_time, t)| {
+                    let action = SpawnCmd::CircleBomb {
+                        pos: LiveWorldPos::PlayerPos,
+                    };
                     BeatAction::new(start_time, action)
                 })
                 .collect()
@@ -152,6 +164,10 @@ impl Scheduler {
         work_queue.extend(lerp_spawn_laser_player(
             every_beat.with_start(20.0 * 4.0),
             (origin, origin),
+        ));
+
+        work_queue.extend(lerp_spawn_bomb_player(
+            every_beat.with_start(24.0 * 4.0).with_duration(99.0),
         ));
 
         Scheduler { work_queue }
@@ -276,6 +292,7 @@ impl BeatAction {
             // beat 16, so that it works correctly.
             SpawnCmd::Laser { .. } => start_time - LASER_WARMUP,
             SpawnCmd::LaserThruPoints { .. } => start_time - LASER_WARMUP,
+            SpawnCmd::CircleBomb { pos } => start_time - BOMB_WARMUP,
         };
         BeatAction {
             start_time: Reverse(beat),
@@ -339,6 +356,9 @@ enum SpawnCmd {
         a: LiveWorldPos,
         b: LiveWorldPos,
     },
+    CircleBomb {
+        pos: LiveWorldPos,
+    },
 }
 
 impl SpawnCmd {
@@ -370,6 +390,10 @@ impl SpawnCmd {
                     Beats(1.0),
                 );
                 enemies.push(Box::new(laser));
+            }
+            SpawnCmd::CircleBomb { pos } => {
+                let bomb = CircleBomb::new(start_time, pos.world_pos(player_pos));
+                enemies.push(Box::new(bomb))
             }
         }
     }

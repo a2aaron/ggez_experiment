@@ -3,10 +3,13 @@
 use std::env;
 use std::path::PathBuf;
 
+use ease::Lerp;
 use ggez::audio::{SoundSource, Source};
 use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::mint::Point2;
-use ggez::graphics::{DrawMode, DrawParam, Drawable, Font, Mesh, PxScale, Text, TextFragment};
+use ggez::graphics::{
+    Color, DrawMode, DrawParam, Drawable, Font, Mesh, PxScale, Text, TextFragment,
+};
 use ggez::{audio, conf, event, graphics, timer, Context, ContextBuilder, GameError, GameResult};
 
 use cgmath as cg;
@@ -170,7 +173,7 @@ impl MainState {
                     let sdf = enemy.sdf(pos, self.time.get_beats());
                     let color = match sdf {
                         None => crate::color::GUIDE_GREY,
-                        Some(sdf) => crate::ease::color_lerp(
+                        Some(sdf) => Color::lerp(
                             crate::color::RED,
                             crate::color::GREEN,
                             (sdf.0.atan() / (std::f64::consts::PI / 2.0) + 1.0) / 2.0,

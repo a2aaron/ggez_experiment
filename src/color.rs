@@ -55,3 +55,17 @@ pub const LASER_RED: Color = Color {
     b: 0.1,
     a: 1.0,
 };
+
+pub const DARK_WARNING_RED: Color = Color {
+    r: 0.3,
+    g: 0.1,
+    b: 0.1,
+    a: 1.0,
+};
+
+pub const WARNING_RED: Color = Color {
+    r: 0.5,
+    g: 0.1,
+    b: 0.1,
+    a: 1.0,
+};
