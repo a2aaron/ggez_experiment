@@ -79,7 +79,7 @@ impl Scheduler {
                 .make_actions(CmdBatch::bullet_player((top_right, top_left))),
             every_beat
                 .with_start(16.0 * 4.0)
-                .with_offset(0.5)
+                .with_delay(0.5)
                 .make_actions(CmdBatch::bullet_player((bot_left, bot_right))),
             // DROP 20 - 23
             every_beat
@@ -93,6 +93,46 @@ impl Scheduler {
                 .make_actions(CmdBatch::CircleBomb {
                     pos: CmdBatchPos::RandomGrid,
                 }),
+            // 24 - 25
+            every_beat
+                .with_start(24.0 * 4.0)
+                .with_duration(4.0 + 2.0)
+                .make_actions(CmdBatch::Laser {
+                    a: CmdBatchPos::player(),
+                    b: CmdBatchPos::origin(),
+                }),
+            every_beat
+                .with_start(24.0 * 4.0)
+                .with_duration(4.0 + 2.0)
+                .make_actions(CmdBatch::CircleBomb {
+                    pos: CmdBatchPos::RandomGrid,
+                }),
+            // INSTANT 103 (measure 26 beat 3-4)
+            BeatSplitter {
+                start: 103.0,
+                duration: 1.0,
+                frequency: 0.25,
+                ..Default::default()
+            }
+            .make_actions_custom(|i, _| {
+                fn vert_laser(x: f64) -> SpawnCmd {
+                    const HALF_PI: f64 = std::f64::consts::PI / 2.0;
+                    SpawnCmd::Laser {
+                        angle: HALF_PI,
+                        position: LiveWorldPos::from((x, 0.0)),
+                    }
+                }
+
+                let sign = match i % 2 {
+                    0 => -1.0,
+                    _ => 1.0,
+                };
+                vec![
+                    vert_laser(sign * 50.0),
+                    vert_laser(sign * 40.0),
+                    vert_laser(sign * 30.0),
+                ]
+            }),
         ];
         Scheduler {
             work_queue: stage.iter().flatten().cloned().collect::<BinaryHeap<_>>(),
@@ -130,7 +170,10 @@ struct BeatSplitter {
     start: f64,
     duration: f64,
     frequency: f64,
+    // Amount to shift all beats. This does effect the `t` value returned by split
     offset: f64,
+    // Amount to shift all beats. This does not effect the `t` value returned by split
+    delay: f64,
 }
 
 impl Default for BeatSplitter {
@@ -140,6 +183,7 @@ impl Default for BeatSplitter {
             duration: 4.0 * 4.0, // 4 measures total
             frequency: 4.0,
             offset: 0.0,
+            delay: 0.0,
         }
     }
 }
@@ -151,6 +195,7 @@ impl BeatSplitter {
             duration: self.duration,
             frequency: self.frequency,
             offset: self.offset,
+            delay: self.delay,
         }
     }
 
@@ -160,6 +205,17 @@ impl BeatSplitter {
             duration: self.duration,
             frequency: self.frequency,
             offset,
+            delay: self.delay,
+        }
+    }
+
+    fn with_delay(self, delay: f64) -> Self {
+        BeatSplitter {
+            start: self.start,
+            duration: self.duration,
+            frequency: self.frequency,
+            offset: self.offset,
+            delay,
         }
     }
 
@@ -169,18 +225,22 @@ impl BeatSplitter {
             duration,
             frequency: self.frequency,
             offset: self.offset,
+            delay: self.delay,
         }
     }
 
-    fn split(&self) -> Vec<(Beats, f64)> {
+    fn split(&self) -> Vec<(Beats, usize, f64)> {
         let mut beats = vec![];
         let mut this_beat = self.start;
+        let mut i = 0;
         while self.duration > this_beat - self.start {
             beats.push((
-                Beats(this_beat + self.offset),
-                (this_beat - self.start) / self.duration,
+                Beats(this_beat + self.delay + self.offset),
+                i,
+                (this_beat + self.offset - self.start) / self.duration,
             ));
             this_beat += self.frequency;
+            i += 1;
         }
         beats
     }
@@ -188,7 +248,24 @@ impl BeatSplitter {
     fn make_actions(&self, cmd_batch: CmdBatch) -> Vec<BeatAction> {
         self.split()
             .iter()
-            .map(|(start_time, t)| BeatAction::new(*start_time, cmd_batch.get(*t)))
+            .map(|(start_time, _, t)| BeatAction::new(*start_time, cmd_batch.get(*t)))
+            .collect()
+    }
+
+    fn make_actions_custom(
+        &self,
+        spawner: impl Fn(usize, f64) -> Vec<SpawnCmd>,
+    ) -> Vec<BeatAction> {
+        self.split()
+            .iter()
+            .map(|(start_time, i, t)| {
+                let actions: Vec<BeatAction> = spawner(*i, *t)
+                    .iter()
+                    .map(|action| BeatAction::new(*start_time, *action))
+                    .collect();
+                actions
+            })
+            .flatten()
             .collect()
     }
 }
@@ -365,6 +442,12 @@ impl LiveWorldPos {
 impl From<WorldPos> for LiveWorldPos {
     fn from(x: WorldPos) -> Self {
         LiveWorldPos::Constant(x)
+    }
+}
+
+impl From<(f64, f64)> for LiveWorldPos {
+    fn from(x: (f64, f64)) -> Self {
+        LiveWorldPos::Constant(WorldPos::from(x))
     }
 }
 
