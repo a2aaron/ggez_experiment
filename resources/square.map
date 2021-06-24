@@ -2,4 +2,5 @@ SKIP 80.0
 BPM 150.0
 midibeat kick1laser "\kick1.mid"
 midibeat kick1bomb "\kick1simple.mid"
+midibeat kick1solo "\kick1solo.mid"
 midibeat kick2 "\kick2.mid"

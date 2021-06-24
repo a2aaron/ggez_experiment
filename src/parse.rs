@@ -3,9 +3,10 @@ use std::io::Read;
 use std::path::Path;
 
 use ggez::Context;
+use midly::Smf;
 
-use crate::chart;
 use crate::time::Beats;
+use crate::{chart, time};
 
 pub struct SongMap {
     pub skip_amount: Beats,
@@ -28,7 +29,7 @@ impl SongMap {
                 [String(x), Float(skip)] if x == "SKIP" => map.skip_amount = Beats(*skip),
                 [String(x), Float(bpm)] if x == "BPM" => map.bpm = *bpm,
                 [String(x), String(name), String(path)] if x == "midibeat" => {
-                    match chart::parse_midi_to_beats(ctx, path, map.bpm) {
+                    match parse_midi_to_beats(ctx, path, map.bpm) {
                         Ok(beats) => {
                             if map.midi_beats.insert(name.clone(), beats).is_some() {
                                 println!(
@@ -93,7 +94,7 @@ fn tokenize_line(line: &str) -> Vec<Token> {
         } else if character == ' ' && !in_string {
             if let Ok(num) = token.parse::<f64>() {
                 tokens.push(Token::Float(num));
-            } else {
+            } else if !token.is_empty() {
                 tokens.push(Token::new(&token));
             }
             token.clear();
@@ -123,4 +124,40 @@ impl Token {
             Token::String(string.to_owned())
         }
     }
+}
+
+pub fn parse_midi_to_beats<P: AsRef<Path>>(
+    ctx: &mut Context,
+    path: P,
+    bpm: f64,
+) -> Result<Vec<Beats>, Box<dyn std::error::Error>> {
+    let mut file = ggez::filesystem::open(ctx, path)?;
+    let mut buffer = vec![];
+    file.read_to_end(&mut buffer)?;
+    let smf = Smf::parse(&buffer)?;
+    let mut tick_number = 0;
+    let mut beats = vec![];
+
+    let ticks_per_beat = match smf.header.timing {
+        midly::Timing::Metrical(ticks_per_beat) => ticks_per_beat.as_int() as f64,
+        midly::Timing::Timecode(fps, num_subframes) => {
+            let ticks_per_second = fps.as_f32() * num_subframes as f32;
+            let seconds_per_beat = time::beat_length(bpm).0;
+            ticks_per_second as f64 * seconds_per_beat
+        }
+    };
+
+    for track in &smf.tracks[0] {
+        tick_number += track.delta.as_int();
+        if let midly::TrackEventKind::Midi { message, .. } = track.kind {
+            match message {
+                midly::MidiMessage::NoteOn { .. } => {
+                    beats.push(Beats(tick_number as f64 / ticks_per_beat));
+                }
+                midly::MidiMessage::NoteOff { .. } => {} // explicitly ignore NoteOff
+                _ => {}
+            }
+        }
+    }
+    Ok(beats)
 }

@@ -3,17 +3,13 @@
 use std::cmp::{Ordering, Reverse};
 use std::collections::binary_heap::PeekMut;
 use std::collections::BinaryHeap;
-use std::error::Error;
-use std::io::Read;
-use std::path::Path;
 
 use ggez::Context;
-use midly::Smf;
 
 use crate::ease::Lerp;
 use crate::enemy::{Bullet, CircleBomb, Enemy, Laser, BOMB_WARMUP, LASER_WARMUP};
 use crate::parse::SongMap;
-use crate::time::{self, Beats};
+use crate::time::Beats;
 use crate::util;
 use crate::world::WorldPos;
 
@@ -52,6 +48,7 @@ impl Scheduler {
 
         let kick1laser = song_map.get_beats("kick1laser");
         let kick1bomb = song_map.get_beats("kick1bomb");
+        let kick1solo = song_map.get_beats("kick1solo");
 
         let stage = [
             // Skip first 4 beats
@@ -92,56 +89,15 @@ impl Scheduler {
                 .with_delay(0.5)
                 .make_actions(CmdBatch::bullet_player((bot_left, bot_right))),
             // DROP 20 - 23
-            mark_beats(20.0 * 4.0, &kick1laser)
-                .iter()
-                .map(|(start_time, t)| {
-                    let laser = CmdBatch::Laser {
-                        a: CmdBatchPos::player(),
-                        b: CmdBatchPos::origin(),
-                    };
-                    BeatAction::new(*start_time, laser.get(*t))
-                })
-                .collect(),
-            mark_beats(20.0 * 4.0, &kick1bomb)
-                .iter()
-                .map(|(start_time, t)| {
-                    let bomb = CmdBatch::CircleBomb {
-                        pos: CmdBatchPos::RandomGrid,
-                    };
-                    BeatAction::new(*start_time, bomb.get(*t))
-                })
-                .collect(),
-            // every_beat
-            //     .with_start(20.0 * 4.0)
-            //     .make_actions(),
-            // every_beat
-            //     .with_start(20.0 * 4.0)
-            //     .make_actions(CmdBatch::CircleBomb {
-            //         pos: CmdBatchPos::RandomGrid,
-            //     }),
-
-            // 24 - 25
-            // every_beat
-            //     .with_start(24.0 * 4.0)
-            //     .with_duration(4.0 + 2.0)
-            //     .make_actions(CmdBatch::Laser {
-            //         a: CmdBatchPos::player(),
-            //         b: CmdBatchPos::origin(),
-            //     }),
-            // every_beat
-            //     .with_start(24.0 * 4.0)
-            //     .with_duration(4.0 + 2.0)
-            //     .make_actions(CmdBatch::CircleBomb {
-            //         pos: CmdBatchPos::RandomGrid,
-            //     }),
+            make_actions(20.0 * 4.0, &kick1laser, |_, _| CmdBatch::Laser {
+                a: CmdBatchPos::player(),
+                b: CmdBatchPos::origin(),
+            }),
+            make_actions(20.0 * 4.0, &kick1bomb, |_, _| CmdBatch::CircleBomb {
+                pos: CmdBatchPos::RandomGrid,
+            }),
             // INSTANT 103 (measure 26 beat 3-4)
-            BeatSplitter {
-                start: 103.0,
-                duration: 1.0,
-                frequency: 0.25,
-                ..Default::default()
-            }
-            .make_actions_custom(|i, _| {
+            make_actions_custom(20.0 * 4.0, &kick1solo, |i, _| {
                 fn vert_laser(x: f64) -> SpawnCmd {
                     const HALF_PI: f64 = std::f64::consts::PI / 2.0;
                     SpawnCmd::Laser {
@@ -190,40 +146,37 @@ impl Scheduler {
     }
 }
 
-pub fn parse_midi_to_beats<P: AsRef<Path>>(
-    ctx: &mut Context,
-    path: P,
-    bpm: f64,
-) -> Result<Vec<Beats>, Box<dyn Error>> {
-    let mut file = ggez::filesystem::open(ctx, path)?;
-    let mut buffer = vec![];
-    file.read_to_end(&mut buffer)?;
-    let smf = Smf::parse(&buffer)?;
-    let mut tick_number = 0;
-    let mut beats = vec![];
+fn make_actions(
+    start: f64,
+    beats: &[Beats],
+    batcher: impl Fn(usize, f64) -> CmdBatch,
+) -> Vec<BeatAction> {
+    mark_beats(start, beats)
+        .iter()
+        .enumerate()
+        .map(|(i, (beat, t))| {
+            let action = batcher(i, *t).get(*t);
+            BeatAction::new(*beat, action)
+        })
+        .collect()
+}
 
-    let ticks_per_beat = match smf.header.timing {
-        midly::Timing::Metrical(ticks_per_beat) => ticks_per_beat.as_int() as f64,
-        midly::Timing::Timecode(fps, num_subframes) => {
-            let ticks_per_second = fps.as_f32() * num_subframes as f32;
-            let seconds_per_beat = time::beat_length(bpm).0;
-            ticks_per_second as f64 * seconds_per_beat
-        }
-    };
-
-    for track in &smf.tracks[0] {
-        tick_number += track.delta.as_int();
-        if let midly::TrackEventKind::Midi { message, .. } = track.kind {
-            match message {
-                midly::MidiMessage::NoteOn { .. } => {
-                    beats.push(Beats(tick_number as f64 / ticks_per_beat));
-                }
-                midly::MidiMessage::NoteOff { .. } => {} // explicitly ignore NoteOff
-                _ => {}
-            }
-        }
-    }
-    Ok(beats)
+fn make_actions_custom(
+    start: f64,
+    beats: &[Beats],
+    spawner: impl Fn(usize, f64) -> Vec<SpawnCmd>,
+) -> Vec<BeatAction> {
+    mark_beats(start, beats)
+        .iter()
+        .enumerate()
+        .map(|(i, (beat, t))| {
+            spawner(i, *t)
+                .iter()
+                .map(|cmd| BeatAction::new(*beat, *cmd))
+                .collect::<Vec<BeatAction>>()
+        })
+        .flatten()
+        .collect()
 }
 
 /// Split a length of time into a number of individual beats. This is useful for
