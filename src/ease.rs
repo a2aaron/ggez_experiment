@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use ggez::graphics::Color;
 
 pub trait Lerp: Sized + Copy {

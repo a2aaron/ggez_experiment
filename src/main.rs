@@ -18,7 +18,7 @@ use chart::Scheduler;
 use enemy::{Enemy, EnemyLifetime};
 use keyboard::KeyboardState;
 use player::Player;
-use time::{to_secs, Beats, Time};
+use time::{to_secs, Time};
 use world::{WorldLen, WorldPos};
 
 use crate::parse::SongMap;

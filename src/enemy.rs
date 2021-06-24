@@ -11,7 +11,6 @@ use crate::util;
 use crate::world::{WorldLen, WorldPos};
 
 pub const LASER_WARMUP: Beats = Beats(4.0);
-pub const LASER_DURATION: Beats = Beats(1.0);
 
 pub const BOMB_WARMUP: Beats = Beats(4.0);
 
@@ -536,7 +535,7 @@ impl EnemyImpl for CircleBomb {
         WorldPos::distance(pos, self.position) - self.radius(curr_time)
     }
 
-    fn update(&mut self, curr_time: Beats) {
+    fn update(&mut self, _curr_time: Beats) {
         // Nothing lmao
     }
 

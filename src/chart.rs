@@ -267,6 +267,7 @@ impl BeatSplitter {
             .collect()
     }
 
+    #[allow(dead_code)]
     fn make_actions_custom(
         &self,
         spawner: impl Fn(usize, f64) -> Vec<SpawnCmd>,

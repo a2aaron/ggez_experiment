@@ -37,18 +37,13 @@ pub fn beat_length(bpm: f64) -> Seconds {
     Seconds(60.0 / bpm)
 }
 
-/// Returns the percent within a beat that we are in.
-pub fn beat_percent(beat: Beats) -> f64 {
-    beat.0 % 1.0
-}
-
 impl Debug for Beats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let beat = self.0 as i32;
         let quarter = (self.0.fract() * 4.0) as i32;
         let sixteenth = (self.0.fract() * 16.0) as i32 % 4;
-        let SM64ths = (self.0.fract() * 64.0) as i32 % 4;
-        match (beat, quarter, sixteenth, SM64ths) {
+        let sixtyfourths = (self.0.fract() * 64.0) as i32 % 4;
+        match (beat, quarter, sixteenth, sixtyfourths) {
             (b, 0, 0, 0) => write!(f, "{}", b),
             (b, q, 0, 0) => write!(f, "{}.{}", b, q),
             (b, q, s, 0) => write!(f, "{}.{}.{}", b, q, s),
@@ -108,10 +103,5 @@ impl Time {
 
     pub fn get_beats(&self) -> Beats {
         to_beats(self.get_time(), self.bpm)
-    }
-
-    /// Get the current time as a percentage within the current beat.
-    pub fn get_beat_percentage(&self) -> f64 {
-        self.get_beats().0 % 1.0
     }
 }

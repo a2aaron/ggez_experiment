@@ -5,8 +5,8 @@ use std::path::Path;
 use ggez::Context;
 use midly::Smf;
 
+use crate::time;
 use crate::time::Beats;
-use crate::{chart, time};
 
 pub struct SongMap {
     pub skip_amount: Beats,

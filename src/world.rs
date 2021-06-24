@@ -30,10 +30,6 @@ impl WorldPos {
         WorldPos { x: 0.0, y: 0.0 }
     }
 
-    pub fn new(x: f64, y: f64) -> WorldPos {
-        WorldPos { x, y }
-    }
-
     pub fn as_screen_coords_cg(&self) -> cgmath::Point2<f32> {
         crate::util::into_cg(self.as_screen_coords())
     }

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use ggez::graphics::Color;
 
 pub const WHITE: Color = Color {
