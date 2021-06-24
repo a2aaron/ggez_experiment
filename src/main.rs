@@ -17,7 +17,6 @@ use cgmath as cg;
 use chart::Scheduler;
 use enemy::{Enemy, EnemyLifetime};
 use keyboard::KeyboardState;
-use parse::ParseError;
 use player::Player;
 use time::{to_secs, Beats, Time};
 use world::{WorldLen, WorldPos};
@@ -37,8 +36,7 @@ mod world;
 
 const TARGET_FPS: u32 = 60;
 
-const BPM: f64 = 150.0; // 120.0; // 170.0;
-                        // Files read via ggez (usually music/font/images)
+// Files read via ggez (usually music/font/images)
 const MUSIC_PATH: &str = "/supersquare.mp3"; //"/metronome120.ogg"; // "/bbkkbkk.ogg";
                                              // const ARIAL_PATH: &str = "/Arial.ttf";
 const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
@@ -81,18 +79,34 @@ struct MainState {
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
+        let map = SongMap::parse_file(ctx, MAP_PATH).unwrap_or_default();
         let s = MainState {
             keyboard: KeyboardState::default(),
-            time: Time::new(BPM, time::Seconds(0.0)),
+            time: Time::new(map.bpm, time::Seconds(0.0)),
             started: false,
             assets: Assets::new(ctx)?,
             player: Player::new(),
             enemies: vec![],
-            scheduler: Scheduler::new(ctx),
+            scheduler: Scheduler::new(ctx, &map),
             debug: None,
-            map: SongMap::default(),
+            map,
         };
         Ok(s)
+    }
+
+    fn reset(&mut self, ctx: &mut Context) {
+        match SongMap::parse_file(ctx, MAP_PATH) {
+            Ok(map) => self.map = map,
+            Err(err) => println!("{:?}", err),
+        }
+        let skip_amount = to_secs(self.map.skip_amount, self.map.bpm);
+        self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
+        self.enemies.clear();
+        self.player = Player::new();
+        self.scheduler = Scheduler::new(ctx, &self.map);
+        self.time = Time::new(self.map.bpm, skip_amount);
+        self.assets.music.set_skip_amount(skip_amount.as_duration());
+        self.assets.music.set_volume(0.5);
     }
 
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
@@ -256,21 +270,11 @@ impl event::EventHandler for MainState {
                 // rebuild the scheduler work queue.
                 self.started = false;
                 drop(self.assets.music.stop(ctx));
-                self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
             } else {
-                match SongMap::parse_file(ctx, MAP_PATH) {
-                    Ok(map) => self.map = map,
-                    Err(err) => println!("{:?}", err),
-                }
-                let skip_amount = to_secs(self.map.skip_amount, BPM);
                 // Start the game. Also play the music.
                 self.started = true;
-                self.enemies.clear();
-                self.scheduler = Scheduler::new(ctx);
-                self.time = Time::new(BPM, skip_amount);
-                self.assets.music.set_skip_amount(skip_amount.as_duration());
+                self.reset(ctx);
                 drop(self.assets.music.play(ctx));
-                self.assets.music.set_volume(0.5);
             }
         }
         self.keyboard.update(keycode, true);

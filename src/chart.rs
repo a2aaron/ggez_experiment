@@ -12,9 +12,10 @@ use midly::Smf;
 
 use crate::ease::Lerp;
 use crate::enemy::{Bullet, CircleBomb, Enemy, Laser, BOMB_WARMUP, LASER_WARMUP};
+use crate::parse::SongMap;
 use crate::time::{self, Beats};
+use crate::util;
 use crate::world::WorldPos;
-use crate::{util, BPM};
 
 /// This struct contains all the events that occur during a song. It will perform
 /// a set of events every time update is called.
@@ -24,7 +25,7 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    pub fn new(ctx: &mut Context) -> Scheduler {
+    pub fn new(_ctx: &mut Context, song_map: &SongMap) -> Scheduler {
         let origin = (0.0, 0.0);
         let bot_left = (-50.0, -50.0);
         let bot_right = (50.0, -50.0);
@@ -49,7 +50,8 @@ impl Scheduler {
             ..Default::default()
         };
 
-        let kick1 = parse_midi_to_beats(ctx, "/kick1.mid", BPM).unwrap();
+        let kick1laser = song_map.get_beats("kick1laser");
+        let kick1bomb = song_map.get_beats("kick1bomb");
 
         let stage = [
             // Skip first 4 beats
@@ -90,7 +92,7 @@ impl Scheduler {
                 .with_delay(0.5)
                 .make_actions(CmdBatch::bullet_player((bot_left, bot_right))),
             // DROP 20 - 23
-            mark_beats(20.0 * 4.0, &kick1)
+            mark_beats(20.0 * 4.0, &kick1laser)
                 .iter()
                 .map(|(start_time, t)| {
                     let laser = CmdBatch::Laser {
@@ -100,7 +102,7 @@ impl Scheduler {
                     BeatAction::new(*start_time, laser.get(*t))
                 })
                 .collect(),
-            mark_beats(20.0 * 4.0, &kick1)
+            mark_beats(20.0 * 4.0, &kick1bomb)
                 .iter()
                 .map(|(start_time, t)| {
                     let bomb = CmdBatch::CircleBomb {
@@ -188,7 +190,7 @@ impl Scheduler {
     }
 }
 
-fn parse_midi_to_beats<P: AsRef<Path>>(
+pub fn parse_midi_to_beats<P: AsRef<Path>>(
     ctx: &mut Context,
     path: P,
     bpm: f64,
@@ -211,16 +213,13 @@ fn parse_midi_to_beats<P: AsRef<Path>>(
 
     for track in &smf.tracks[0] {
         tick_number += track.delta.as_int();
-        match track.kind {
-            midly::TrackEventKind::Midi { message, .. } => match message {
+        if let midly::TrackEventKind::Midi { message, .. } = track.kind {
+            match message {
                 midly::MidiMessage::NoteOn { .. } => {
                     beats.push(Beats(tick_number as f64 / ticks_per_beat));
                 }
                 midly::MidiMessage::NoteOff { .. } => {} // explicitly ignore NoteOff
-                _ => println!("Ignoring MidiMessage: {:?}", track),
-            },
-            _ => {
-                println!("Ignoring message: {:?}", track)
+                _ => {}
             }
         }
     }
@@ -283,6 +282,7 @@ impl BeatSplitter {
         }
     }
 
+    #[allow(dead_code)]
     fn with_duration(self, duration: f64) -> Self {
         BeatSplitter {
             start: self.start,
@@ -310,7 +310,7 @@ impl BeatSplitter {
         self.split()
             .iter()
             .enumerate()
-            .map(|(i, (start_time, t))| BeatAction::new(*start_time, cmd_batch.get(*t)))
+            .map(|(_, (start_time, t))| BeatAction::new(*start_time, cmd_batch.get(*t)))
             .collect()
     }
 
@@ -337,6 +337,9 @@ impl BeatSplitter {
 /// assumed to be in sorted order and the last beat is assumed to be the duration
 /// of the whole slice.
 fn mark_beats(start: f64, beats: &[Beats]) -> Vec<(Beats, f64)> {
+    if beats.is_empty() {
+        return vec![];
+    }
     let mut marked_beats = vec![];
     let duration = beats.last().unwrap();
     for &beat in beats {
