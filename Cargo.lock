@@ -1349,6 +1349,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "midly"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5f3c664ced7caa98ccb7ed4c67cd0bd6a6bd8ecedf8b49f38544a4a8e50f0ae"
+dependencies = [
+ "rayon",
+]
+
+[[package]]
 name = "minimp3"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2061,6 +2070,7 @@ dependencies = [
  "cgmath",
  "derive_more",
  "ggez",
+ "midly",
  "rand 0.8.3",
  "rodio 0.14.0",
 ]

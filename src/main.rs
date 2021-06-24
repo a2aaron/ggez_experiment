@@ -83,7 +83,7 @@ impl MainState {
             assets: Assets::new(ctx)?,
             player: Player::new(),
             enemies: vec![],
-            scheduler: Scheduler::new(),
+            scheduler: Scheduler::new(ctx),
             debug: None,
         };
         Ok(s)
@@ -253,6 +253,7 @@ impl event::EventHandler for MainState {
 
             ggez::graphics::window(ctx).set_title(&format!("{}", ggez::timer::fps(ctx)));
         }
+        ggez::timer::sleep(ggez::timer::remaining_update_time(ctx));
 
         Ok(())
     }
@@ -272,11 +273,11 @@ impl event::EventHandler for MainState {
                 drop(self.assets.music.stop(ctx));
                 self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
             } else {
-                let SKIP_AMOUNT = to_secs(Beats(80.0), BPM);
+                let SKIP_AMOUNT = to_secs(Beats(0.0), BPM);
                 // Start the game. Also play the music.
                 self.started = true;
                 self.enemies.clear();
-                self.scheduler = Scheduler::new();
+                self.scheduler = Scheduler::new(ctx);
                 self.time = Time::new(BPM, SKIP_AMOUNT);
                 self.assets.music.set_skip_amount(SKIP_AMOUNT.as_duration());
                 drop(self.assets.music.play(ctx));
@@ -307,7 +308,8 @@ impl event::EventHandler for MainState {
         self.draw_debug_world_lines(ctx)?;
         self.draw_debug_hitbox(ctx)?;
         graphics::present(ctx)?;
-        ggez::timer::yield_now();
+        // We are done with this frame, sleep till the next frame
+        // ggez::timer::yield_now();
         Ok(())
     }
 }

@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::time::{Duration, Instant};
 
 use derive_more::{Add, Div, From, Mul, Rem, Sub};
@@ -13,7 +14,7 @@ impl Seconds {
 }
 
 /// Unit of time representing beats
-#[derive(Copy, Clone, Debug, Add, Div, From, Mul, Rem, Sub, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Add, Div, From, Mul, Rem, Sub, PartialEq, PartialOrd)]
 pub struct Beats(pub f64);
 
 /// Convert Beats to the number of Seconds, given some BPM. For example, if the
@@ -31,6 +32,7 @@ pub fn to_beats(secs: Seconds, bpm: f64) -> Beats {
 
 /// Returns the length of time that a single beat takes up given a BPM, in seconds
 /// For example, a single beat takes up 0.5 seconds at 120 BPM.
+/// AKA: seconds / beat
 pub fn beat_length(bpm: f64) -> Seconds {
     Seconds(60.0 / bpm)
 }
@@ -38,6 +40,21 @@ pub fn beat_length(bpm: f64) -> Seconds {
 /// Returns the percent within a beat that we are in.
 pub fn beat_percent(beat: Beats) -> f64 {
     beat.0 % 1.0
+}
+
+impl Debug for Beats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let beat = self.0 as i32;
+        let quarter = (self.0.fract() * 4.0) as i32;
+        let sixteenth = (self.0.fract() * 16.0) as i32 % 4;
+        let SM64ths = (self.0.fract() * 64.0) as i32 % 4;
+        match (beat, quarter, sixteenth, SM64ths) {
+            (b, 0, 0, 0) => write!(f, "{}", b),
+            (b, q, 0, 0) => write!(f, "{}.{}", b, q),
+            (b, q, s, 0) => write!(f, "{}.{}.{}", b, q, s),
+            (b, q, s, si) => write!(f, "{}.{}.{}+{}", b, q, s, si),
+        }
+    }
 }
 
 /// Time keeping struct for when music is playing
