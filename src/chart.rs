@@ -216,10 +216,11 @@ fn parse_midi_to_beats<P: AsRef<Path>>(
                 midly::MidiMessage::NoteOn { .. } => {
                     beats.push(Beats(tick_number as f64 / ticks_per_beat));
                 }
-                _ => println!("Ignoring MidiMessage: {:#?}", track),
+                midly::MidiMessage::NoteOff { .. } => {} // explicitly ignore NoteOff
+                _ => println!("Ignoring MidiMessage: {:?}", track),
             },
             _ => {
-                println!("Ignoring message: {:#?}", track)
+                println!("Ignoring message: {:?}", track)
             }
         }
     }

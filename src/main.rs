@@ -17,15 +17,19 @@ use cgmath as cg;
 use chart::Scheduler;
 use enemy::{Enemy, EnemyLifetime};
 use keyboard::KeyboardState;
+use parse::ParseError;
 use player::Player;
 use time::{to_secs, Beats, Time};
 use world::{WorldLen, WorldPos};
+
+use crate::parse::SongMap;
 
 mod chart;
 mod color;
 mod ease;
 mod enemy;
 mod keyboard;
+mod parse;
 mod player;
 mod time;
 mod util;
@@ -39,7 +43,7 @@ const MUSIC_PATH: &str = "/supersquare.mp3"; //"/metronome120.ogg"; // "/bbkkbkk
                                              // const ARIAL_PATH: &str = "/Arial.ttf";
 const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
 // Files manually read by me (usually maps)
-const MAP_PATH: &str = "./resources/bbkkbkk.map";
+const MAP_PATH: &str = "/square.map";
 
 // Debug
 const USE_MAP: bool = true;
@@ -72,6 +76,7 @@ struct MainState {
     player: Player,
     enemies: Vec<Box<dyn Enemy>>,
     debug: Option<Box<dyn Enemy>>,
+    map: SongMap,
 }
 
 impl MainState {
@@ -85,6 +90,7 @@ impl MainState {
             enemies: vec![],
             scheduler: Scheduler::new(ctx),
             debug: None,
+            map: SongMap::default(),
         };
         Ok(s)
     }
@@ -226,27 +232,6 @@ impl event::EventHandler for MainState {
                     .update(self.time.get_beats(), &mut self.enemies, self.player.pos);
             }
 
-            // if self.last_beat < curr_time {
-            //     self.last_beat = Beats(self.last_beat.0 + 1.0);
-            //     let mut bullet = Box::new(Bullet::new(
-            //         util::rand_circle_edge(WorldPos::origin(), 60.0),
-            //         WorldPos::origin(),
-            //         Beats(4.0),
-            //     ));
-            //     bullet.on_spawn(curr_time);
-            //     self.enemies.push(bullet);
-
-            //     let mut laser = Box::new(Laser::new_through_point(
-            //         WorldPos::origin(),
-            //         (self.last_beat.0) * std::f64::consts::PI / 12.0,
-            //         Beats(0.25),
-            //     ));
-
-            //     laser.on_spawn(curr_time);
-            //     // self.debug = Some(laser);
-            //     self.enemies.push(laser);
-            // }
-
             // Delete all dead enemies
             self.enemies
                 .retain(|e| e.lifetime_state(curr_time) != EnemyLifetime::Dead);
@@ -273,13 +258,17 @@ impl event::EventHandler for MainState {
                 drop(self.assets.music.stop(ctx));
                 self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
             } else {
-                let SKIP_AMOUNT = to_secs(Beats(0.0), BPM);
+                match SongMap::parse_file(ctx, MAP_PATH) {
+                    Ok(map) => self.map = map,
+                    Err(err) => println!("{:?}", err),
+                }
+                let skip_amount = to_secs(self.map.skip_amount, BPM);
                 // Start the game. Also play the music.
                 self.started = true;
                 self.enemies.clear();
                 self.scheduler = Scheduler::new(ctx);
-                self.time = Time::new(BPM, SKIP_AMOUNT);
-                self.assets.music.set_skip_amount(SKIP_AMOUNT.as_duration());
+                self.time = Time::new(BPM, skip_amount);
+                self.assets.music.set_skip_amount(skip_amount.as_duration());
                 drop(self.assets.music.play(ctx));
                 self.assets.music.set_volume(0.5);
             }
