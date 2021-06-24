@@ -1,12 +1,8 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use ggez::event::KeyCode;
 
 use crate::util::Direction8;
-
-// If a key was pressed since however many nanoseconds ago, cound it as having been pressed now
-// This allows for diagonal movement
-static NANOS_KEYPRESS_TOLERANCE: u32 = 5_000_000; // 5 milliseconds
 
 /// Remembers the press state of the key since the last frame.
 /// Maybe should be hashmap?
@@ -68,15 +64,6 @@ impl Key {
         if is_down {
             self.last_pressed = Instant::now();
         }
-    }
-
-    fn last_pressed(&self) -> Duration {
-        self.last_pressed.elapsed()
-    }
-    /// Returns if last pressed within NANO_KEYPRESS_TOLERANCE
-    /// Tolarance is used to allow for diagonal motion.
-    pub fn pressed(&self) -> bool {
-        self.last_pressed() < Duration::new(0, NANOS_KEYPRESS_TOLERANCE)
     }
 }
 
