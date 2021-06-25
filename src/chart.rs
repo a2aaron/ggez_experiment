@@ -50,15 +50,14 @@ impl Scheduler {
         let kick1bomb = song_map.get_beats("kick1bomb");
         let kick1solo = song_map.get_beats("kick1solo");
 
+        let song_map_actions: Vec<BeatAction> = song_map
+            .cmd_batches
+            .iter()
+            .map(|(splitter, cmd_batch)| splitter.make_actions(*cmd_batch))
+            .flatten()
+            .collect();
+
         let stage = [
-            // Skip first 4 beats
-            // 4 - 7
-            every_4_beats
-                .with_start(4.0 * 4.0)
-                .make_actions(CmdBatch::bullet((bot_left, bot_right), (origin, origin))),
-            every_4_beats
-                .with_start(4.0 * 4.0)
-                .make_actions(CmdBatch::bullet((top_right, top_left), (origin, origin))),
             // 8 - 11
             every_2_beats
                 .with_start(8.0 * 4.0)
@@ -118,7 +117,12 @@ impl Scheduler {
             }),
         ];
         Scheduler {
-            work_queue: stage.iter().flatten().cloned().collect::<BinaryHeap<_>>(),
+            work_queue: stage
+                .iter()
+                .flatten()
+                .cloned()
+                .chain(song_map_actions)
+                .collect::<BinaryHeap<_>>(),
         }
     }
 
@@ -182,14 +186,14 @@ fn make_actions_custom(
 /// Split a length of time into a number of individual beats. This is useful for
 /// doing something a number of times in a row.
 #[derive(Debug, Clone, Copy)]
-struct BeatSplitter {
-    start: f64,
-    duration: f64,
-    frequency: f64,
+pub struct BeatSplitter {
+    pub start: f64,
+    pub duration: f64,
+    pub frequency: f64,
     // Amount to shift all beats. This does effect the `t` value returned by split
-    offset: f64,
+    pub offset: f64,
     // Amount to shift all beats. This does not effect the `t` value returned by split
-    delay: f64,
+    pub delay: f64,
 }
 
 impl Default for BeatSplitter {
@@ -303,7 +307,7 @@ fn mark_beats(start: f64, beats: &[Beats]) -> Vec<(Beats, f64)> {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum CmdBatch {
+pub enum CmdBatch {
     Bullet {
         start: CmdBatchPos,
         end: CmdBatchPos,
@@ -350,7 +354,7 @@ impl CmdBatch {
 // A position which is static and does not depend on run time information, but
 // maybe depend on the time at which is meant to exist at. This is useful for
 // representing batches of objects.
-enum CmdBatchPos {
+pub enum CmdBatchPos {
     Lerped((f64, f64), (f64, f64)),
     Constant(LiveWorldPos),
     RandomGrid,
@@ -454,7 +458,7 @@ impl Ord for BeatAction {
 /// A WorldPosition which depends on some dynamic value (ex: the player's
 /// position). This is computed at run time.
 #[derive(Debug, Copy, Clone)]
-enum LiveWorldPos {
+pub enum LiveWorldPos {
     Constant(WorldPos),
     PlayerPos,
 }

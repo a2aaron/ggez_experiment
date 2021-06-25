@@ -1,6 +1,13 @@
-SKIP 80.0
+SKIP 0.0
 BPM 150.0
 midibeat kick1laser "\kick1.mid"
 midibeat kick1bomb "\kick1simple.mid"
 midibeat kick1solo "\kick1solo.mid"
 midibeat kick2 "\kick2.mid"
+position origin 0.0 0.0
+position topleft -50.0 50.0
+position topright 50.0 50.0
+position botleft -50.0 -50.0
+position botright 50.0 -50.0
+bulletlerp start=16.0 freq=4.0 lerpstart=botleft lerpend=botright
+bulletlerp start=16.0 freq=4.0 lerpstart=topright lerpend=topleft
