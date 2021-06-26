@@ -5,6 +5,16 @@ use std::path::Path;
 use ggez::Context;
 use midly::Smf;
 
+use nom::branch::alt;
+use nom::bytes::complete::tag;
+use nom::character::complete::{alphanumeric1, none_of, space1};
+use nom::combinator::map;
+use nom::error::ParseError;
+use nom::multi::many0;
+use nom::number::complete::double;
+use nom::sequence::{delimited, separated_pair, tuple};
+use nom::{Finish, IResult, Parser};
+
 use crate::chart::{BeatSplitter, CmdBatch, CmdBatchPos};
 use crate::time;
 use crate::time::Beats;
@@ -29,94 +39,67 @@ impl SongMap {
         let mut map = SongMap::default();
         for (line_num, (line, raw_line)) in buf
             .lines()
-            .map(|raw_line| (tokenize_line(raw_line), raw_line))
+            .map(|raw_line| (parse(raw_line), raw_line))
             .enumerate()
         {
-            match line {
+            match line.finish() {
                 Err(err) => println!(
                     "{}: Warning: Couldn't parse line \"{}\". Reason: {:?}",
                     line_num, raw_line, err
                 ),
-                Ok(line) => {
-                    use Token::*;
-                    match &line.tokens[..] {
-                        [String(x), Float(skip)] if x == "SKIP" => map.skip_amount = Beats(*skip),
-                        [String(x), Float(bpm)] if x == "BPM" => map.bpm = *bpm,
-                        [MidiBeat, String(name), String(path)] => {
-                            match parse_midi_to_beats(ctx, path, map.bpm) {
-                                Ok(beats) => {
-                                    if map.midi_beats.insert(name.clone(), beats).is_some() {
-                                        println!(
-                                            "{}: Warning: Replaced {:?} with new midibeat",
-                                            line_num, name
-                                        )
-                                    }
-                                }
-                                Err(err) => {
+                Ok((_remaining, cmd)) => match cmd {
+                    SongChartCmds::Skip(skip) => map.skip_amount = Beats(skip),
+                    SongChartCmds::Bpm(bpm) => map.bpm = bpm,
+                    SongChartCmds::MidiBeat(name, path) => {
+                        match parse_midi_to_beats(ctx, &path, map.bpm) {
+                            Ok(beats) => {
+                                if map.midi_beats.insert(name.clone(), beats).is_some() {
                                     println!(
-                                        "{}: Warning: Couldn't parse midi file {:?}. Reason: {:?}",
-                                        line_num, path, err
-                                    );
+                                        "{}: Warning: Replaced {:?} with new midibeat",
+                                        line_num, name
+                                    )
                                 }
                             }
-                        }
-                        [Position, String(name), Float(x), Float(y)] => {
-                            let pos = WorldPos::from((*x, *y));
-                            if map.positions.insert(name.clone(), pos).is_some() {
+                            Err(err) => {
                                 println!(
-                                    "{}: Warning: Replaced {:?} with new position",
-                                    line_num, name
+                                    "{}: Warning: Couldn't parse midi file {:?}. Reason: {:?}",
+                                    line_num, path, err
                                 );
                             }
                         }
-                        [BulletLerper] => {
-                            let start_time = line.get_kwarg("start");
-                            let freq = line.get_kwarg("freq");
-                            let lerp_start = line.get_kwarg("lerpstart");
-                            let lerp_end = line.get_kwarg("lerpend");
-
-                            if let (
-                                Some(Float(start_time)),
-                                Some(Float(freq)),
-                                Some(String(lerp_start)),
-                                Some(String(lerp_end)),
-                            ) = (start_time, freq, lerp_start, lerp_end)
-                            {
-                                let lerp_start = map.lookup_position(lerp_start);
-                                let lerp_end = map.lookup_position(lerp_end);
-                                if let (Some(lerp_start), Some(lerp_end)) = (lerp_start, lerp_end) {
-                                    let cmd_batch = CmdBatch::Bullet {
-                                        start: CmdBatchPos::Lerped(
-                                            lerp_start.tuple(),
-                                            lerp_end.tuple(),
-                                        ),
-                                        end: CmdBatchPos::Lerped((0.0, 0.0), (0.0, 0.0)),
-                                    };
-                                    let splitter = BeatSplitter {
-                                        start: *start_time,
-                                        frequency: *freq,
-                                        duration: 4.0 * 4.0,
-                                        ..Default::default()
-                                    };
-                                    map.cmd_batches.push((splitter, cmd_batch))
-                                } else {
-                                    println!(
-                                        "Bad lookup for lerp_start: {:?}, lerp_end {:?}",
-                                        lerp_start, lerp_end
-                                    );
-                                    continue;
-                                }
-                            } else {
-                                println!("Missing kwargs");
-                                continue;
-                            }
-                        }
-                        _ => println!(
-                            "{}: Warning: Unrecognized line: {:?} parsed: {:?} kwargs: {:?}",
-                            line_num, raw_line, line.tokens, line.kwargs
-                        ),
                     }
-                }
+                    SongChartCmds::Position(name, pos) => {
+                        let pos = WorldPos::from(pos);
+                        if map.positions.insert(name.clone(), pos).is_some() {
+                            println!(
+                                "{}: Warning: Replaced {:?} with new position",
+                                line_num, name
+                            );
+                        }
+                    }
+                    SongChartCmds::BulletLerper {
+                        timing,
+                        lerp_start,
+                        lerp_end,
+                    } => {
+                        let lerp_start = lerp_start.lookup(&map.positions);
+                        let lerp_end = lerp_end.lookup(&map.positions);
+                        if let (Some(lerp_start), Some(lerp_end)) = (lerp_start, lerp_end) {
+                            let cmd_batch = CmdBatch::Bullet {
+                                start: CmdBatchPos::Lerped(lerp_start.tuple(), lerp_end.tuple()),
+                                end: CmdBatchPos::Lerped((0.0, 0.0), (0.0, 0.0)),
+                            };
+                            let splitter = timing.to_beat_splitter().unwrap();
+                            map.cmd_batches.push((splitter, cmd_batch))
+                        } else {
+                            println!(
+                                "{}: Could not find positions for lerp_start: {:?}, lerp_end {:?}",
+                                line_num, lerp_start, lerp_end
+                            );
+                            continue;
+                        }
+                    }
+                },
             }
         }
         Ok(map)
@@ -155,107 +138,110 @@ impl Default for SongMap {
     }
 }
 
-pub struct ParsedLine {
-    tokens: Vec<Token>,
-    kwargs: HashMap<String, Token>,
+pub enum SongChartCmds {
+    Skip(f64),
+    Bpm(f64),
+    MidiBeat(String, String),
+    Position(String, (f64, f64)),
+    BulletLerper {
+        timing: TimingData,
+        lerp_start: PositionData,
+        lerp_end: PositionData,
+    },
 }
 
-impl ParsedLine {
-    fn new() -> Self {
-        ParsedLine {
-            tokens: vec![],
-            kwargs: HashMap::new(),
-        }
-    }
-
-    fn push(&mut self, token: Token) {
-        match token {
-            Token::Kwarg(first, second) => {
-                if let Some(old) = self.kwargs.insert(first.clone(), *second.clone()) {
-                    println!(
-                        "Warning: Duplicate kwargs {}={:?} --> {}={:?}",
-                        first, old, first, second
-                    )
-                }
-            }
-            _ => self.tokens.push(token),
-        }
-    }
-
-    fn get_kwarg(&self, keyword: &str) -> Option<&Token> {
-        if !self.kwargs.contains_key(keyword) {
-            println!("Warning: Kwarg {} missing", keyword);
-        }
-        self.kwargs.get(keyword)
-    }
+pub enum TimingData {
+    BeatSplitter {
+        start: f64,
+        frequency: f64,
+        duration: Option<f64>,
+        offset: Option<f64>,
+        delay: Option<f64>,
+    },
+    // MidiBeat(String),
 }
 
-fn tokenize_line(line: &str) -> Result<ParsedLine, ParseError> {
-    let mut parsed_line = ParsedLine::new();
-    let mut token = String::new();
-    let mut in_string = false;
-    for character in line.chars() {
-        if character == '"' {
-            if in_string {
-                parsed_line.tokens.push(Token::String(token.clone()));
-                token.clear();
-            }
-            in_string = !in_string
-        } else if character == ' ' && !in_string {
-            parsed_line.push(Token::new(&token)?);
-            token.clear();
-        } else {
-            token.push(character);
-        }
-    }
-
-    if !token.is_empty() {
-        parsed_line.push(Token::new(&token)?)
-    }
-
-    Ok(parsed_line)
-}
-
-#[derive(Debug, Clone)]
-pub enum Token {
-    MidiBeat,
-    Position,
-    BulletLerper,
-    Kwarg(String, Box<Token>),
-    String(String),
-    Float(f64),
-}
-
-impl Token {
-    fn new(string: &str) -> Result<Token, ParseError> {
-        if let Ok(num) = string.parse::<f64>() {
-            Ok(Token::Float(num))
-        } else if string == "midibeat" {
-            Ok(Token::MidiBeat)
-        } else if string == "position" {
-            Ok(Token::Position)
-        } else if string == "bulletlerp" {
-            Ok(Token::BulletLerper)
-        } else if let Some(index) = string.find('=') {
-            let (first, second) = string.split_at(index);
-            let second = second.chars().skip(1).collect::<String>();
-            if first.is_empty() || second.is_empty() {
-                Err(ParseError::BadKwarg(string.to_owned()))
-            } else {
-                Ok(Token::Kwarg(
-                    first.to_owned(),
-                    Box::new(Token::new(&second)?),
-                ))
-            }
-        } else {
-            Ok(Token::String(string.to_owned()))
+impl TimingData {
+    fn to_beat_splitter(&self) -> Option<BeatSplitter> {
+        match *self {
+            TimingData::BeatSplitter {
+                start,
+                frequency,
+                duration,
+                offset,
+                delay,
+            } => Some(BeatSplitter {
+                start,
+                frequency,
+                duration: duration.unwrap_or(4.0 * 4.0),
+                offset: offset.unwrap_or(0.0),
+                delay: delay.unwrap_or(0.0),
+            }),
         }
     }
 }
 
-#[derive(Debug)]
-pub enum ParseError {
-    BadKwarg(String),
+pub enum PositionData {
+    Literal(WorldPos),
+    Variable(String),
+}
+
+impl PositionData {
+    fn lookup(&self, vars: &HashMap<String, WorldPos>) -> Option<WorldPos> {
+        match self {
+            PositionData::Literal(pos) => Some(*pos),
+            PositionData::Variable(name) => vars.get(name).cloned(),
+        }
+    }
+}
+
+/// Matches an object from the first parser and discards it,
+/// then gets an object from the second parser and discards it,
+/// then gets an object from the third parser.
+pub fn double_preceded<I, O1, O2, O3, E: ParseError<I>, F, G, H>(
+    mut first: F,
+    mut second: G,
+    mut third: H,
+) -> impl FnMut(I) -> IResult<I, O3, E>
+where
+    F: Parser<I, O1, E>,
+    G: Parser<I, O2, E>,
+    H: Parser<I, O3, E>,
+{
+    move |input: I| {
+        let (input, _) = first.parse(input)?;
+        let (input, _) = second.parse(input)?;
+        third.parse(input)
+    }
+}
+
+pub fn parse(input: &str) -> IResult<&str, SongChartCmds> {
+    fn literal_tuple(input: &str) -> IResult<&str, (f64, f64)> {
+        delimited(tag("("), separated_pair(double, tag(","), double), tag(")"))(input)
+    }
+
+    fn literal_string(input: &str) -> IResult<&str, String> {
+        let the_string = many0(none_of("\"")).map(|chars| chars.into_iter().collect::<String>());
+        delimited(tag("\""), the_string, tag("\""))(input)
+    }
+
+    fn string(input: &str) -> IResult<&str, String> {
+        let normal_string = alphanumeric1.map(|chars: &str| chars.to_owned());
+        alt((literal_string, normal_string))(input)
+    }
+
+    let mut parser = alt((
+        double_preceded(tag("SKIP"), space1, map(double, SongChartCmds::Skip)),
+        double_preceded(tag("BPM"), space1, map(double, SongChartCmds::Bpm)),
+        double_preceded(
+            tag("midibeat"),
+            space1,
+            map(separated_pair(string, space1, string), |(name, path)| {
+                SongChartCmds::MidiBeat(name, path)
+            }),
+        ),
+    ));
+    parser(input)
 }
 
 pub fn parse_midi_to_beats<P: AsRef<Path>>(
