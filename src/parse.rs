@@ -14,7 +14,7 @@ use nom::number::complete::double;
 use nom::sequence::{delimited, preceded, separated_pair, terminated};
 use nom::{Finish, IResult, Parser};
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 
 use crate::chart::{BeatSplitter, CmdBatch, CmdBatchPos};
 use crate::time;
@@ -48,9 +48,12 @@ impl SongMap {
                     "{}: Warning: Couldn't parse line \"{}\". Reason: {:?}",
                     line_num, raw_line, err
                 ),
-                Ok((_remaining, cmd)) => {
-                    if let Err(warning) = map.execute_cmd(ctx, cmd) {
-                        println!("Warning on line {} \"{}\": {}", line_num, raw_line, warning);
+                Ok((remaining, cmd)) => {
+                    if let Err(warning) = map.execute_cmd(ctx, &cmd) {
+                        println!(
+                            "Warning on line {} \"{}\": {}. \n\tParsed as: {:?}, {:?}",
+                            line_num, raw_line, warning, remaining, cmd
+                        );
                     }
                 }
             }
@@ -58,10 +61,10 @@ impl SongMap {
         Ok(map)
     }
 
-    fn execute_cmd(&mut self, ctx: &mut Context, cmd: SongChartCmds) -> anyhow::Result<()> {
+    fn execute_cmd(&mut self, ctx: &mut Context, cmd: &SongChartCmds) -> anyhow::Result<()> {
         match cmd {
-            SongChartCmds::Skip(skip) => self.skip_amount = Beats(skip),
-            SongChartCmds::Bpm(bpm) => self.bpm = bpm,
+            SongChartCmds::Skip(skip) => self.skip_amount = Beats(*skip),
+            SongChartCmds::Bpm(bpm) => self.bpm = *bpm,
             SongChartCmds::MidiBeat(name, path) => {
                 match parse_midi_to_beats(ctx, &path, self.bpm) {
                     Ok(beats) => {
@@ -73,22 +76,28 @@ impl SongMap {
                 }
             }
             SongChartCmds::Position(name, pos) => {
-                let pos = WorldPos::from(pos);
+                let pos = WorldPos::from(*pos);
                 if self.positions.insert(name.clone(), pos).is_some() {
                     bail!("Replaced position {}.", name);
                 }
             }
             SongChartCmds::BulletLerper(kwargs) => {
-                let kwargs = KwargList::new(&kwargs, &["start", "freq", "lerpstart", "lerpend"])?;
-                let start = kwargs.get("start");
-                let freq = kwargs.get("freq");
-                let lerp_start = kwargs.get("lerpstart");
-                let lerp_end = kwargs.get("lerpend");
+                let kwargs = KwargList::new(
+                    &kwargs,
+                    &[
+                        ("start", &[KwargType::Float]),
+                        ("freq", &[KwargType::Float]),
+                        ("lerpstart", &[KwargType::String, KwargType::Tuple]),
+                        ("lerpend", &[KwargType::String, KwargType::Tuple]),
+                    ],
+                )?;
+                let start = kwargs.get_float("start").unwrap();
+                let freq = kwargs.get_float("freq").unwrap();
+                let lerp_start = kwargs.get("lerpstart").unwrap();
+                let lerp_end = kwargs.get("lerpend").unwrap();
 
-                let start = start.parse::<f64>()?;
-                let freq = freq.parse::<f64>()?;
-                let lerp_start = PositionData::parse_lookup(&lerp_start, &self.positions)?;
-                let lerp_end = PositionData::parse_lookup(&lerp_end, &self.positions)?;
+                let lerp_start = self.lookup_position(lerp_start)?;
+                let lerp_end = self.lookup_position(lerp_end)?;
                 let cmd_batch = CmdBatch::Bullet {
                     start: CmdBatchPos::Lerped(lerp_start.tuple(), lerp_end.tuple()),
                     end: CmdBatchPos::Lerped((0.0, 0.0), (0.0, 0.0)),
@@ -118,11 +127,18 @@ impl SongMap {
         }
     }
 
-    pub fn lookup_position(&self, name: &str) -> Option<&WorldPos> {
-        if !self.positions.contains_key(name) {
-            println!("Warning: Position {} does not exist", name);
+    fn lookup_position(&self, input: KwargValue) -> anyhow::Result<WorldPos> {
+        match input {
+            KwargValue::String(name) => self
+                .positions
+                .get(&name)
+                .cloned()
+                .ok_or_else(|| anyhow!("Couldn't find position {}", name)),
+            KwargValue::Float(_) => {
+                bail!("Wrong type for PositionData. Expected String or Tuple. Got Float.")
+            }
+            KwargValue::Tuple(pos) => Ok(WorldPos::from(pos)),
         }
-        self.positions.get(name)
     }
 }
 
@@ -138,44 +154,15 @@ impl Default for SongMap {
     }
 }
 
-struct LineInfo {
-    raw_line: String,
-    line_num: usize,
-    kwargs: KwargList,
-}
-
-enum SongMapWarning {
-    ReplacedMidibeat(String),
-    MidibeatParseError(Box<dyn std::error::Error>),
-    ReplacedPosition(String),
-    KwargError(KwargError),
-    ParseError(),
-}
-
-impl std::fmt::Display for SongMapWarning {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        match self {
-            SongMapWarning::ReplacedMidibeat(old) => {
-                write!(f, "Replaced midibeat {}.", old)
-            }
-            SongMapWarning::MidibeatParseError(err) => {
-                write!(f, "Error parsing midi. Reason: {}.", err)
-            }
-            SongMapWarning::ReplacedPosition(old) => {
-                write!(f, "Replaced position {}.", old)
-            }
-            SongMapWarning::KwargError(err) => write!(f, "Kwarg Error: {}", err),
-            SongMapWarning::ParseError() => write!(f, "Parse Error: {}", 2),
-        }
-    }
-}
-
 struct KwargList {
-    kwargs: HashMap<String, String>,
+    kwargs: HashMap<String, KwargValue>,
 }
 
 impl KwargList {
-    fn new(kwargs: &[(String, String)], required: &[&str]) -> Result<KwargList, KwargError> {
+    fn new(
+        kwargs: &[(String, KwargValue)],
+        required: &[(&str, &[KwargType])],
+    ) -> Result<KwargList, KwargError> {
         let mut hash_map = HashMap::new();
         for kwarg in kwargs.iter().cloned() {
             if let Some(old) = hash_map.insert(kwarg.0.clone(), kwarg.1.clone()) {
@@ -183,23 +170,42 @@ impl KwargList {
             }
         }
 
-        for &required_kwarg in required {
-            if !hash_map.contains_key(required_kwarg) {
-                return Err(KwargError::MissingKwarg(required_kwarg.to_owned()));
+        for &(required_kwarg, allowed_types) in required {
+            match hash_map.get(required_kwarg) {
+                None => {
+                    return Err(KwargError::MissingKwarg(required_kwarg.to_owned()));
+                }
+                Some(kwarg_val) => {
+                    if !allowed_types.iter().any(|ty| *ty == kwarg_val.get_type()) {
+                        return Err(KwargError::TypeMismatch(
+                            required_kwarg.to_owned(),
+                            kwarg_val.clone(),
+                            allowed_types.to_vec(),
+                        ));
+                    }
+                }
             }
         }
         Ok(KwargList { kwargs: hash_map })
     }
 
-    fn get(&self, kwarg: &str) -> String {
-        self.kwargs[kwarg].clone()
+    fn get(&self, kwarg: &str) -> Option<KwargValue> {
+        self.kwargs.get(kwarg).cloned()
+    }
+
+    fn get_float(&self, kwarg: &str) -> Option<f64> {
+        match self.get(kwarg) {
+            Some(KwargValue::Float(x)) => Some(x),
+            _ => None,
+        }
     }
 }
 
 #[derive(Debug)]
 enum KwargError {
     MissingKwarg(String),
-    DuplicateKwarg(String, String, String),
+    TypeMismatch(String, KwargValue, Vec<KwargType>),
+    DuplicateKwarg(String, KwargValue, KwargValue),
 }
 
 impl std::fmt::Display for KwargError {
@@ -209,96 +215,83 @@ impl std::fmt::Display for KwargError {
             KwargError::DuplicateKwarg(key, val1, val2) => {
                 write!(f, "Duplicate kwargs: {}={} vs {}={}", key, val1, key, val2)
             }
+            KwargError::TypeMismatch(key, val, expected) => write!(
+                f,
+                "Wrong kwarg type for {}={}, got {}, expected one of {:?}",
+                key,
+                val,
+                val.get_type(),
+                expected
+            ),
         }
     }
 }
 
 impl std::error::Error for KwargError {}
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum SongChartCmds {
     Skip(f64),
     Bpm(f64),
     MidiBeat(String, String),
     Position(String, (f64, f64)),
-    BulletLerper(Vec<(String, String)>), // timing: BeatSplitter,
-                                         // lerp_start: PositionData,
-                                         // lerp_end: PositionData
+    BulletLerper(Vec<(String, KwargValue)>),
 }
 
-pub enum TimingData {
-    BeatSplitter {
-        start: f64,
-        frequency: f64,
-        duration: Option<f64>,
-        offset: Option<f64>,
-        delay: Option<f64>,
-    },
-    // MidiBeat(String),
+#[derive(Debug, Clone, PartialEq)]
+pub enum KwargValue {
+    String(String),
+    Float(f64),
+    Tuple((f64, f64)),
 }
 
-impl TimingData {
-    fn to_beat_splitter(&self) -> Option<BeatSplitter> {
-        match *self {
-            TimingData::BeatSplitter {
-                start,
-                frequency,
-                duration,
-                offset,
-                delay,
-            } => Some(BeatSplitter {
-                start,
-                frequency,
-                duration: duration.unwrap_or(4.0 * 4.0),
-                offset: offset.unwrap_or(0.0),
-                delay: delay.unwrap_or(0.0),
-            }),
-        }
-    }
-}
-
-pub enum PositionData {
-    Literal(WorldPos),
-    Variable(String),
-}
-
-impl PositionData {
-    fn parse_lookup(input: &str, vars: &HashMap<String, WorldPos>) -> anyhow::Result<WorldPos> {
-        match PositionData::parse(input) {
-            Ok((_, pos)) => pos.lookup(vars),
-            Err(err) => bail!(
-                "Couldn't parse \"{}\" as position data, reason: {}",
-                input,
-                err
-            ),
-        }
-    }
-
-    fn parse(input: &str) -> IResult<&str, PositionData> {
-        alt((
-            map(literal_tuple, |pos| {
-                PositionData::Literal(WorldPos::from(pos))
-            }),
-            map(string, PositionData::Variable),
-        ))(input)
-    }
-
-    fn lookup(&self, vars: &HashMap<String, WorldPos>) -> anyhow::Result<WorldPos> {
+impl KwargValue {
+    fn get_type(&self) -> KwargType {
         match self {
-            PositionData::Literal(pos) => Ok(*pos),
-            PositionData::Variable(name) => {
-                let pos = vars.get(name).cloned();
-                if let Some(pos) = pos {
-                    Ok(pos)
-                } else {
-                    bail!("Couldn't find position {}", name);
-                }
-            }
+            KwargValue::String(_) => KwargType::String,
+            KwargValue::Float(_) => KwargType::Float,
+            KwargValue::Tuple(_) => KwargType::Tuple,
+        }
+    }
+}
+
+impl std::fmt::Display for KwargValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KwargValue::String(x) => write!(f, "{}", *x),
+            KwargValue::Float(x) => write!(f, "{}", *x),
+            KwargValue::Tuple((x, y)) => write!(f, "({}, {})", *x, *y),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum KwargType {
+    String,
+    Float,
+    Tuple,
+}
+
+impl std::fmt::Display for KwargType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KwargType::String => write!(f, "String"),
+            KwargType::Float => write!(f, "Float"),
+            KwargType::Tuple => write!(f, "Tuple"),
         }
     }
 }
 
 fn tag_ws0<'i>(the_tag: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
     terminated(tag(the_tag), space0)
+}
+
+fn ws0_tag<'i>(the_tag: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
+    preceded(space0, tag(the_tag))
+}
+
+fn ws0_tag_ws0<'i>(the_tag: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
+    delimited(space0, tag(the_tag), space0)
 }
 
 fn tag_ws1<'i>(the_tag: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
@@ -308,8 +301,8 @@ fn tag_ws1<'i>(the_tag: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str,
 fn literal_tuple(input: &str) -> IResult<&str, (f64, f64)> {
     delimited(
         tag_ws0("("),
-        separated_pair(double, tag_ws0(","), double),
-        tag_ws0(")"),
+        separated_pair(double, ws0_tag_ws0(","), double),
+        ws0_tag(")"),
     )(input)
 }
 
@@ -323,17 +316,16 @@ fn string(input: &str) -> IResult<&str, String> {
     alt((literal_string, normal_string))(input)
 }
 
-// pub fn kwarg<'i, O3, E: ParseError<&'i str>, H>(
-//     mut second: H,
-// ) -> impl FnMut(&'i str) -> IResult<&'i str, (String, O3), E>
-// where
-//     H: Parser<&'i str, O3, E>,
-// {
-//     separated_pair(string, char('='), second)
-// }
-
-fn kwarg(input: &str) -> IResult<&str, (String, String)> {
-    separated_pair(string, char('='), string)(input)
+fn kwarg(input: &str) -> IResult<&str, (String, KwargValue)> {
+    separated_pair(
+        string,
+        char('='),
+        alt((
+            map(literal_tuple, KwargValue::Tuple),
+            map(double, KwargValue::Float),
+            map(string, KwargValue::String),
+        )),
+    )(input)
 }
 
 pub fn parse(input: &str) -> IResult<&str, SongChartCmds> {
@@ -362,22 +354,6 @@ pub fn parse(input: &str) -> IResult<&str, SongChartCmds> {
     ));
     complete(parser)(input)
 }
-//                 let start = match kwargs.get("start") {
-//                     Some(input) => double(input.as_str()),
-//                     None => Err((input, nom::error::ErrorKind::)),
-//                 };
-//                 let timing = BeatSplitter {
-//                     start: start?.1,
-//                     frequency: 1.0,
-//                     duration: 4.0 * 4.0,
-//                     ..Default::default()
-//                 };
-// SongChartCmds::BulletLerper {
-//     timing,
-//     lerp_start: (),
-//     lerp_end: (),
-// }
-//             }),
 
 pub fn parse_midi_to_beats<P: AsRef<Path>>(
     ctx: &mut Context,
@@ -413,4 +389,112 @@ pub fn parse_midi_to_beats<P: AsRef<Path>>(
         }
     }
     Ok(beats)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::parse::{kwarg, literal_tuple, parse, string, KwargValue, SongChartCmds};
+
+    #[test]
+    fn test_parse_strings() {
+        let input = "thestring";
+        assert_eq!(string(input), Ok(("", "thestring".to_owned())));
+
+        let input = "\"string literal\"";
+        assert_eq!(string(input), Ok(("", "string literal".to_owned())));
+
+        let input = "splits spaces";
+        assert_eq!(string(input), Ok((" spaces", "splits".to_owned())));
+    }
+
+    #[test]
+    fn test_parse_tuple_literal() {
+        let input = "(1.0,2.0)";
+        let actual = literal_tuple(input);
+        assert_eq!(actual, Ok(("", (1.0, 2.0))));
+
+        let input = "(1.0, 2.0)";
+        let actual = literal_tuple(input);
+        assert_eq!(actual, Ok(("", (1.0, 2.0))));
+
+        let input = "(   1.0 \t  , \t  2.0  )";
+        let actual = literal_tuple(input);
+        assert_eq!(actual, Ok(("", (1.0, 2.0))));
+
+        let input = "(-5.0,-0.0)";
+        let actual = literal_tuple(input);
+        assert_eq!(actual, Ok(("", (-5.0, 0.0))));
+    }
+
+    #[test]
+    fn test_parse_kwarg() {
+        let input = "value=string";
+        let actual = kwarg(input);
+        assert_eq!(
+            actual,
+            Ok((
+                "",
+                ("value".to_owned(), KwargValue::String("string".to_owned()))
+            ))
+        );
+
+        let input = "value=5.0";
+        let actual = kwarg(input);
+        assert_eq!(
+            actual,
+            Ok(("", ("value".to_owned(), KwargValue::Float(5.0))))
+        );
+
+        let input = "value=(5.0, 4.0)";
+        let actual = kwarg(input);
+        assert_eq!(
+            actual,
+            Ok(("", ("value".to_owned(), KwargValue::Tuple((5.0, 4.0)))))
+        );
+    }
+
+    #[test]
+    fn test_parse_bulletlerp1() {
+        let input = "bulletlerp start=16.0 freq=4.0 lerpstart=botleft lerpend=botright";
+        let actual = parse(input);
+        assert_eq!(
+            actual,
+            Ok((
+                "",
+                SongChartCmds::BulletLerper(vec![
+                    ("start".to_owned(), KwargValue::Float(16.0)),
+                    ("freq".to_owned(), KwargValue::Float(4.0),),
+                    (
+                        "lerpstart".to_owned(),
+                        KwargValue::String("botleft".to_owned()),
+                    ),
+                    (
+                        "lerpend".to_owned(),
+                        KwargValue::String("botright".to_owned()),
+                    )
+                ])
+            ))
+        );
+    }
+
+    #[test]
+    fn test_parse_bulletlerp2() {
+        let input = "bulletlerp start=16.0 freq=4.0 lerpstart=(-50.0,50.0) lerpend=botright";
+        let actual = parse(input);
+        assert_eq!(
+            actual,
+            Ok((
+                "",
+                SongChartCmds::BulletLerper(vec![
+                    ("start".to_owned(), KwargValue::Float(16.0)),
+                    ("freq".to_owned(), KwargValue::Float(4.0),),
+                    ("lerpstart".to_owned(), KwargValue::Tuple((-50.0, 50.0)),),
+                    (
+                        "lerpend".to_owned(),
+                        KwargValue::String("botright".to_owned()),
+                    )
+                ])
+            ))
+        );
+    }
 }
