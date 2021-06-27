@@ -7,13 +7,14 @@ use midly::Smf;
 
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{alphanumeric1, char, none_of, space0, space1};
-use nom::combinator::{complete, map, map_opt, map_res, recognize};
-use nom::error::ParseError;
+use nom::character::complete::{char, none_of, space0, space1};
+use nom::combinator::{complete, map, recognize};
 use nom::multi::{many0, many1, separated_list0};
 use nom::number::complete::double;
-use nom::sequence::{delimited, preceded, separated_pair, terminated, tuple};
-use nom::{Compare, Finish, IResult, InputTake, Parser};
+use nom::sequence::{delimited, preceded, separated_pair, terminated};
+use nom::{Finish, IResult, Parser};
+
+use anyhow::bail;
 
 use crate::chart::{BeatSplitter, CmdBatch, CmdBatchPos};
 use crate::time;
@@ -47,85 +48,61 @@ impl SongMap {
                     "{}: Warning: Couldn't parse line \"{}\". Reason: {:?}",
                     line_num, raw_line, err
                 ),
-                Ok((_remaining, cmd)) => match cmd {
-                    SongChartCmds::Skip(skip) => map.skip_amount = Beats(skip),
-                    SongChartCmds::Bpm(bpm) => map.bpm = bpm,
-                    SongChartCmds::MidiBeat(name, path) => {
-                        match parse_midi_to_beats(ctx, &path, map.bpm) {
-                            Ok(beats) => {
-                                if map.midi_beats.insert(name.clone(), beats).is_some() {
-                                    println!(
-                                        "{}: Warning: Replaced {:?} with new midibeat",
-                                        line_num, name
-                                    )
-                                }
-                            }
-                            Err(err) => {
-                                println!(
-                                    "{}: Warning: Couldn't parse midi file {:?}. Reason: {:?}",
-                                    line_num, path, err
-                                );
-                            }
-                        }
+                Ok((_remaining, cmd)) => {
+                    if let Err(warning) = map.execute_cmd(ctx, cmd) {
+                        println!("Warning on line {} \"{}\": {}", line_num, raw_line, warning);
                     }
-                    SongChartCmds::Position(name, pos) => {
-                        let pos = WorldPos::from(pos);
-                        if map.positions.insert(name.clone(), pos).is_some() {
-                            println!(
-                                "{}: Warning: Replaced {:?} with new position",
-                                line_num, name
-                            );
-                        }
-                    }
-                    SongChartCmds::BulletLerper(kwargs) => {
-                        match KwargList::new(&kwargs, &["start", "freq", "lerpstart", "lerpend"]) {
-                            Err(err) => println!(
-                                "{}: Warning: Kwarg error, {}. Kwargs {:?} Reason: {}",
-                                line_num, raw_line, kwargs, err
-                            ),
-                            Ok(kwargs) => {
-                                let start = kwargs.get("start");
-                                let freq = kwargs.get("freq");
-                                let lerp_start = kwargs.get("lerpstart");
-                                let lerp_end = kwargs.get("lerpend");
-
-                                let start = start.parse::<f64>();
-                                let freq = freq.parse::<f64>();
-                                let lerp_start =
-                                    PositionData::parse_lookup(&lerp_start, &map.positions);
-                                let lerp_end =
-                                    PositionData::parse_lookup(&lerp_end, &map.positions);
-                                if let (Ok(start), Ok(freq), Some(lerp_start), Some(lerp_end)) =
-                                    (start, freq, lerp_start, lerp_end)
-                                {
-                                    let cmd_batch = CmdBatch::Bullet {
-                                        start: CmdBatchPos::Lerped(
-                                            lerp_start.tuple(),
-                                            lerp_end.tuple(),
-                                        ),
-                                        end: CmdBatchPos::Lerped((0.0, 0.0), (0.0, 0.0)),
-                                    };
-                                    let splitter = BeatSplitter {
-                                        start,
-                                        frequency: freq,
-                                        ..Default::default()
-                                    };
-                                    // let splitter = timing.to_beat_splitter().unwrap();
-                                    map.cmd_batches.push((splitter, cmd_batch))
-                                } else {
-                                    println!(
-                                    "{}: Could not find positions for lerp_start: {:?}, lerp_end {:?}",
-                                    line_num, lerp_start, lerp_end
-                                );
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                },
+                }
             }
         }
         Ok(map)
+    }
+
+    fn execute_cmd(&mut self, ctx: &mut Context, cmd: SongChartCmds) -> anyhow::Result<()> {
+        match cmd {
+            SongChartCmds::Skip(skip) => self.skip_amount = Beats(skip),
+            SongChartCmds::Bpm(bpm) => self.bpm = bpm,
+            SongChartCmds::MidiBeat(name, path) => {
+                match parse_midi_to_beats(ctx, &path, self.bpm) {
+                    Ok(beats) => {
+                        if self.midi_beats.insert(name.clone(), beats).is_some() {
+                            bail!("Replaced midibeat {}.", name);
+                        }
+                    }
+                    Err(err) => bail!("Error parsing midi, reason: {}", err),
+                }
+            }
+            SongChartCmds::Position(name, pos) => {
+                let pos = WorldPos::from(pos);
+                if self.positions.insert(name.clone(), pos).is_some() {
+                    bail!("Replaced position {}.", name);
+                }
+            }
+            SongChartCmds::BulletLerper(kwargs) => {
+                let kwargs = KwargList::new(&kwargs, &["start", "freq", "lerpstart", "lerpend"])?;
+                let start = kwargs.get("start");
+                let freq = kwargs.get("freq");
+                let lerp_start = kwargs.get("lerpstart");
+                let lerp_end = kwargs.get("lerpend");
+
+                let start = start.parse::<f64>()?;
+                let freq = freq.parse::<f64>()?;
+                let lerp_start = PositionData::parse_lookup(&lerp_start, &self.positions)?;
+                let lerp_end = PositionData::parse_lookup(&lerp_end, &self.positions)?;
+                let cmd_batch = CmdBatch::Bullet {
+                    start: CmdBatchPos::Lerped(lerp_start.tuple(), lerp_end.tuple()),
+                    end: CmdBatchPos::Lerped((0.0, 0.0), (0.0, 0.0)),
+                };
+                let splitter = BeatSplitter {
+                    start,
+                    frequency: freq,
+                    ..Default::default()
+                };
+                // let splitter = timing.to_beat_splitter().unwrap();
+                self.cmd_batches.push((splitter, cmd_batch))
+            }
+        }
+        Ok(())
     }
 
     pub fn get_beats(&self, name: &str) -> Vec<Beats> {
@@ -161,6 +138,38 @@ impl Default for SongMap {
     }
 }
 
+struct LineInfo {
+    raw_line: String,
+    line_num: usize,
+    kwargs: KwargList,
+}
+
+enum SongMapWarning {
+    ReplacedMidibeat(String),
+    MidibeatParseError(Box<dyn std::error::Error>),
+    ReplacedPosition(String),
+    KwargError(KwargError),
+    ParseError(),
+}
+
+impl std::fmt::Display for SongMapWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        match self {
+            SongMapWarning::ReplacedMidibeat(old) => {
+                write!(f, "Replaced midibeat {}.", old)
+            }
+            SongMapWarning::MidibeatParseError(err) => {
+                write!(f, "Error parsing midi. Reason: {}.", err)
+            }
+            SongMapWarning::ReplacedPosition(old) => {
+                write!(f, "Replaced position {}.", old)
+            }
+            SongMapWarning::KwargError(err) => write!(f, "Kwarg Error: {}", err),
+            SongMapWarning::ParseError() => write!(f, "Parse Error: {}", 2),
+        }
+    }
+}
+
 struct KwargList {
     kwargs: HashMap<String, String>,
 }
@@ -187,6 +196,7 @@ impl KwargList {
     }
 }
 
+#[derive(Debug)]
 enum KwargError {
     MissingKwarg(String),
     DuplicateKwarg(String, String, String),
@@ -202,6 +212,8 @@ impl std::fmt::Display for KwargError {
         }
     }
 }
+
+impl std::error::Error for KwargError {}
 
 pub enum SongChartCmds {
     Skip(f64),
@@ -250,34 +262,36 @@ pub enum PositionData {
 }
 
 impl PositionData {
-    fn parse_lookup(input: &str, vars: &HashMap<String, WorldPos>) -> Option<WorldPos> {
+    fn parse_lookup(input: &str, vars: &HashMap<String, WorldPos>) -> anyhow::Result<WorldPos> {
         match PositionData::parse(input) {
             Ok((_, pos)) => pos.lookup(vars),
-            Err(err) => {
-                println!("Warning: Couldn't parse position data: {}", err);
-                None
-            }
+            Err(err) => bail!(
+                "Couldn't parse \"{}\" as position data, reason: {}",
+                input,
+                err
+            ),
         }
     }
 
     fn parse(input: &str) -> IResult<&str, PositionData> {
         alt((
-            map(string, PositionData::Variable),
             map(literal_tuple, |pos| {
                 PositionData::Literal(WorldPos::from(pos))
             }),
+            map(string, PositionData::Variable),
         ))(input)
     }
 
-    fn lookup(&self, vars: &HashMap<String, WorldPos>) -> Option<WorldPos> {
+    fn lookup(&self, vars: &HashMap<String, WorldPos>) -> anyhow::Result<WorldPos> {
         match self {
-            PositionData::Literal(pos) => Some(*pos),
+            PositionData::Literal(pos) => Ok(*pos),
             PositionData::Variable(name) => {
                 let pos = vars.get(name).cloned();
-                if pos.is_none() {
-                    println!("Warning: Couldn't lookup position {}", name);
+                if let Some(pos) = pos {
+                    Ok(pos)
+                } else {
+                    bail!("Couldn't find position {}", name);
                 }
-                pos
             }
         }
     }

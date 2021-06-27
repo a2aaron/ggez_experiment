@@ -270,8 +270,10 @@ impl event::EventHandler for MainState {
                 // rebuild the scheduler work queue.
                 self.started = false;
                 drop(self.assets.music.stop(ctx));
+                println!("Stopped");
             } else {
                 // Start the game. Also play the music.
+                println!("Started");
                 self.started = true;
                 self.reset(ctx);
                 drop(self.assets.music.play(ctx));

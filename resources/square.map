@@ -11,3 +11,4 @@ position botleft (-50.0, -50.0)
 position botright (50.0, -50.0)
 bulletlerp start=16.0 freq=4.0 lerpstart=botleft lerpend=botright
 bulletlerp start=16.0 freq=4.0 lerpstart=topright lerpend=topleft
+bulletlerp start=4.0 freq=1.0 lerpstart=(-50.0,50.0) lerpend=(0.0,10.0)
