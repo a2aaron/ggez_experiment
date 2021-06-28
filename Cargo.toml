@@ -9,7 +9,7 @@ edition = "2018"
 ggez = { git = "https://github.com/a2aaron/ggez", rev = "da1fda511ad3d3a918c9de67d68d1ea4c7f7bf48" } # { path = "ggez" }    # "0.5.1"
 
 rand = "0.8.0"
-derive_more = "0.99.0"
+derive_more = "0.99.14"
 rodio = "0.14.0"
 cgmath = "0.18.0"
 midly = "0.5.2"

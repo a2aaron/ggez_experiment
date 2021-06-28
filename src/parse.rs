@@ -15,6 +15,7 @@ use nom::sequence::{delimited, preceded, separated_pair, terminated};
 use nom::{Finish, IResult, Parser};
 
 use anyhow::{anyhow, bail};
+use derive_more::Display;
 
 use crate::chart::{BeatSplitter, CmdBatch, CmdBatchPos};
 use crate::time;
@@ -238,10 +239,11 @@ pub enum SongChartCmds {
     BulletLerper(Vec<(String, KwargValue)>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Display, Debug, Clone, PartialEq)]
 pub enum KwargValue {
     String(String),
     Float(f64),
+    #[display(fmt = "({}, {})", "_0.0", "_0.1")]
     Tuple((f64, f64)),
 }
 
@@ -255,31 +257,11 @@ impl KwargValue {
     }
 }
 
-impl std::fmt::Display for KwargValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            KwargValue::String(x) => write!(f, "{}", *x),
-            KwargValue::Float(x) => write!(f, "{}", *x),
-            KwargValue::Tuple((x, y)) => write!(f, "({}, {})", *x, *y),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Display, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum KwargType {
     String,
     Float,
     Tuple,
-}
-
-impl std::fmt::Display for KwargType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            KwargType::String => write!(f, "String"),
-            KwargType::Float => write!(f, "Float"),
-            KwargType::Tuple => write!(f, "Tuple"),
-        }
-    }
 }
 
 fn tag_ws0<'i>(the_tag: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
