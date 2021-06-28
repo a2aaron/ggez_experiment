@@ -89,19 +89,32 @@ impl SongMap {
                     bail!("Replaced position {}.", name);
                 }
             }
-            SongChartCmds::BulletLerper(kwargs) => {
-                fn is_float(ty: &TokenType) -> bool {
-                    *ty == TokenType::Float
+            SongChartCmds::SpawnEnemy(kwargs) => {
+                fn is_float(ty: &TokenValue) -> bool {
+                    matches!(ty, TokenValue::Float(_))
                 }
-                fn is_string(ty: &TokenType) -> bool {
-                    *ty == TokenType::String
+                fn is_string(ty: &TokenValue) -> bool {
+                    matches!(ty, TokenValue::String(_))
                 }
-                fn is_float_tuple(ty: &TokenType) -> bool {
-                    *ty == TokenType::Tuple(vec![TokenType::Float; 2])
-                }
-                fn is_lerper(ty: &TokenType) -> bool {
+                fn is_enemy_type(ty: &TokenValue) -> bool {
                     match ty {
-                        TokenType::Tuple(vec) if vec.len() == 4 => {
+                        TokenValue::String(x) if x == "bullet" || x == "laser" || x == "bomb" => {
+                            true
+                        }
+                        _ => false,
+                    }
+                }
+                fn is_float_tuple(ty: &TokenValue) -> bool {
+                    match ty {
+                        TokenValue::Tuple(vec) => {
+                            matches!(vec[..], [TokenValue::Float(_), TokenValue::Float(_)])
+                        }
+                        _ => false,
+                    }
+                }
+                fn is_lerper(ty: &TokenValue) -> bool {
+                    match ty {
+                        TokenValue::Tuple(vec) if vec.len() == 4 => {
                             vec.iter().all(|ty| is_float_tuple(ty) || is_string(ty))
                         }
                         _ => false,
@@ -111,6 +124,7 @@ impl SongMap {
                 let kwargs = KwargList::new(
                     &kwargs,
                     &[
+                        // ("enemy", &[&is_enemy_type]),
                         ("start", &[&is_float]),
                         ("freq", &[&is_float]),
                         ("lerps", &[&is_lerper]),
@@ -133,21 +147,28 @@ impl SongMap {
                     _ => unreachable!(),
                 };
 
-                fn to_cmd_batch_pos(start: LiveWorldPos, end: LiveWorldPos) -> CmdBatchPos {
+                fn to_cmd_batch_pos(
+                    start: LiveWorldPos,
+                    end: LiveWorldPos,
+                ) -> anyhow::Result<CmdBatchPos> {
                     match (start, end) {
                         (LiveWorldPos::Constant(start), LiveWorldPos::Constant(end)) => {
-                            CmdBatchPos::Lerped(start.tuple(), end.tuple())
+                            Ok(CmdBatchPos::Lerped(start.tuple(), end.tuple()))
                         }
                         (LiveWorldPos::PlayerPos, LiveWorldPos::PlayerPos) => {
-                            CmdBatchPos::Constant(LiveWorldPos::PlayerPos)
+                            Ok(CmdBatchPos::Constant(LiveWorldPos::PlayerPos))
                         }
-                        _ => todo!(), // this should probably return None here
+                        _ => bail!(
+                            "Invalid CmdBatchPos combination: start: {:?} end: {:?}",
+                            start,
+                            end
+                        ),
                     }
                 }
 
                 let cmd_batch = CmdBatch::Bullet {
-                    start: to_cmd_batch_pos(start_1, start_2),
-                    end: to_cmd_batch_pos(end_1, end_2),
+                    start: to_cmd_batch_pos(start_1, start_2)?,
+                    end: to_cmd_batch_pos(end_1, end_2)?,
                 };
                 let splitter = BeatSplitter {
                     start,
@@ -176,16 +197,6 @@ impl SongMap {
     }
 
     fn lookup_position(&self, input: &TokenValue) -> anyhow::Result<LiveWorldPos> {
-        match input.get_type() {
-            TokenType::String => (),
-            TokenType::Tuple(x) if x == vec![TokenType::Float; 2] => (),
-            x => {
-                bail!(
-                    "Wrong type for PositionData. Expected String or Tuple. Got {}.",
-                    x
-                )
-            }
-        };
         match input {
             TokenValue::String(name) => match name.as_str() {
                 "player" => Ok(LiveWorldPos::PlayerPos),
@@ -198,12 +209,11 @@ impl SongMap {
                     Ok(LiveWorldPos::from(pos))
                 }
             },
-            TokenValue::Tuple(vec) => {
-                let x = vec[0].as_float();
-                let y = vec[1].as_float();
-                Ok(LiveWorldPos::from((x, y)))
-            }
-            _ => unreachable!(),
+            TokenValue::Tuple(vec) => match vec[..] {
+                [TokenValue::Float(x), TokenValue::Float(y)] => Ok(LiveWorldPos::from((x, y))),
+                _ => bail!("Expected tuple of two floats, got {:?}", input),
+            },
+            _ => bail!("Expected tuple of two floats or string, got {:?}", input),
         }
     }
 }
@@ -220,7 +230,7 @@ impl Default for SongMap {
     }
 }
 
-type TypePredicate = dyn Fn(&TokenType) -> bool;
+type TypePredicate = dyn Fn(&TokenValue) -> bool;
 
 struct KwargList {
     kwargs: HashMap<String, TokenValue>,
@@ -242,13 +252,10 @@ impl KwargList {
         fn type_check(
             kwarg: &str,
             kwarg_val: &TokenValue,
-            allowed_types: &[impl Fn(&TokenType) -> bool],
+            allowed_values: &[impl Fn(&TokenValue) -> bool],
         ) -> Result<(), KwargError> {
-            if !allowed_types
-                .iter()
-                .any(|check| check(&kwarg_val.get_type()))
-            {
-                Err(KwargError::TypeMismatch(
+            if !allowed_values.iter().any(|check| check(&kwarg_val)) {
+                Err(KwargError::ValueMismatch(
                     kwarg.to_owned(),
                     kwarg_val.clone(),
                 ))
@@ -290,7 +297,7 @@ impl KwargList {
 #[derive(Debug)]
 enum KwargError {
     MissingKwarg(String),
-    TypeMismatch(String, TokenValue),
+    ValueMismatch(String, TokenValue),
     DuplicateKwarg(String, TokenValue, TokenValue),
 }
 
@@ -301,13 +308,9 @@ impl std::fmt::Display for KwargError {
             KwargError::DuplicateKwarg(key, val1, val2) => {
                 write!(f, "Duplicate kwargs: {}={} vs {}={}", key, val1, key, val2)
             }
-            KwargError::TypeMismatch(key, val) => write!(
-                f,
-                "Wrong kwarg type for {}={}, got {}",
-                key,
-                val,
-                val.get_type(),
-            ),
+            KwargError::ValueMismatch(key, val) => {
+                write!(f, "Wrong kwarg value for {}={}", key, val,)
+            }
         }
     }
 }
@@ -320,7 +323,7 @@ pub enum SongChartCmds {
     Bpm(f64),
     MidiBeat(String, String),
     Position(String, (f64, f64)),
-    BulletLerper(Vec<(String, TokenValue)>),
+    SpawnEnemy(Vec<(String, TokenValue)>),
 }
 
 #[derive(Display, Debug, Clone, PartialEq)]
@@ -329,33 +332,6 @@ pub enum TokenValue {
     Float(f64),
     #[display(fmt = "{:?}", _0)]
     Tuple(Vec<TokenValue>),
-}
-
-impl TokenValue {
-    fn get_type(&self) -> TokenType {
-        match self {
-            TokenValue::String(_) => TokenType::String,
-            TokenValue::Float(_) => TokenType::Float,
-            TokenValue::Tuple(values) => {
-                TokenType::Tuple(values.iter().map(|x| x.get_type()).collect())
-            }
-        }
-    }
-
-    fn as_float(&self) -> f64 {
-        match self {
-            TokenValue::Float(x) => *x,
-            _ => panic!("TokenValue must be float"),
-        }
-    }
-}
-
-#[derive(Display, Debug, Clone, PartialEq, Eq)]
-pub enum TokenType {
-    String,
-    Float,
-    #[display(fmt = "{:?}", _0)]
-    Tuple(Vec<TokenType>),
 }
 
 fn tag_ws0<'i>(the_tag: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
@@ -429,7 +405,7 @@ pub fn parse(input: &str) -> IResult<&str, SongChartCmds> {
         preceded(
             tag_ws1("bulletlerp"),
             map(separated_list0(space1, kwarg), |vec| {
-                SongChartCmds::BulletLerper(vec)
+                SongChartCmds::SpawnEnemy(vec)
             }),
         ),
     ));
@@ -558,7 +534,7 @@ mod test {
             actual,
             Ok((
                 "",
-                SongChartCmds::BulletLerper(vec![
+                SongChartCmds::SpawnEnemy(vec![
                     ("start".to_owned(), TokenValue::Float(16.0)),
                     ("freq".to_owned(), TokenValue::Float(4.0),),
                     (
@@ -583,7 +559,7 @@ mod test {
             actual,
             Ok((
                 "",
-                SongChartCmds::BulletLerper(vec![
+                SongChartCmds::SpawnEnemy(vec![
                     ("start".to_owned(), TokenValue::Float(16.0)),
                     ("freq".to_owned(), TokenValue::Float(4.0),),
                     ("lerpstart".to_owned(), TokenValue::Tuple(expected_tuple),),

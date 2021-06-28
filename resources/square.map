@@ -1,4 +1,4 @@
-SKIP 48.0
+SKIP 0.0
 BPM 150.0
 midibeat kick1laser "\kick1.mid"
 midibeat kick1bomb "\kick1simple.mid"

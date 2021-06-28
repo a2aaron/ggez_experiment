@@ -156,47 +156,6 @@ impl Default for BeatSplitter {
 }
 
 impl BeatSplitter {
-    fn with_start(self, start: f64) -> Self {
-        BeatSplitter {
-            start,
-            duration: self.duration,
-            frequency: self.frequency,
-            offset: self.offset,
-            delay: self.delay,
-        }
-    }
-
-    fn with_offset(self, offset: f64) -> Self {
-        BeatSplitter {
-            start: self.start,
-            duration: self.duration,
-            frequency: self.frequency,
-            offset,
-            delay: self.delay,
-        }
-    }
-
-    fn with_delay(self, delay: f64) -> Self {
-        BeatSplitter {
-            start: self.start,
-            duration: self.duration,
-            frequency: self.frequency,
-            offset: self.offset,
-            delay,
-        }
-    }
-
-    #[allow(dead_code)]
-    fn with_duration(self, duration: f64) -> Self {
-        BeatSplitter {
-            start: self.start,
-            duration,
-            frequency: self.frequency,
-            offset: self.offset,
-            delay: self.delay,
-        }
-    }
-
     fn split(&self) -> Vec<(Beats, f64)> {
         let mut beats = vec![];
         let mut this_beat = self.start;
