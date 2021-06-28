@@ -22,30 +22,6 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new(_ctx: &mut Context, song_map: &SongMap) -> Scheduler {
-        let origin = (0.0, 0.0);
-        let bot_left = (-50.0, -50.0);
-        let bot_right = (50.0, -50.0);
-        let top_left = (-50.0, 50.0);
-        let top_right = (50.0, 50.0);
-
-        let every_4_beats = BeatSplitter {
-            duration: 4.0 * 4.0,
-            frequency: 4.0,
-            ..Default::default()
-        };
-
-        let every_2_beats = BeatSplitter {
-            duration: 4.0 * 4.0,
-            frequency: 2.0,
-            ..Default::default()
-        };
-
-        let every_beat = BeatSplitter {
-            duration: 4.0 * 4.0,
-            frequency: 1.0,
-            ..Default::default()
-        };
-
         let kick1laser = song_map.get_beats("kick1laser");
         let kick1bomb = song_map.get_beats("kick1bomb");
         let kick1solo = song_map.get_beats("kick1solo");
@@ -58,35 +34,6 @@ impl Scheduler {
             .collect();
 
         let stage = [
-            // 8 - 11
-            every_2_beats
-                .with_start(8.0 * 4.0)
-                .make_actions(CmdBatch::bullet((top_left, bot_left), (origin, origin))),
-            every_2_beats
-                .with_start(8.0 * 4.0)
-                .make_actions(CmdBatch::bullet((bot_right, top_right), (origin, origin))),
-            // 12 - 15
-            every_2_beats
-                .with_start(12.0 * 4.0)
-                .make_actions(CmdBatch::bullet(
-                    (top_right, bot_right),
-                    (top_left, bot_left),
-                )),
-            every_2_beats
-                .with_start(12.0 * 4.0)
-                .with_offset(1.0)
-                .make_actions(CmdBatch::bullet(
-                    (bot_left, top_left),
-                    (bot_right, top_right),
-                )),
-            // 16 - 19
-            every_beat
-                .with_start(16.0 * 4.0)
-                .make_actions(CmdBatch::bullet_player((top_right, top_left))),
-            every_beat
-                .with_start(16.0 * 4.0)
-                .with_delay(0.5)
-                .make_actions(CmdBatch::bullet_player((bot_left, bot_right))),
             // DROP 20 - 23
             make_actions(20.0 * 4.0, &kick1laser, |_, _| CmdBatch::Laser {
                 a: CmdBatchPos::player(),

@@ -1,4 +1,4 @@
-SKIP 0.0
+SKIP 48.0
 BPM 150.0
 midibeat kick1laser "\kick1.mid"
 midibeat kick1bomb "\kick1simple.mid"
@@ -9,6 +9,24 @@ position topleft (-50.0, 50.0)
 position topright (50.0, 50.0)
 position botleft (-50.0, -50.0)
 position botright (50.0, -50.0)
-bulletlerp start=16.0 freq=4.0 lerpstart=botleft lerpend=botright
-bulletlerp start=16.0 freq=4.0 lerpstart=topright lerpend=topleft
-bulletlerp start=4.0 freq=1.0 lerpstart=(-50.0, 50.0) lerpend=(0.0, 10.0)
+
+# -- SONG DATA --
+# [INTRO]
+# Skip first 4 measures
+# Measures 4 - 7 (beat 16)
+bulletlerp start=16.0 freq=4.0 lerps=(botleft,  origin, botright, origin)
+bulletlerp start=16.0 freq=4.0 lerps=(topright, origin, topleft,  origin)
+
+# Measures 8 - 11 (beat 32)
+bulletlerp start=32.0 freq=2.0 lerps=(topleft,  origin, botleft,  origin)
+bulletlerp start=32.0 freq=2.0 lerps=(botright, origin, topright, origin)
+
+# Measures 12 - 15 (beat 48)
+bulletlerp start=48.0 freq=2.0 lerps=(topright, topleft, botright, botleft)
+bulletlerp start=48.0 freq=2.0 lerps=(botleft, botright, topleft, topright) offset=1.0
+
+# Measures 16 - 19 (beat 64)
+bulletlerp start=64.0 freq=1.0 lerps=(topright, player, topleft, player)
+bulletlerp start=64.0 freq=1.0 lerps=(botleft, player, botright, player) delay=0.5
+# [DROP]
+# Measures 20 - 23 (beat 80)
