@@ -1,4 +1,4 @@
-SKIP 0.0
+SKIP 80.0
 BPM 150.0
 midibeat kick1laser "\kick1.mid"
 midibeat kick1bomb "\kick1simple.mid"
@@ -14,19 +14,21 @@ position botright (50.0, -50.0)
 # [INTRO]
 # Skip first 4 measures
 # Measures 4 - 7 (beat 16)
-bulletlerp start=16.0 freq=4.0 lerps=(botleft,  origin, botright, origin)
-bulletlerp start=16.0 freq=4.0 lerps=(topright, origin, topleft,  origin)
+spawn enemy=bullet start=16.0 freq=4.0 lerps=(botleft,  origin, botright, origin)
+spawn enemy=bullet start=16.0 freq=4.0 lerps=(topright, origin, topleft,  origin)
 
 # Measures 8 - 11 (beat 32)
-bulletlerp start=32.0 freq=2.0 lerps=(topleft,  origin, botleft,  origin)
-bulletlerp start=32.0 freq=2.0 lerps=(botright, origin, topright, origin)
+spawn enemy=bullet start=32.0 freq=2.0 lerps=(topleft,  origin, botleft,  origin)
+spawn enemy=bullet start=32.0 freq=2.0 lerps=(botright, origin, topright, origin)
 
 # Measures 12 - 15 (beat 48)
-bulletlerp start=48.0 freq=2.0 lerps=(topright, topleft, botright, botleft)
-bulletlerp start=48.0 freq=2.0 lerps=(botleft, botright, topleft, topright) offset=1.0
+spawn enemy=bullet start=48.0 freq=2.0 lerps=(topright, topleft, botright, botleft)
+spawn enemy=bullet start=48.0 freq=2.0 lerps=(botleft, botright, topleft, topright) offset=1.0
 
 # Measures 16 - 19 (beat 64)
-bulletlerp start=64.0 freq=1.0 lerps=(topright, player, topleft, player)
-bulletlerp start=64.0 freq=1.0 lerps=(botleft, player, botright, player) delay=0.5
+spawn enemy=bullet start=64.0 freq=1.0 lerps=(topright, player, topleft, player)
+spawn enemy=bullet start=64.0 freq=1.0 lerps=(botleft, player, botright, player) delay=0.5
 # [DROP]
 # Measures 20 - 23 (beat 80)
+spawn enemy=laser start=80.0 midibeat=kick1laser lerps=(player, origin, player, origin)
+spawn enemy=bomb  start=80.0 midibeat=kick1bomb at=grid

@@ -22,47 +22,40 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new(_ctx: &mut Context, song_map: &SongMap) -> Scheduler {
-        let kick1laser = song_map.get_beats("kick1laser");
-        let kick1bomb = song_map.get_beats("kick1bomb");
         let kick1solo = song_map.get_beats("kick1solo");
 
         let song_map_actions: Vec<BeatAction> = song_map
             .cmd_batches
             .iter()
-            .map(|(splitter, cmd_batch)| splitter.make_actions(*cmd_batch))
+            .map(|(timing_data, cmd_batch)| {
+                timing_data
+                    .to_beat_vec()
+                    .iter()
+                    .map(|(start_time, t)| BeatAction::new(*start_time, cmd_batch.get(*t)))
+                    .collect::<Vec<BeatAction>>()
+            })
             .flatten()
             .collect();
 
-        let stage = [
-            // DROP 20 - 23
-            make_actions(20.0 * 4.0, &kick1laser, |_, _| CmdBatch::Laser {
-                a: CmdBatchPos::player(),
-                b: CmdBatchPos::origin(),
-            }),
-            make_actions(20.0 * 4.0, &kick1bomb, |_, _| CmdBatch::CircleBomb {
-                pos: CmdBatchPos::RandomGrid,
-            }),
-            // INSTANT 103 (measure 26 beat 3-4)
-            make_actions_custom(20.0 * 4.0, &kick1solo, |i, _| {
-                fn vert_laser(x: f64) -> SpawnCmd {
-                    const HALF_PI: f64 = std::f64::consts::PI / 2.0;
-                    SpawnCmd::Laser {
-                        angle: HALF_PI,
-                        position: LiveWorldPos::from((x, 0.0)),
-                    }
+        let stage = [make_actions_custom(20.0 * 4.0, &kick1solo, |i, _| {
+            fn vert_laser(x: f64) -> SpawnCmd {
+                const HALF_PI: f64 = std::f64::consts::PI / 2.0;
+                SpawnCmd::Laser {
+                    angle: HALF_PI,
+                    position: LiveWorldPos::from((x, 0.0)),
                 }
+            }
 
-                let sign = match i % 2 {
-                    0 => -1.0,
-                    _ => 1.0,
-                };
-                vec![
-                    vert_laser(sign * 50.0),
-                    vert_laser(sign * 40.0),
-                    vert_laser(sign * 30.0),
-                ]
-            }),
-        ];
+            let sign = match i % 2 {
+                0 => -1.0,
+                _ => 1.0,
+            };
+            vec![
+                vert_laser(sign * 50.0),
+                vert_laser(sign * 40.0),
+                vert_laser(sign * 30.0),
+            ]
+        })];
         Scheduler {
             work_queue: stage
                 .iter()
@@ -95,21 +88,6 @@ impl Scheduler {
             }
         }
     }
-}
-
-fn make_actions(
-    start: f64,
-    beats: &[Beats],
-    batcher: impl Fn(usize, f64) -> CmdBatch,
-) -> Vec<BeatAction> {
-    mark_beats(start, beats)
-        .iter()
-        .enumerate()
-        .map(|(i, (beat, t))| {
-            let action = batcher(i, *t).get(*t);
-            BeatAction::new(*beat, action)
-        })
-        .collect()
 }
 
 fn make_actions_custom(
@@ -156,7 +134,7 @@ impl Default for BeatSplitter {
 }
 
 impl BeatSplitter {
-    fn split(&self) -> Vec<(Beats, f64)> {
+    pub fn split(&self) -> Vec<(Beats, f64)> {
         let mut beats = vec![];
         let mut this_beat = self.start;
         while self.duration > this_beat - self.start {
@@ -168,39 +146,12 @@ impl BeatSplitter {
         }
         beats
     }
-
-    fn make_actions(&self, cmd_batch: CmdBatch) -> Vec<BeatAction> {
-        self.split()
-            .iter()
-            .enumerate()
-            .map(|(_, (start_time, t))| BeatAction::new(*start_time, cmd_batch.get(*t)))
-            .collect()
-    }
-
-    #[allow(dead_code)]
-    fn make_actions_custom(
-        &self,
-        spawner: impl Fn(usize, f64) -> Vec<SpawnCmd>,
-    ) -> Vec<BeatAction> {
-        self.split()
-            .iter()
-            .enumerate()
-            .map(|(i, (start_time, t))| {
-                let actions: Vec<BeatAction> = spawner(i, *t)
-                    .iter()
-                    .map(|action| BeatAction::new(*start_time, *action))
-                    .collect();
-                actions
-            })
-            .flatten()
-            .collect()
-    }
 }
 
 /// Given a vector of beats, shift every value by `start` Beats. The slice is
 /// assumed to be in sorted order and the last beat is assumed to be the duration
 /// of the whole slice.
-fn mark_beats(start: f64, beats: &[Beats]) -> Vec<(Beats, f64)> {
+pub fn mark_beats(start: f64, beats: &[Beats]) -> Vec<(Beats, f64)> {
     if beats.is_empty() {
         return vec![];
     }
@@ -227,20 +178,6 @@ pub enum CmdBatch {
     },
 }
 impl CmdBatch {
-    fn bullet(starts: ((f64, f64), (f64, f64)), ends: ((f64, f64), (f64, f64))) -> CmdBatch {
-        CmdBatch::Bullet {
-            start: CmdBatchPos::Lerped(starts.0, starts.1),
-            end: CmdBatchPos::Lerped(ends.0, ends.1),
-        }
-    }
-
-    fn bullet_player(starts: ((f64, f64), (f64, f64))) -> CmdBatch {
-        CmdBatch::Bullet {
-            start: CmdBatchPos::Lerped(starts.0, starts.1),
-            end: CmdBatchPos::Constant(LiveWorldPos::PlayerPos),
-        }
-    }
-
     fn get(&self, t: f64) -> SpawnCmd {
         match self {
             CmdBatch::Bullet { start, end } => SpawnCmd::Bullet {
@@ -267,14 +204,6 @@ pub enum CmdBatchPos {
 }
 
 impl CmdBatchPos {
-    fn player() -> CmdBatchPos {
-        CmdBatchPos::Constant(LiveWorldPos::PlayerPos)
-    }
-
-    fn origin() -> CmdBatchPos {
-        CmdBatchPos::Constant(LiveWorldPos::origin())
-    }
-
     fn get(&self, t: f64) -> LiveWorldPos {
         match *self {
             CmdBatchPos::Lerped(start, end) => {
@@ -370,10 +299,6 @@ pub enum LiveWorldPos {
 }
 
 impl LiveWorldPos {
-    fn origin() -> LiveWorldPos {
-        LiveWorldPos::Constant(WorldPos::origin())
-    }
-
     fn world_pos(&self, player_pos: WorldPos) -> WorldPos {
         match self {
             LiveWorldPos::Constant(pos) => *pos,

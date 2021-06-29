@@ -26,8 +26,8 @@ pub struct SongMap {
     pub skip_amount: Beats,
     pub bpm: f64,
     pub midi_beats: HashMap<String, Vec<Beats>>,
-    positions: HashMap<String, WorldPos>,
-    pub cmd_batches: Vec<(BeatSplitter, CmdBatch)>,
+    pub cmd_batches: Vec<(TimingData, CmdBatch)>,
+    positions: Positions,
 }
 
 impl SongMap {
@@ -85,99 +85,15 @@ impl SongMap {
             }
             SongChartCmds::Position(name, pos) => {
                 let pos = WorldPos::from(*pos);
-                if self.positions.insert(name.clone(), pos).is_some() {
+                if self.positions.0.insert(name.clone(), pos).is_some() {
                     bail!("Replaced position {}.", name);
                 }
             }
             SongChartCmds::SpawnEnemy(kwargs) => {
-                fn is_float(ty: &TokenValue) -> bool {
-                    matches!(ty, TokenValue::Float(_))
-                }
-                fn is_string(ty: &TokenValue) -> bool {
-                    matches!(ty, TokenValue::String(_))
-                }
-                fn is_enemy_type(ty: &TokenValue) -> bool {
-                    match ty {
-                        TokenValue::String(x) if x == "bullet" || x == "laser" || x == "bomb" => {
-                            true
-                        }
-                        _ => false,
-                    }
-                }
-                fn is_float_tuple(ty: &TokenValue) -> bool {
-                    match ty {
-                        TokenValue::Tuple(vec) => {
-                            matches!(vec[..], [TokenValue::Float(_), TokenValue::Float(_)])
-                        }
-                        _ => false,
-                    }
-                }
-                fn is_lerper(ty: &TokenValue) -> bool {
-                    match ty {
-                        TokenValue::Tuple(vec) if vec.len() == 4 => {
-                            vec.iter().all(|ty| is_float_tuple(ty) || is_string(ty))
-                        }
-                        _ => false,
-                    }
-                }
+                let timing_data = KwargList::make_timing_data(&kwargs, &self.midi_beats)?;
+                let cmd_batch = KwargList::make_enemy(&kwargs, &self.positions)?;
 
-                let kwargs = KwargList::new(
-                    &kwargs,
-                    &[
-                        // ("enemy", &[&is_enemy_type]),
-                        ("start", &[&is_float]),
-                        ("freq", &[&is_float]),
-                        ("lerps", &[&is_lerper]),
-                    ],
-                    &[("delay", &[&is_float]), ("offset", &[&is_float])],
-                )?;
-                let start = kwargs.get_float("start").unwrap();
-                let freq = kwargs.get_float("freq").unwrap();
-                let offset = kwargs.get_float("offset");
-                let delay = kwargs.get_float("delay");
-
-                let lerps = kwargs.get("lerps").unwrap();
-                let (start_1, end_1, start_2, end_2) = match lerps {
-                    TokenValue::Tuple(vec) => (
-                        self.lookup_position(&vec[0])?,
-                        self.lookup_position(&vec[1])?,
-                        self.lookup_position(&vec[2])?,
-                        self.lookup_position(&vec[3])?,
-                    ),
-                    _ => unreachable!(),
-                };
-
-                fn to_cmd_batch_pos(
-                    start: LiveWorldPos,
-                    end: LiveWorldPos,
-                ) -> anyhow::Result<CmdBatchPos> {
-                    match (start, end) {
-                        (LiveWorldPos::Constant(start), LiveWorldPos::Constant(end)) => {
-                            Ok(CmdBatchPos::Lerped(start.tuple(), end.tuple()))
-                        }
-                        (LiveWorldPos::PlayerPos, LiveWorldPos::PlayerPos) => {
-                            Ok(CmdBatchPos::Constant(LiveWorldPos::PlayerPos))
-                        }
-                        _ => bail!(
-                            "Invalid CmdBatchPos combination: start: {:?} end: {:?}",
-                            start,
-                            end
-                        ),
-                    }
-                }
-
-                let cmd_batch = CmdBatch::Bullet {
-                    start: to_cmd_batch_pos(start_1, start_2)?,
-                    end: to_cmd_batch_pos(end_1, end_2)?,
-                };
-                let splitter = BeatSplitter {
-                    start,
-                    frequency: freq,
-                    offset: offset.unwrap_or(0.0),
-                    delay: delay.unwrap_or(0.0),
-                    ..Default::default()
-                };
-                self.cmd_batches.push((splitter, cmd_batch))
+                self.cmd_batches.push((timing_data, cmd_batch))
             }
         }
         Ok(())
@@ -195,14 +111,29 @@ impl SongMap {
             }
         }
     }
+}
 
-    fn lookup_position(&self, input: &TokenValue) -> anyhow::Result<LiveWorldPos> {
+impl Default for SongMap {
+    fn default() -> Self {
+        SongMap {
+            skip_amount: Beats(0.0),
+            bpm: 150.0,
+            midi_beats: HashMap::new(),
+            positions: Positions(HashMap::new()),
+            cmd_batches: vec![],
+        }
+    }
+}
+
+struct Positions(HashMap<String, WorldPos>);
+impl Positions {
+    fn lookup(&self, input: &TokenValue) -> anyhow::Result<LiveWorldPos> {
         match input {
             TokenValue::String(name) => match name.as_str() {
                 "player" => Ok(LiveWorldPos::PlayerPos),
                 name => {
                     let pos = self
-                        .positions
+                        .0
                         .get(name)
                         .cloned()
                         .ok_or_else(|| anyhow!("Couldn't find position {}", name))?;
@@ -218,14 +149,16 @@ impl SongMap {
     }
 }
 
-impl Default for SongMap {
-    fn default() -> Self {
-        SongMap {
-            skip_amount: Beats(0.0),
-            bpm: 150.0,
-            midi_beats: HashMap::new(),
-            positions: HashMap::new(),
-            cmd_batches: vec![],
+pub enum TimingData {
+    BeatSplitter(BeatSplitter),
+    MidiBeat((f64, Vec<Beats>)),
+}
+
+impl TimingData {
+    pub fn to_beat_vec(&self) -> Vec<(Beats, f64)> {
+        match self {
+            TimingData::BeatSplitter(splitter) => splitter.split(),
+            TimingData::MidiBeat((start, beats)) => crate::chart::mark_beats(*start, beats),
         }
     }
 }
@@ -291,6 +224,182 @@ impl KwargList {
             Some(TokenValue::Float(x)) => Some(x),
             _ => None,
         }
+    }
+
+    fn get_string(&self, kwarg: &str) -> Option<String> {
+        match self.get(kwarg) {
+            Some(TokenValue::String(x)) => Some(x),
+            _ => None,
+        }
+    }
+
+    fn make_timing_data(
+        kwargs: &[(String, TokenValue)],
+        midibeats: &HashMap<String, Vec<Beats>>,
+    ) -> anyhow::Result<TimingData> {
+        let splitter = KwargList::make_splitter(kwargs);
+        if let Ok(splitter) = splitter {
+            return Ok(TimingData::BeatSplitter(splitter));
+        }
+
+        let midibeat = KwargList::make_midibeat(kwargs, midibeats);
+        if let Ok(midibeat) = midibeat {
+            Ok(TimingData::MidiBeat(midibeat))
+        } else {
+            bail!("Failed to make beat splitter and midibeat with kwargs. splitter: {:?}, midibeat: {:?}", splitter, midibeat)
+        }
+    }
+
+    fn make_splitter(kwargs: &[(String, TokenValue)]) -> Result<BeatSplitter, KwargError> {
+        fn is_float(ty: &TokenValue) -> bool {
+            matches!(ty, TokenValue::Float(_))
+        }
+
+        let kwargs = KwargList::new(
+            &kwargs,
+            &[("start", &[&is_float]), ("freq", &[&is_float])],
+            &[("delay", &[&is_float]), ("offset", &[&is_float])],
+        )?;
+        Ok(BeatSplitter {
+            start: kwargs.get_float("start").unwrap(),
+            frequency: kwargs.get_float("freq").unwrap(),
+            offset: kwargs.get_float("offset").unwrap_or(0.0),
+            delay: kwargs.get_float("delay").unwrap_or(0.0),
+            ..Default::default()
+        })
+    }
+
+    fn make_midibeat(
+        kwargs: &[(String, TokenValue)],
+        midibeats: &HashMap<String, Vec<Beats>>,
+    ) -> anyhow::Result<(f64, Vec<Beats>)> {
+        fn is_float(ty: &TokenValue) -> bool {
+            matches!(ty, TokenValue::Float(_))
+        }
+        fn is_string(ty: &TokenValue) -> bool {
+            matches!(ty, TokenValue::String(_))
+        }
+
+        let kwargs = KwargList::new(
+            &kwargs,
+            &[("start", &[&is_float]), ("midibeat", &[&is_string])],
+            &[],
+        )?;
+        let name = kwargs.get_string("midibeat").unwrap();
+        let start = kwargs.get_float("start").unwrap();
+        match midibeats.get(&name).cloned() {
+            Some(midibeat) => Ok((start, midibeat)),
+            None => Err(anyhow!("Couldn't find midibeat {}", name)),
+        }
+    }
+
+    fn make_enemy(
+        kwargs: &[(String, TokenValue)],
+        positions: &Positions,
+    ) -> anyhow::Result<CmdBatch> {
+        fn is_enemy_type(ty: &TokenValue) -> bool {
+            matches!(ty, TokenValue::String(x) if x == "bullet" || x == "laser" || x == "bomb")
+        }
+
+        let kwarg_list = KwargList::new(&kwargs, &[("enemy", &[&is_enemy_type])], &[])?;
+
+        let cmd_batch = match kwarg_list.get_string("enemy").unwrap().as_str() {
+            "bullet" => {
+                let (start, end) = KwargList::make_two_point_enemy(kwargs, positions)?;
+                CmdBatch::Bullet { start, end }
+            }
+            "laser" => {
+                let (a, b) = KwargList::make_two_point_enemy(kwargs, positions)?;
+                CmdBatch::Laser { a, b }
+            }
+            "bomb" => KwargList::make_bomb(kwargs, positions)?,
+            x => bail!("Invalid enemy type: {}", x),
+        };
+
+        Ok(cmd_batch)
+    }
+
+    fn make_two_point_enemy(
+        kwargs: &[(String, TokenValue)],
+        positions: &Positions,
+    ) -> anyhow::Result<(CmdBatchPos, CmdBatchPos)> {
+        fn is_string(ty: &TokenValue) -> bool {
+            matches!(ty, TokenValue::String(_))
+        }
+        fn is_float_tuple(ty: &TokenValue) -> bool {
+            match ty {
+                TokenValue::Tuple(vec) => {
+                    matches!(vec[..], [TokenValue::Float(_), TokenValue::Float(_)])
+                }
+                _ => false,
+            }
+        }
+        fn is_lerper(ty: &TokenValue) -> bool {
+            match ty {
+                TokenValue::Tuple(vec) if vec.len() == 4 => {
+                    vec.iter().all(|ty| is_float_tuple(ty) || is_string(ty))
+                }
+                _ => false,
+            }
+        }
+        let kwargs = KwargList::new(&kwargs, &[("lerps", &[&is_lerper])], &[])?;
+
+        let lerps = kwargs.get("lerps").unwrap();
+        let (start_1, end_1, start_2, end_2) = match lerps {
+            TokenValue::Tuple(vec) => (
+                positions.lookup(&vec[0])?,
+                positions.lookup(&vec[1])?,
+                positions.lookup(&vec[2])?,
+                positions.lookup(&vec[3])?,
+            ),
+            _ => unreachable!(),
+        };
+
+        fn to_cmd_batch_pos(start: LiveWorldPos, end: LiveWorldPos) -> anyhow::Result<CmdBatchPos> {
+            match (start, end) {
+                (LiveWorldPos::Constant(start), LiveWorldPos::Constant(end)) => {
+                    Ok(CmdBatchPos::Lerped(start.tuple(), end.tuple()))
+                }
+                (LiveWorldPos::PlayerPos, LiveWorldPos::PlayerPos) => {
+                    Ok(CmdBatchPos::Constant(LiveWorldPos::PlayerPos))
+                }
+                _ => bail!(
+                    "Invalid CmdBatchPos combination: start: {:?} end: {:?}",
+                    start,
+                    end
+                ),
+            }
+        }
+
+        Ok((
+            to_cmd_batch_pos(start_1, start_2)?,
+            to_cmd_batch_pos(end_1, end_2)?,
+        ))
+    }
+
+    fn make_bomb(
+        kwargs: &[(String, TokenValue)],
+        positions: &Positions,
+    ) -> anyhow::Result<CmdBatch> {
+        fn is_string(ty: &TokenValue) -> bool {
+            matches!(ty, TokenValue::String(_))
+        }
+        fn is_float_tuple(ty: &TokenValue) -> bool {
+            match ty {
+                TokenValue::Tuple(vec) => {
+                    matches!(vec[..], [TokenValue::Float(_), TokenValue::Float(_)])
+                }
+                _ => false,
+            }
+        }
+        let kwargs = KwargList::new(&kwargs, &[("at", &[&is_string, &is_float_tuple])], &[])?;
+
+        let pos = match kwargs.get("at").unwrap() {
+            TokenValue::String(grid) if grid == *"grid" => CmdBatchPos::RandomGrid,
+            x => CmdBatchPos::Constant(positions.lookup(&x)?),
+        };
+        let cmd_batch = CmdBatch::CircleBomb { pos };
+        Ok(cmd_batch)
     }
 }
 
@@ -403,7 +512,7 @@ pub fn parse(input: &str) -> IResult<&str, SongChartCmds> {
             ),
         ),
         preceded(
-            tag_ws1("bulletlerp"),
+            tag_ws1("spawn"),
             map(separated_list0(space1, kwarg), |vec| {
                 SongChartCmds::SpawnEnemy(vec)
             }),
@@ -527,8 +636,8 @@ mod test {
     }
 
     #[test]
-    fn test_parse_bulletlerp1() {
-        let input = "bulletlerp start=16.0 freq=4.0 lerpstart=botleft lerpend=botright";
+    fn test_parse_spawn1() {
+        let input = "spawn start=16.0 freq=4.0 lerpstart=botleft lerpend=botright";
         let actual = parse(input);
         assert_eq!(
             actual,
@@ -551,8 +660,8 @@ mod test {
     }
 
     #[test]
-    fn test_parse_bulletlerp2() {
-        let input = "bulletlerp start=16.0 freq=4.0 lerpstart=(-50.0,50.0) lerpend=botright";
+    fn test_parse_spawn2() {
+        let input = "spawn start=16.0 freq=4.0 lerpstart=(-50.0,50.0) lerpend=botright";
         let actual = parse(input);
         let expected_tuple = vec![TokenValue::Float(-50.0), TokenValue::Float(50.0)];
         assert_eq!(
