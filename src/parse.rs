@@ -110,19 +110,6 @@ impl SongMap {
         }
         Ok(())
     }
-
-    pub fn get_beats(&self, name: &str) -> Vec<Beats> {
-        match self.midi_beats.get(name) {
-            Some(beats) => beats.clone(),
-            None => {
-                println!(
-                    "Warning: Could not find midi beat {}. Returning empty vector...",
-                    name
-                );
-                vec![]
-            }
-        }
-    }
 }
 
 impl Default for SongMap {
@@ -152,16 +139,17 @@ impl Positions {
                     Ok(LiveWorldPos::from(pos))
                 }
             },
-            TokenValue::Tuple(vec) => match vec[..] {
-                [TokenValue::Float(x), TokenValue::Float(y)] => Ok(LiveWorldPos::from((x, y))),
-                _ => bail!("Expected tuple of two floats, got {:?}", input),
-            },
+            val @ TokenValue::Tuple(_) => val
+                .to_float_tuple()
+                .map(LiveWorldPos::from)
+                .ok_or_else(|| anyhow!("Expected tuple of two flotas, got {:?}", val)),
             _ => bail!("Expected tuple of two floats or string, got {:?}", input),
         }
     }
 }
 
 pub enum TimingData {
+    OneShot(Beats),
     BeatSplitter(BeatSplitter),
     MidiBeat((f64, Vec<Beats>)),
 }
@@ -169,6 +157,7 @@ pub enum TimingData {
 impl TimingData {
     pub fn to_beat_vec(&self) -> Vec<(Beats, f64)> {
         match self {
+            TimingData::OneShot(time) => vec![(*time, 0.0)],
             TimingData::BeatSplitter(splitter) => splitter.split(),
             TimingData::MidiBeat((start, beats)) => crate::chart::mark_beats(*start, beats),
         }
@@ -232,23 +221,23 @@ impl KwargList {
     }
 
     fn get_float(&self, kwarg: &str) -> Option<f64> {
-        match self.get(kwarg) {
-            Some(TokenValue::Float(x)) => Some(x),
-            _ => None,
-        }
+        self.get(kwarg)?.to_float()
     }
 
     fn get_string(&self, kwarg: &str) -> Option<String> {
-        match self.get(kwarg) {
-            Some(TokenValue::String(x)) => Some(x),
-            _ => None,
-        }
+        self.get(kwarg)?.to_string()
     }
 
     fn make_timing_data(
         kwargs: &[(String, TokenValue)],
         midibeats: &HashMap<String, Vec<Beats>>,
     ) -> anyhow::Result<TimingData> {
+        let oneshot = KwargList::new(&kwargs, &[("oneshot", &[&TokenValue::is_float])], &[]);
+        if let Ok(oneshot) = oneshot {
+            let time = oneshot.get_float("oneshot").unwrap();
+            return Ok(TimingData::OneShot(Beats(time)));
+        }
+
         let splitter = KwargList::make_splitter(kwargs);
         if let Ok(splitter) = splitter {
             return Ok(TimingData::BeatSplitter(splitter));
@@ -308,11 +297,7 @@ impl KwargList {
         kwargs: &[(String, TokenValue)],
         positions: &Positions,
     ) -> anyhow::Result<CmdBatch> {
-        fn is_enemy_type(ty: &TokenValue) -> bool {
-            matches!(ty, TokenValue::String(x) if x == "bullet" || x == "laser" || x == "bomb")
-        }
-
-        let kwarg_list = KwargList::new(&kwargs, &[("enemy", &[&is_enemy_type])], &[])?;
+        let kwarg_list = KwargList::new(&kwargs, &[("enemy", &[&TokenValue::is_string])], &[])?;
 
         let cmd_batch = match kwarg_list.get_string("enemy").unwrap().as_str() {
             "bullet" => {
@@ -323,6 +308,7 @@ impl KwargList {
                 let (a, b) = KwargList::make_two_point_enemy(kwargs, positions)?;
                 CmdBatch::Laser { a, b }
             }
+            "laserangle" => KwargList::make_laser_angle(kwargs, positions)?,
             "bomb" => KwargList::make_bomb(kwargs, positions)?,
             x => bail!("Invalid enemy type: {}", x),
         };
@@ -394,6 +380,28 @@ impl KwargList {
         let cmd_batch = CmdBatch::CircleBomb { pos };
         Ok(cmd_batch)
     }
+
+    fn make_laser_angle(
+        kwargs: &[(String, TokenValue)],
+        positions: &Positions,
+    ) -> anyhow::Result<CmdBatch> {
+        let kwargs = KwargList::new(
+            &kwargs,
+            &[("at", &[&TokenValue::is_string, &TokenValue::is_float_tuple])],
+            &[("angle", &[&TokenValue::is_float])],
+        )?;
+
+        let position = match kwargs.get("at").unwrap() {
+            TokenValue::String(grid) if grid == *"grid" => CmdBatchPos::RandomGrid,
+            x => CmdBatchPos::Constant(positions.lookup(&x)?),
+        };
+
+        let angle = kwargs.get_float("angle").unwrap();
+        Ok(CmdBatch::LaserAngle {
+            position,
+            angle: angle.to_radians(),
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -438,19 +446,38 @@ pub enum TokenValue {
 
 impl TokenValue {
     fn is_float(ty: &TokenValue) -> bool {
-        matches!(ty, TokenValue::Float(_))
+        ty.to_float().is_some()
     }
 
     fn is_string(ty: &TokenValue) -> bool {
-        matches!(ty, TokenValue::String(_))
+        ty.to_string().is_some()
     }
 
     fn is_float_tuple(ty: &TokenValue) -> bool {
-        match ty {
-            TokenValue::Tuple(vec) => {
-                matches!(vec[..], [TokenValue::Float(_), TokenValue::Float(_)])
-            }
-            _ => false,
+        ty.to_float_tuple().is_some()
+    }
+
+    fn to_float(&self) -> Option<f64> {
+        match self {
+            TokenValue::Float(x) => Some(*x),
+            _ => None,
+        }
+    }
+
+    fn to_string(&self) -> Option<String> {
+        match self {
+            TokenValue::String(x) => Some(x.clone()),
+            _ => None,
+        }
+    }
+
+    fn to_float_tuple(&self) -> Option<(f64, f64)> {
+        match self {
+            TokenValue::Tuple(vec) => match vec[..] {
+                [TokenValue::Float(x), TokenValue::Float(y)] => Some((x, y)),
+                _ => None,
+            },
+            _ => None,
         }
     }
 }

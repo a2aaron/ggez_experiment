@@ -32,3 +32,28 @@ spawn enemy=bullet start=64.0 freq=1.0 lerps=(botleft, player, botright, player)
 # Measures 20 - 23 (beat 80)
 spawn enemy=laser start=80.0 midibeat=kick1laser lerps=(player, origin, player, origin)
 spawn enemy=bomb  start=80.0 midibeat=kick1bomb at=grid
+
+# Triple laser (beat 103)
+position left1 (-50.0, 0.0)
+position left2 (-40.0, 0.0)
+position left3 (-30.0, 0.0)
+position right1 (50.0, 0.0)
+position right2 (40.0, 0.0)
+position right3 (30.0, 0.0)
+
+
+spawn enemy=laserangle oneshot=103.0 angle=90.0 at=left1
+spawn enemy=laserangle oneshot=103.0 angle=90.0 at=left2
+spawn enemy=laserangle oneshot=103.0 angle=90.0 at=left3
+
+spawn enemy=laserangle oneshot=103.25 angle=90.0 at=right1
+spawn enemy=laserangle oneshot=103.25 angle=90.0 at=right2
+spawn enemy=laserangle oneshot=103.25 angle=90.0 at=right3
+
+spawn enemy=laserangle oneshot=103.50 angle=90.0 at=left1
+spawn enemy=laserangle oneshot=103.50 angle=90.0 at=left2
+spawn enemy=laserangle oneshot=103.50 angle=90.0 at=left3
+
+spawn enemy=laserangle oneshot=103.75 angle=90.0 at=right1
+spawn enemy=laserangle oneshot=103.75 angle=90.0 at=right2
+spawn enemy=laserangle oneshot=103.75 angle=90.0 at=right3
