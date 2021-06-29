@@ -1,3 +1,9 @@
+/// This module handles all of the parsing of song chart files, which describe
+/// how levels should be constructed. The actual parsing is handled by a bunch
+/// of small nom parsers. The files are line based, and each line is parsed into
+/// a SongChartCmd. These are used to drive the various things in SongMap. The
+/// main output from SongMap is cmd_batches, which is used in chart.rs to actually
+/// construct the list of BeatActions for the song.
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
@@ -22,6 +28,9 @@ use crate::time;
 use crate::time::Beats;
 use crate::world::WorldPos;
 
+/// This struct essentially acts as an interpreter for a song's file. All parsing
+/// occurs before the actual level is played, with the file format being line
+/// based.
 pub struct SongMap {
     pub skip_amount: Beats,
     pub bpm: f64,
@@ -31,6 +40,9 @@ pub struct SongMap {
 }
 
 impl SongMap {
+    /// Parse a file. Note that the only errors this function returns are errors
+    /// in reading the file. Any parsing errors are printed to stdout, but are
+    /// ignored otherwise.
     pub fn parse_file<P: AsRef<Path>>(
         ctx: &mut Context,
         path: P,
@@ -251,21 +263,24 @@ impl KwargList {
     }
 
     fn make_splitter(kwargs: &[(String, TokenValue)]) -> Result<BeatSplitter, KwargError> {
-        fn is_float(ty: &TokenValue) -> bool {
-            matches!(ty, TokenValue::Float(_))
-        }
-
         let kwargs = KwargList::new(
             &kwargs,
-            &[("start", &[&is_float]), ("freq", &[&is_float])],
-            &[("delay", &[&is_float]), ("offset", &[&is_float])],
+            &[
+                ("start", &[&TokenValue::is_float]),
+                ("freq", &[&TokenValue::is_float]),
+            ],
+            &[
+                ("delay", &[&TokenValue::is_float]),
+                ("offset", &[&TokenValue::is_float]),
+                ("duration", &[&TokenValue::is_float]),
+            ],
         )?;
         Ok(BeatSplitter {
             start: kwargs.get_float("start").unwrap(),
             frequency: kwargs.get_float("freq").unwrap(),
             offset: kwargs.get_float("offset").unwrap_or(0.0),
             delay: kwargs.get_float("delay").unwrap_or(0.0),
-            ..Default::default()
+            duration: kwargs.get_float("duration").unwrap_or(4.0 * 4.0),
         })
     }
 
@@ -273,16 +288,12 @@ impl KwargList {
         kwargs: &[(String, TokenValue)],
         midibeats: &HashMap<String, Vec<Beats>>,
     ) -> anyhow::Result<(f64, Vec<Beats>)> {
-        fn is_float(ty: &TokenValue) -> bool {
-            matches!(ty, TokenValue::Float(_))
-        }
-        fn is_string(ty: &TokenValue) -> bool {
-            matches!(ty, TokenValue::String(_))
-        }
-
         let kwargs = KwargList::new(
             &kwargs,
-            &[("start", &[&is_float]), ("midibeat", &[&is_string])],
+            &[
+                ("start", &[&TokenValue::is_float]),
+                ("midibeat", &[&TokenValue::is_string]),
+            ],
             &[],
         )?;
         let name = kwargs.get_string("midibeat").unwrap();
@@ -323,22 +334,11 @@ impl KwargList {
         kwargs: &[(String, TokenValue)],
         positions: &Positions,
     ) -> anyhow::Result<(CmdBatchPos, CmdBatchPos)> {
-        fn is_string(ty: &TokenValue) -> bool {
-            matches!(ty, TokenValue::String(_))
-        }
-        fn is_float_tuple(ty: &TokenValue) -> bool {
-            match ty {
-                TokenValue::Tuple(vec) => {
-                    matches!(vec[..], [TokenValue::Float(_), TokenValue::Float(_)])
-                }
-                _ => false,
-            }
-        }
         fn is_lerper(ty: &TokenValue) -> bool {
             match ty {
-                TokenValue::Tuple(vec) if vec.len() == 4 => {
-                    vec.iter().all(|ty| is_float_tuple(ty) || is_string(ty))
-                }
+                TokenValue::Tuple(vec) if vec.len() == 4 => vec
+                    .iter()
+                    .all(|ty| TokenValue::is_float_tuple(ty) || TokenValue::is_string(ty)),
                 _ => false,
             }
         }
@@ -381,18 +381,11 @@ impl KwargList {
         kwargs: &[(String, TokenValue)],
         positions: &Positions,
     ) -> anyhow::Result<CmdBatch> {
-        fn is_string(ty: &TokenValue) -> bool {
-            matches!(ty, TokenValue::String(_))
-        }
-        fn is_float_tuple(ty: &TokenValue) -> bool {
-            match ty {
-                TokenValue::Tuple(vec) => {
-                    matches!(vec[..], [TokenValue::Float(_), TokenValue::Float(_)])
-                }
-                _ => false,
-            }
-        }
-        let kwargs = KwargList::new(&kwargs, &[("at", &[&is_string, &is_float_tuple])], &[])?;
+        let kwargs = KwargList::new(
+            &kwargs,
+            &[("at", &[&TokenValue::is_string, &TokenValue::is_float_tuple])],
+            &[],
+        )?;
 
         let pos = match kwargs.get("at").unwrap() {
             TokenValue::String(grid) if grid == *"grid" => CmdBatchPos::RandomGrid,
@@ -441,6 +434,25 @@ pub enum TokenValue {
     Float(f64),
     #[display(fmt = "{:?}", _0)]
     Tuple(Vec<TokenValue>),
+}
+
+impl TokenValue {
+    fn is_float(ty: &TokenValue) -> bool {
+        matches!(ty, TokenValue::Float(_))
+    }
+
+    fn is_string(ty: &TokenValue) -> bool {
+        matches!(ty, TokenValue::String(_))
+    }
+
+    fn is_float_tuple(ty: &TokenValue) -> bool {
+        match ty {
+            TokenValue::Tuple(vec) => {
+                matches!(vec[..], [TokenValue::Float(_), TokenValue::Float(_)])
+            }
+            _ => false,
+        }
+    }
 }
 
 fn tag_ws0<'i>(the_tag: &'static str) -> impl FnMut(&'i str) -> IResult<&'i str, &'i str> {
