@@ -41,7 +41,7 @@ const MUSIC_PATH: &str = "/supersquare.mp3"; //"/metronome120.ogg"; // "/bbkkbkk
                                              // const ARIAL_PATH: &str = "/Arial.ttf";
 const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
 // Files manually read by me (usually maps)
-const MAP_PATH: &str = "/square.map";
+const MAP_PATH: &str = "/square.rhai";
 
 // Debug
 const USE_MAP: bool = true;
@@ -79,7 +79,7 @@ struct MainState {
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
-        let map = SongMap::parse_file(ctx, MAP_PATH).unwrap_or_default();
+        let map = SongMap::run_rhai(ctx, MAP_PATH).unwrap_or_default();
         let s = MainState {
             keyboard: KeyboardState::default(),
             time: Time::new(map.bpm, time::Seconds(0.0)),
@@ -95,7 +95,7 @@ impl MainState {
     }
 
     fn reset(&mut self, ctx: &mut Context) {
-        match SongMap::parse_file(ctx, MAP_PATH) {
+        match SongMap::run_rhai(ctx, MAP_PATH) {
             Ok(map) => self.map = map,
             Err(err) => println!("{:?}", err),
         }

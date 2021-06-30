@@ -22,40 +22,8 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new(_ctx: &mut Context, song_map: &SongMap) -> Scheduler {
-        let song_map_actions: Vec<BeatAction> = song_map
-            .cmd_batches
-            .iter()
-            .map(|(timing_data, cmd_batch)| {
-                timing_data
-                    .to_beat_vec()
-                    .iter()
-                    .map(|(start_time, t)| BeatAction::new(*start_time, cmd_batch.get(*t)))
-                    .collect::<Vec<BeatAction>>()
-            })
-            .flatten()
-            .collect();
-
-        // let stage = [make_actions_custom(20.0 * 4.0, &kick1solo, |i, _| {
-        //     fn vert_laser(x: f64) -> SpawnCmd {
-        //         const HALF_PI: f64 = std::f64::consts::PI / 2.0;
-        //         SpawnCmd::Laser {
-        //             angle: HALF_PI,
-        //             position: LiveWorldPos::from((x, 0.0)),
-        //         }
-        //     }
-
-        //     let sign = match i % 2 {
-        //         0 => -1.0,
-        //         _ => 1.0,
-        //     };
-        //     vec![
-        //         vert_laser(sign * 50.0),
-        //         vert_laser(sign * 40.0),
-        //         vert_laser(sign * 30.0),
-        //     ]
-        // })];
         Scheduler {
-            work_queue: BinaryHeap::from(song_map_actions),
+            work_queue: BinaryHeap::from(song_map.actions.clone()),
         }
     }
 
@@ -108,6 +76,15 @@ impl Default for BeatSplitter {
     }
 }
 
+impl IntoIterator for BeatSplitter {
+    type Item = (Beats, f64);
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.split().into_iter()
+    }
+}
+
 impl BeatSplitter {
     pub fn split(&self) -> Vec<(Beats, f64)> {
         let mut beats = vec![];
@@ -120,6 +97,56 @@ impl BeatSplitter {
             this_beat += self.frequency;
         }
         beats
+    }
+
+    pub fn with_start(self, start: f64) -> Self {
+        BeatSplitter {
+            start,
+            duration: self.duration,
+            frequency: self.frequency,
+            offset: self.offset,
+            delay: self.delay,
+        }
+    }
+
+    pub fn with_freq(self, frequency: f64) -> Self {
+        BeatSplitter {
+            start: self.start,
+            duration: self.duration,
+            frequency,
+            offset: self.offset,
+            delay: self.delay,
+        }
+    }
+
+    pub fn with_offset(self, offset: f64) -> Self {
+        BeatSplitter {
+            start: self.start,
+            duration: self.duration,
+            frequency: self.frequency,
+            offset,
+            delay: self.delay,
+        }
+    }
+
+    pub fn with_delay(self, delay: f64) -> Self {
+        BeatSplitter {
+            start: self.start,
+            duration: self.duration,
+            frequency: self.frequency,
+            offset: self.offset,
+            delay,
+        }
+    }
+
+    pub fn with_duration(self, duration: f64) -> Self {
+        BeatSplitter {
+            start: self.start,
+            duration,
+            frequency: self.frequency,
+            offset: self.offset,
+            delay: self.delay,
+        }
     }
 }
 
@@ -218,7 +245,7 @@ impl From<WorldPos> for CmdBatchPos {
 /// needed, and that some actions have a maximum latest time at which they can
 /// get scheduled at all.
 #[derive(Debug, Clone, Copy)]
-struct BeatAction {
+pub struct BeatAction {
     // Stored in reverse ordering so that we can get the _earliest_ beat when in
     // the scheduler, rather than the latest.
     start_time: Reverse<Beats>, // for the binary heap's ordering
@@ -229,7 +256,7 @@ impl BeatAction {
     /// Create a BeatAction. The action is scheduled at time `beat` if the
     /// SpawnCmd has no start time of its own, otherwise the action is scheduled
     /// (probably slightly earlier than the SpawnCmd's start time).
-    fn new(start_time: Beats, action: SpawnCmd) -> BeatAction {
+    pub fn new(start_time: Beats, action: SpawnCmd) -> BeatAction {
         let beat = match action {
             SpawnCmd::Bullet { .. } => start_time,
             // Schedule the lasers slightly earlier than their actual time
