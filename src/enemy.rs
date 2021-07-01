@@ -131,7 +131,7 @@ impl EnemyDurations {
 
     fn percent_over_curr_state(&self, delta_time: Beats) -> f64 {
         if delta_time < Beats(0.0) {
-            panic!("Delta time cannot be negative")
+            panic!("Delta time cannot be negative: {:?}", delta_time);
         } else if delta_time < self.warmup {
             self.percent_over_warmup(delta_time)
         } else if delta_time < self.warmup + self.active {

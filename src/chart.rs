@@ -6,10 +6,11 @@ use std::collections::BinaryHeap;
 
 use ggez::Context;
 
-use crate::enemy::{Bullet, CircleBomb, Enemy, Laser, BOMB_WARMUP, LASER_WARMUP};
+use crate::enemy::{Bullet, CircleBomb, EnemyLifetime, Laser, BOMB_WARMUP, LASER_WARMUP};
 use crate::parse::SongMap;
 use crate::time::Beats;
 use crate::world::WorldPos;
+use crate::WorldState;
 
 /// This struct contains all the events that occur during a song. It will perform
 /// a set of events every time update is called.
@@ -28,7 +29,7 @@ impl Scheduler {
     /// Preform the scheduled actions up to the new beat_time
     /// Note that this will execute every action since the last beat_time and
     /// current beat_time.
-    pub fn update(&mut self, time: Beats, enemies: &mut Vec<Box<dyn Enemy>>, player_pos: WorldPos) {
+    pub fn update(&mut self, time: Beats, world: &mut WorldState) {
         let rev_beat = Reverse(time);
         loop {
             match self.work_queue.peek_mut() {
@@ -36,9 +37,7 @@ impl Scheduler {
                     if (*peaked).start_time > rev_beat {
                         let beat_action = PeekMut::pop(peaked);
 
-                        beat_action
-                            .action
-                            .preform(beat_action.start_time.0, enemies, player_pos)
+                        beat_action.action.preform(beat_action.start_time.0, world)
                     } else {
                         return;
                     }
@@ -186,9 +185,6 @@ impl BeatAction {
     /// (probably slightly earlier than the SpawnCmd's start time).
     pub fn new(start_time: Beats, action: SpawnCmd) -> BeatAction {
         let beat = match action {
-            SpawnCmd::Bullet { .. } => start_time,
-            SpawnCmd::BulletAngleStart { .. } => start_time,
-            SpawnCmd::BulletAngleEnd { .. } => start_time,
             // Schedule the lasers slightly earlier than their actual time
             // so that the laser pre-delays occurs at the right time.
             // Since the laser predelay is 4 beats, but the laser constructors
@@ -198,6 +194,7 @@ impl BeatAction {
             SpawnCmd::Laser { .. } => start_time - LASER_WARMUP,
             SpawnCmd::LaserThruPoints { .. } => start_time - LASER_WARMUP,
             SpawnCmd::CircleBomb { .. } => start_time - BOMB_WARMUP,
+            _ => start_time,
         };
         BeatAction {
             start_time: Reverse(beat),
@@ -286,10 +283,13 @@ pub enum SpawnCmd {
     CircleBomb {
         pos: LiveWorldPos,
     },
+    ClearActiveEnemies,
+    ShowWarmup(bool),
 }
 
 impl SpawnCmd {
-    fn preform(&self, start_time: Beats, enemies: &mut Vec<Box<dyn Enemy>>, player_pos: WorldPos) {
+    fn preform(&self, start_time: Beats, world: &mut WorldState) {
+        let player_pos = world.player.pos;
         match *self {
             SpawnCmd::Bullet { start, end } => {
                 let bullet = Bullet::new(
@@ -298,7 +298,7 @@ impl SpawnCmd {
                     start_time,
                     Beats(4.0),
                 );
-                enemies.push(Box::new(bullet));
+                world.enemies.push(Box::new(bullet));
             }
             SpawnCmd::BulletAngleStart {
                 angle,
@@ -312,7 +312,7 @@ impl SpawnCmd {
                     y: start_pos.y + unit_y * length,
                 };
                 let bullet = Bullet::new(start_pos, end_pos, start_time, Beats(4.0));
-                enemies.push(Box::new(bullet));
+                world.enemies.push(Box::new(bullet));
             }
             SpawnCmd::BulletAngleEnd { angle, length, end } => {
                 let (unit_x, unit_y) = (angle.cos(), angle.sin());
@@ -323,7 +323,7 @@ impl SpawnCmd {
                 };
 
                 let bullet = Bullet::new(start_pos, end_pos, start_time, Beats(4.0));
-                enemies.push(Box::new(bullet));
+                world.enemies.push(Box::new(bullet));
             }
             SpawnCmd::Laser { position, angle } => {
                 let laser = Laser::new_through_point(
@@ -332,7 +332,7 @@ impl SpawnCmd {
                     start_time,
                     Beats(1.0),
                 );
-                enemies.push(Box::new(laser));
+                world.enemies.push(Box::new(laser));
             }
             SpawnCmd::LaserThruPoints { a, b } => {
                 let laser = Laser::new_through_points(
@@ -341,12 +341,22 @@ impl SpawnCmd {
                     start_time,
                     Beats(1.0),
                 );
-                enemies.push(Box::new(laser));
+                world.enemies.push(Box::new(laser));
             }
             SpawnCmd::CircleBomb { pos } => {
                 let bomb = CircleBomb::new(start_time, pos.world_pos(player_pos));
-                enemies.push(Box::new(bomb))
+                world.enemies.push(Box::new(bomb))
             }
+            SpawnCmd::ClearActiveEnemies => {
+                let removed = world.enemies.drain_filter(|enemy| {
+                    matches!(
+                        enemy.lifetime_state(start_time),
+                        EnemyLifetime::Active | EnemyLifetime::Cooldown
+                    )
+                });
+                world.fade_out.extend(removed);
+            }
+            SpawnCmd::ShowWarmup(show) => world.show_warmup = show,
         }
     }
 }

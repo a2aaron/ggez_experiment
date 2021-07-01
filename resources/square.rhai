@@ -15,9 +15,12 @@ Ex: do this:
 
 let map = default_map();
 map.set_bpm(150.0);
-map.set_skip_amount(27.0 * 4.0);
+map.set_skip_amount(25.0 * 4.0);
 
 // let kick1laser = to_beat_tuple(20.0 * 4.0, parse_midi("./resources/kick1.mid", 150.0));
+
+let buildup1main1 = to_beat_tuple(12.0 * 4.0, parse_midi("./resources/buildup1main1.mid", 150.0));
+let buildup1main2 = to_beat_tuple(16.0 * 4.0, parse_midi("./resources/buildup1main2.mid", 150.0));
 
 let drop1kick1 = to_beat_tuple(20.0 * 4.0, parse_midi("./resources/drop1kick1.mid", 150.0));
 let drop1kick2 = to_beat_tuple(26.0 * 4.0, parse_midi("./resources/drop1kick2.mid", 150.0));
@@ -31,7 +34,7 @@ let kick1solo = to_beat_tuple(20.0 * 4.0, parse_midi("./resources/kick1solo.mid"
 let kick2 = to_beat_tuple(28.0 * 4.0, parse_midi("./resources/kick2.mid", 150.0));
 // let main1 = to_beat_tuple(28.0 * 4.0, parse_midi("./resources/main1.mid", 150.0));
 
-let main_melo = parse_midi("./resources/mainsimple.mid", 150.0);
+let main_melo = parse_midi("./resources/mainsimpleadd.mid", 150.0);
 let main1 = to_beat_tuple(28.0 * 4.0, main_melo);
 let main2 = to_beat_tuple(32.0 * 4.0, main_melo);
 
@@ -133,6 +136,22 @@ fn laser_diamond(step) {
     }
 }
 
+fn bullet_player() {
+    return |beat, t, i| {
+        let pos = if i % 2 == 0 {
+            pos(-50.0, 50.0)
+        } else {
+            pos(50.0, 50.0)
+        };
+        return bullet(beat, pos, player());
+    }
+}
+
+fn clear_all(map, time) {
+    map.add_action(section_clear(time - 0.01));
+    return map;
+}
+
 let every4 = beat_splitter(0.0, 4.0);
 let every2 = beat_splitter(0.0, 2.0);
 let every1 = beat_splitter(0.0, 1.0);
@@ -140,6 +159,7 @@ let every1 = beat_splitter(0.0, 1.0);
 // Measures 4 - 7 (beat 16)
 map = bullet_lerp(map, every4.with_start(4.0 * 4.0), botleft, origin(), botright, origin());
 map = bullet_lerp(map, every4.with_start(4.0 * 4.0), topright, origin(), topleft, origin());
+
 
 // Measures 8 - 11 (beat 32)
 map = bullet_lerp(map, every2.with_start(8.0 * 4.0), topleft,  origin(), botleft,  origin());
@@ -150,10 +170,12 @@ map = bullet_lerp(map, every2.with_start(12.0 * 4.0), topright, topleft, botrigh
 map = bullet_lerp(map, every2.with_start(12.0 * 4.0).with_offset(1.0), botleft, botright, topleft, topright);
 
 // Measures 16 - 19 (beat 64)
-map = bullet_lerp(map, every1.with_start(16.0 * 4.0), topright, player(), topleft, player());
-map = bullet_lerp(map, every1.with_start(16.0 * 4.0).with_delay(0.5), botleft, player(), botright, player());
+map = make_actions(map, buildup1main2, bullet_player());
+// map = bullet_lerp(map, every1.with_start(16.0 * 4.0), topright, player(), topleft, player());
+// map = bullet_lerp(map, every1.with_start(16.0 * 4.0).with_delay(0.5), botleft, player(), botright, player());
 
 // [DROP]
+map = clear_all(map, 20.0 * 4.0);
 
 // Measure 24 - 27
 
@@ -162,19 +184,24 @@ map = make_actions(map, kick1bomb, bomb_grid());
 map = make_actions(map, drop1kick1, laser_circle(origin(), 0.0, -360.0 * 1.1));
 
 // Instant triple laser (beat 103)
+// map = clear_all(map, 103.0);
+map.add_action(show_warmup(103.0, false));
 map = make_actions(map, kick1solo, laser_solo());
+map.add_action(show_warmup(104.0, true));
 
 map = make_actions(map, drop1kick2, laser_circle(origin(), 0.0, 360.0 * 0.6));
 
 // Measure 28 - 31
+map = clear_all(map, 28.0 * 4.0);
 
-// map = make_actions(map, kick2, laser_circle(origin(), 0.0, -360.0 * 2.0));
-map = make_actions(map, main1, bullet_circle_in(origin(), 50.0, 0.0, 360.0 * 3.1));
-map = make_actions(map, main2, bullet_circle_in(origin(), 50.0, 60.0, 360.0 * 3.1));
+map = make_actions(map, main1, bullet_circle_in(origin(), 60.0, 0.0, 360.0 * 3.1));
+map = make_actions(map, main2, bullet_circle_in(origin(), 60.0, 60.0, -360.0 * 3.1));
 
 map = make_actions(map, drop1kick3, laser_diamond(true));
 map = make_actions(map, drop1kick4, laser_diamond(false));
 
-
+// [BREAK]
+// Measure 32 - 36
+map = clear_all(map, 36.0 * 4.0);
 
 map

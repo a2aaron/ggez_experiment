@@ -1,3 +1,4 @@
+#![feature(drain_filter)]
 #![feature(trait_alias)]
 
 use std::env;
@@ -62,14 +63,32 @@ impl Assets {
     }
 }
 
+pub struct WorldState {
+    pub player: Player,
+    pub enemies: Vec<Box<dyn Enemy>>,
+    pub fade_out: Vec<Box<dyn Enemy>>,
+    pub show_warmup: bool,
+}
+
+impl WorldState {
+    fn new() -> WorldState {
+        WorldState {
+            player: Player::new(),
+            // Usually there are less than 128 enemies on screen, right??
+            enemies: Vec::with_capacity(128),
+            fade_out: Vec::with_capacity(128),
+            show_warmup: true,
+        }
+    }
+}
+
 struct MainState {
     scheduler: Scheduler,
     time: Time,
     keyboard: KeyboardState,
     assets: Assets,
     started: bool,
-    player: Player,
-    enemies: Vec<Box<dyn Enemy>>,
+    world: WorldState,
     debug: Option<Box<dyn Enemy>>,
     map: SongMap,
 }
@@ -82,8 +101,7 @@ impl MainState {
             time: Time::new(map.bpm, time::Seconds(0.0)),
             started: false,
             assets: Assets::new(ctx)?,
-            player: Player::new(),
-            enemies: vec![],
+            world: WorldState::new(),
             scheduler: Scheduler::new(ctx, &map),
             debug: None,
             map,
@@ -98,8 +116,7 @@ impl MainState {
         }
         let skip_amount = to_secs(self.map.skip_amount, self.map.bpm);
         self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
-        self.enemies.clear();
-        self.player = Player::new();
+        self.world = WorldState::new();
         self.scheduler = Scheduler::new(ctx, &self.map);
         self.assets.music.set_skip_amount(skip_amount.as_duration());
         self.assets.music.set_volume(0.5);
@@ -113,11 +130,15 @@ impl MainState {
     }
 
     fn update_scheduler(&mut self, time: Beats) {
-        self.scheduler
-            .update(time, &mut self.enemies, self.player.pos);
+        self.scheduler.update(time, &mut self.world);
 
         // Delete all dead enemies
-        self.enemies
+        self.world
+            .enemies
+            .retain(|e| e.lifetime_state(time) != EnemyLifetime::Dead);
+
+        self.world
+            .fade_out
             .retain(|e| e.lifetime_state(time) != EnemyLifetime::Dead);
     }
 
@@ -129,11 +150,14 @@ impl MainState {
             "Measure: {}, Beat: {:.2?}\nPlayer position: {:.2?} ({:.2?}, {:.2?})\nDelta: {:.2?}",
             (beat_time.0 / 4.0) as i32,
             beat_time.0,
-            self.player.pos,
-            self.player.pos.as_screen_coords().x,
-            self.player.pos.as_screen_coords().y,
+            self.world.player.pos,
+            self.world.player.pos.as_screen_coords().x,
+            self.world.player.pos.as_screen_coords().y,
             delta
         );
+        if delta > std::time::Duration::from_millis(16) {
+            println!("Slow frame! {:?}", delta);
+        }
         let fragment = TextFragment {
             text,
             color: Some(color::DEBUG_RED),
@@ -239,21 +263,27 @@ impl event::EventHandler for MainState {
                 debug.update(curr_time);
             }
 
-            self.player.update(physics_delta_time, &self.keyboard);
-            for enemy in self.enemies.iter_mut() {
+            self.world.player.update(physics_delta_time, &self.keyboard);
+            for enemy in self.world.enemies.iter_mut() {
                 enemy.update(curr_time);
-                if let Some(sdf) = enemy.sdf(self.player.pos, curr_time) {
-                    if sdf < self.player.size {
-                        self.player.on_hit();
+                if let Some(sdf) = enemy.sdf(self.world.player.pos, curr_time) {
+                    if sdf < self.world.player.size {
+                        self.world.player.on_hit();
                     }
                 }
+            }
+
+            // Update enemies in the fade_out vector, but don't do any hit detection
+            // on them.
+            for enemy in self.world.fade_out.iter_mut() {
+                enemy.update(curr_time);
             }
 
             self.update_scheduler(curr_time);
 
             ggez::graphics::window(ctx).set_title(&format!("{}", ggez::timer::fps(ctx)));
         }
-        ggez::timer::sleep(ggez::timer::remaining_update_time(ctx));
+        // ggez::timer::sleep(ggez::timer::remaining_update_time(ctx));
 
         Ok(())
     }
@@ -290,14 +320,26 @@ impl event::EventHandler for MainState {
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         graphics::clear(ctx, ggez::graphics::Color::BLACK);
         // ggez::graphics::set_screen_coordinates(ctx, Rect::new(-320.0, 240.0, 640.0, -480.0))?;
+        let curr_time = self.time.get_beats();
 
-        for enemy in self.enemies.iter() {
+        for enemy in self.world.enemies.iter() {
+            if !self.world.show_warmup && enemy.lifetime_state(curr_time) == EnemyLifetime::Warmup {
+                continue;
+            }
+
             enemy.draw(ctx, self.time.get_beats())?;
         }
-        let player_mesh = self.player.get_mesh(ctx)?;
+
+        if curr_time.0 % 0.125 < 0.125 / 2.0 {
+            for enemy in self.world.fade_out.iter() {
+                enemy.draw(ctx, self.time.get_beats())?;
+            }
+        }
+
+        let player_mesh = self.world.player.get_mesh(ctx)?;
         player_mesh.draw(
             ctx,
-            DrawParam::default().dest(self.player.pos.as_screen_coords()),
+            DrawParam::default().dest(self.world.player.pos.as_screen_coords()),
         )?;
 
         self.draw_debug_time(ctx)?;
@@ -305,7 +347,7 @@ impl event::EventHandler for MainState {
         self.draw_debug_hitbox(ctx)?;
         graphics::present(ctx)?;
         // We are done with this frame, sleep till the next frame
-        // ggez::timer::yield_now();
+        ggez::timer::yield_now();
         Ok(())
     }
 }

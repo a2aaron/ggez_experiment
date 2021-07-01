@@ -60,6 +60,9 @@ impl SongMap {
         // Create scripting engine
         let mut engine = rhai::Engine::new();
 
+        // Allow deeply nested expressions
+        engine.set_max_expr_depths(0, 0);
+
         // Register functions for use within the rhai file.
 
         // SongMap commands
@@ -193,19 +196,13 @@ impl SongMap {
             .register_fn(
                 "bullet",
                 |start_time: f64, start: LiveWorldPos, end: LiveWorldPos| {
-                    BeatAction::new(
-                        Beats(start_time),
-                        crate::chart::SpawnCmd::Bullet { start, end },
-                    )
+                    BeatAction::new(Beats(start_time), SpawnCmd::Bullet { start, end })
                 },
             )
             .register_fn(
                 "laser",
                 |start_time: f64, a: LiveWorldPos, b: LiveWorldPos| {
-                    BeatAction::new(
-                        Beats(start_time),
-                        crate::chart::SpawnCmd::LaserThruPoints { a, b },
-                    )
+                    BeatAction::new(Beats(start_time), SpawnCmd::LaserThruPoints { a, b })
                 },
             )
             .register_fn(
@@ -213,7 +210,7 @@ impl SongMap {
                 |start_time: f64, position: LiveWorldPos, angle: f64| {
                     BeatAction::new(
                         Beats(start_time),
-                        crate::chart::SpawnCmd::Laser {
+                        SpawnCmd::Laser {
                             position,
                             angle: angle.to_radians(),
                         },
@@ -221,10 +218,13 @@ impl SongMap {
                 },
             )
             .register_fn("bomb", |start_time: f64, pos: LiveWorldPos| {
-                BeatAction::new(
-                    Beats(start_time),
-                    crate::chart::SpawnCmd::CircleBomb { pos },
-                )
+                BeatAction::new(Beats(start_time), SpawnCmd::CircleBomb { pos })
+            })
+            .register_fn("section_clear", |start_time| {
+                BeatAction::new(Beats(start_time), SpawnCmd::ClearActiveEnemies)
+            })
+            .register_fn("show_warmup", |start_time: f64, show: bool| {
+                BeatAction::new(Beats(start_time), SpawnCmd::ShowWarmup(show))
             });
 
         engine.eval::<SongMap>(script)
