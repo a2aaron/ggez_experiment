@@ -6,11 +6,9 @@ use std::collections::BinaryHeap;
 
 use ggez::Context;
 
-use crate::ease::Lerp;
 use crate::enemy::{Bullet, CircleBomb, Enemy, Laser, BOMB_WARMUP, LASER_WARMUP};
 use crate::parse::SongMap;
 use crate::time::Beats;
-use crate::util;
 use crate::world::WorldPos;
 
 /// This struct contains all the events that occur during a song. It will perform
@@ -165,76 +163,6 @@ pub fn mark_beats(start: f64, beats: &[Beats]) -> Vec<(Beats, f64)> {
     marked_beats
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum CmdBatch {
-    Bullet {
-        start: CmdBatchPos,
-        end: CmdBatchPos,
-    },
-    Laser {
-        a: CmdBatchPos,
-        b: CmdBatchPos,
-    },
-    LaserAngle {
-        position: CmdBatchPos,
-        angle: f64,
-    },
-    CircleBomb {
-        pos: CmdBatchPos,
-    },
-}
-impl CmdBatch {
-    fn get(&self, t: f64) -> SpawnCmd {
-        match self {
-            CmdBatch::Bullet { start, end } => SpawnCmd::Bullet {
-                start: start.get(t),
-                end: end.get(t),
-            },
-            CmdBatch::Laser { a, b } => SpawnCmd::LaserThruPoints {
-                a: a.get(t),
-                b: b.get(t),
-            },
-            CmdBatch::CircleBomb { pos } => SpawnCmd::CircleBomb { pos: pos.get(t) },
-            CmdBatch::LaserAngle { position, angle } => SpawnCmd::Laser {
-                position: position.get(t),
-                angle: *angle,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-// A position which is static and does not depend on run time information, but
-// maybe depend on the time at which is meant to exist at. This is useful for
-// representing batches of objects.
-pub enum CmdBatchPos {
-    Lerped((f64, f64), (f64, f64)),
-    Constant(LiveWorldPos),
-    RandomGrid,
-}
-
-impl CmdBatchPos {
-    fn get(&self, t: f64) -> LiveWorldPos {
-        match *self {
-            CmdBatchPos::Lerped(start, end) => {
-                let a = WorldPos::from(start);
-                let b = WorldPos::from(end);
-                LiveWorldPos::Constant(WorldPos::lerp(a, b, t))
-            }
-            CmdBatchPos::Constant(pos) => pos,
-            CmdBatchPos::RandomGrid => {
-                LiveWorldPos::from(util::random_grid((-50.0, 50.0), (-50.0, 50.0), 10))
-            }
-        }
-    }
-}
-
-impl From<WorldPos> for CmdBatchPos {
-    fn from(x: WorldPos) -> Self {
-        CmdBatchPos::Constant(LiveWorldPos::Constant(x))
-    }
-}
-
 /// A wrapper struct of a Beat and a Boxed Action. The beat has reversed ordering
 /// to allow for the Scheduler to actually get the latest beat times.
 /// When used in the Scheduler, the action is `perform`'d when `beat` occurs.
@@ -259,6 +187,8 @@ impl BeatAction {
     pub fn new(start_time: Beats, action: SpawnCmd) -> BeatAction {
         let beat = match action {
             SpawnCmd::Bullet { .. } => start_time,
+            SpawnCmd::BulletAngleStart { .. } => start_time,
+            SpawnCmd::BulletAngleEnd { .. } => start_time,
             // Schedule the lasers slightly earlier than their actual time
             // so that the laser pre-delays occurs at the right time.
             // Since the laser predelay is 4 beats, but the laser constructors
@@ -335,6 +265,16 @@ pub enum SpawnCmd {
         start: LiveWorldPos,
         end: LiveWorldPos,
     },
+    BulletAngleStart {
+        angle: f64,
+        length: f64,
+        start: LiveWorldPos,
+    },
+    BulletAngleEnd {
+        angle: f64,
+        length: f64,
+        end: LiveWorldPos,
+    },
     Laser {
         position: LiveWorldPos,
         angle: f64,
@@ -358,6 +298,31 @@ impl SpawnCmd {
                     start_time,
                     Beats(4.0),
                 );
+                enemies.push(Box::new(bullet));
+            }
+            SpawnCmd::BulletAngleStart {
+                angle,
+                length,
+                start,
+            } => {
+                let (unit_x, unit_y) = (angle.cos(), angle.sin());
+                let start_pos = start.world_pos(player_pos);
+                let end_pos = WorldPos {
+                    x: start_pos.x + unit_x * length,
+                    y: start_pos.y + unit_y * length,
+                };
+                let bullet = Bullet::new(start_pos, end_pos, start_time, Beats(4.0));
+                enemies.push(Box::new(bullet));
+            }
+            SpawnCmd::BulletAngleEnd { angle, length, end } => {
+                let (unit_x, unit_y) = (angle.cos(), angle.sin());
+                let end_pos = end.world_pos(player_pos);
+                let start_pos = WorldPos {
+                    x: end_pos.x - unit_x * length,
+                    y: end_pos.y - unit_y * length,
+                };
+
+                let bullet = Bullet::new(start_pos, end_pos, start_time, Beats(4.0));
                 enemies.push(Box::new(bullet));
             }
             SpawnCmd::Laser { position, angle } => {

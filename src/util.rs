@@ -31,7 +31,6 @@ pub fn into_cg<T>(point: mint::Point2<T>) -> cgmath::Point2<T> {
     cgmath::Point2::new(point.x, point.y)
 }
 
-#[allow(dead_code)]
 /// Return a random WorldPos along the edge of a circle.
 pub fn rand_circle_edge(center: WorldPos, radius: f64) -> WorldPos {
     let angle = thread_rng().gen_range(0.0..2.0) * std::f64::consts::PI;

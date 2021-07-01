@@ -195,9 +195,9 @@ impl EnemyImpl for Bullet {
         let total_percent = delta_time.0 / self.duration.0;
         self.pos = WorldPos::lerp(self.start_pos, self.end_pos, total_percent);
 
-        let beat_percent = delta_time.0 % 1.0;
-        self.glow_size = self.size + WorldLen(5.0 * crate::util::rev_quartic(beat_percent));
-        self.glow_trans = 0.5 * (1.0 - beat_percent as f32).powi(4);
+        let percent = curr_time.0 % 1.0;
+        self.glow_size = self.size + WorldLen(5.0 * crate::util::rev_quartic(percent));
+        self.glow_trans = 0.5 * (1.0 - percent as f32).powi(4);
     }
 
     fn sdf(&self, pos: WorldPos, _curr_time: Beats) -> WorldLen {

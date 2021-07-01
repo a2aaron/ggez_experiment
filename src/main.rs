@@ -18,7 +18,7 @@ use chart::Scheduler;
 use enemy::{Enemy, EnemyLifetime};
 use keyboard::KeyboardState;
 use player::Player;
-use time::{to_secs, Time};
+use time::{to_secs, Beats, Time};
 use world::{WorldLen, WorldPos};
 
 use crate::parse::SongMap;
@@ -42,9 +42,6 @@ const MUSIC_PATH: &str = "/supersquare.mp3"; //"/metronome120.ogg"; // "/bbkkbkk
 const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
 // Files manually read by me (usually maps)
 const MAP_PATH: &str = "/square.rhai";
-
-// Debug
-const USE_MAP: bool = true;
 
 pub const WINDOW_WIDTH: f32 = 640.0;
 pub const WINDOW_HEIGHT: f32 = 480.0;
@@ -79,7 +76,7 @@ struct MainState {
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
-        let map = SongMap::run_rhai(ctx, MAP_PATH).unwrap_or_default();
+        let map = SongMap::read_map(ctx, MAP_PATH).unwrap_or_default();
         let s = MainState {
             keyboard: KeyboardState::default(),
             time: Time::new(map.bpm, time::Seconds(0.0)),
@@ -95,7 +92,7 @@ impl MainState {
     }
 
     fn reset(&mut self, ctx: &mut Context) {
-        match SongMap::run_rhai(ctx, MAP_PATH) {
+        match SongMap::read_map(ctx, MAP_PATH) {
             Ok(map) => self.map = map,
             Err(err) => println!("{:?}", err),
         }
@@ -104,23 +101,33 @@ impl MainState {
         self.enemies.clear();
         self.player = Player::new();
         self.scheduler = Scheduler::new(ctx, &self.map);
-        self.time = Time::new(self.map.bpm, skip_amount);
         self.assets.music.set_skip_amount(skip_amount.as_duration());
         self.assets.music.set_volume(0.5);
+
+        // Simulate all events up to this point. We do this before the level
+        // starts in order to reduce the amount of BeatActions the scheduler needs
+        // to perform immediately, which could be a lot if there were many events.
+        // self.update_with_time(0.0, self.map.skip_amount);
+
+        self.time = Time::new(self.map.bpm, skip_amount);
+    }
+
+    fn update_scheduler(&mut self, time: Beats) {
+        self.scheduler
+            .update(time, &mut self.enemies, self.player.pos);
+
+        // Delete all dead enemies
+        self.enemies
+            .retain(|e| e.lifetime_state(time) != EnemyLifetime::Dead);
     }
 
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
     fn draw_debug_time(&mut self, ctx: &mut Context) -> GameResult<()> {
         let beat_time = self.time.get_beats();
-        // let text = &format!(
-        //     "Measure: {:2?}, Beat: {:2?}, Offset: {:3?}",
-        //     beat_time.beat / 4,
-        //     beat_time.beat % 4,
-        //     beat_time.offset
-        // )[..];
         let delta = ggez::timer::delta(ctx);
         let text = format!(
-            "Beat: {:.2?}\nPlayer position: {:.2?} ({:.2?}, {:.2?})\nDelta: {:.2?}",
+            "Measure: {}, Beat: {:.2?}\nPlayer position: {:.2?} ({:.2?}, {:.2?})\nDelta: {:.2?}",
+            (beat_time.0 / 4.0) as i32,
             beat_time.0,
             self.player.pos,
             self.player.pos.as_screen_coords().x,
@@ -241,14 +248,8 @@ impl event::EventHandler for MainState {
                     }
                 }
             }
-            if USE_MAP {
-                self.scheduler
-                    .update(self.time.get_beats(), &mut self.enemies, self.player.pos);
-            }
 
-            // Delete all dead enemies
-            self.enemies
-                .retain(|e| e.lifetime_state(curr_time) != EnemyLifetime::Dead);
+            self.update_scheduler(curr_time);
 
             ggez::graphics::window(ctx).set_title(&format!("{}", ggez::timer::fps(ctx)));
         }

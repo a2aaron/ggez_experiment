@@ -1,15 +1,15 @@
-use std::fmt;
 use std::io::Read;
 use std::path::Path;
 
 use ggez::Context;
 use midly::Smf;
+use rand::Rng;
 
 use crate::chart::{mark_beats, BeatAction, BeatSplitter, LiveWorldPos, SpawnCmd};
 use crate::ease::Lerp;
-use crate::time;
 use crate::time::Beats;
 use crate::world::WorldPos;
+use crate::{time, util};
 
 /// This struct essentially acts as an interpreter for a song's file. All parsing
 /// occurs before the actual level is played, with the file format being line
@@ -22,7 +22,7 @@ pub struct SongMap {
 }
 
 impl SongMap {
-    pub fn run_rhai<P: AsRef<Path>>(
+    pub fn read_map<P: AsRef<Path>>(
         ctx: &mut Context,
         path: P,
     ) -> Result<SongMap, Box<dyn std::error::Error>> {
@@ -31,11 +31,34 @@ impl SongMap {
         let mut script = String::new();
         file.read_to_string(&mut script)?;
 
+        // Spawn a seperate thread to evaluate the script. This is done because
+        // some Rhai scripts seem to cause the engine to lock up forever as it
+        // tries to compile it. To avoid this, we use a channel with a timeout.
+        // See also: https://github.com/rhaiscript/rhai/issues/421
+        // Note that this will result in the thread just dangling forever, doing
+        // active work, so it would be Really Good if this bug got fixed.
+        let (send, recv) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let result = SongMap::run_rhai(script.as_str());
+            match result {
+                Ok(result) => match send.send(result) {
+                    Ok(()) => (),
+                    Err(err) => println!("Sending evulation result failed! {:?}", err),
+                },
+                Err(err) => println!("Evaluation of script failed! {:?}", err),
+            };
+        });
+
+        match recv.recv_timeout(std::time::Duration::new(1, 0)) {
+            Ok(result) => Ok(result),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    pub fn run_rhai(script: &str) -> Result<SongMap, Box<rhai::EvalAltResult>> {
         // Create scripting engine
         let mut engine = rhai::Engine::new();
-
-        // Avoid infinite loops killing the game.
-        engine.set_max_operations(10_000);
 
         // Register functions for use within the rhai file.
 
@@ -72,6 +95,40 @@ impl SongMap {
                 Err(err) => Err(err.to_string().into()),
             }
         });
+
+        engine.register_fn("lerp", |start: f64, end: f64, t: f64| {
+            f64::lerp(start, end, t)
+        });
+
+        engine.register_fn(
+            "circle",
+            |center_x: f64, center_y: f64, radius: f64, angle: f64| {
+                let angle = angle.to_radians();
+                LiveWorldPos::from((
+                    angle.cos() * radius + center_x,
+                    angle.sin() * radius + center_y,
+                ))
+            },
+        );
+
+        engine.register_fn("grid", || {
+            LiveWorldPos::from(util::random_grid((-50.0, 50.0), (-50.0, 50.0), 20))
+        });
+
+        engine.register_result_fn("random", |min: f64, max: f64| {
+            if min < max {
+                Ok(rand::thread_rng().gen_range(min..max))
+            } else {
+                Err(format!("min: {} must be smaller than max: {}", min, max).into())
+            }
+        });
+
+        // Iterators
+        engine.register_fn("to_beat_tuple", |start: f64, beats: Vec<Beats>| {
+            mark_beats(start, &beats)
+        });
+
+        engine.register_iterator::<Vec<(Beats, f64)>>();
 
         // Beat splitting things
         engine
@@ -113,7 +170,16 @@ impl SongMap {
 
         engine
             .register_type::<LiveWorldPos>()
-            .register_type::<SpawnCmd>();
+            .register_get_result("x", |pos: &mut LiveWorldPos| match pos {
+                LiveWorldPos::Constant(pos) => Ok(pos.x),
+                _ => Err("Position is a symbolic player position".into()),
+            })
+            .register_get_result("y", |pos: &mut LiveWorldPos| match pos {
+                LiveWorldPos::Constant(pos) => Ok(pos.y),
+                _ => Err("Position is a symbolic player position".into()),
+            });
+
+        engine.register_type::<SpawnCmd>();
 
         // Needed so that we can split apart tuples.
         engine
@@ -121,18 +187,47 @@ impl SongMap {
             .register_fn("get_beat", |x: (Beats, f64)| x.0 .0)
             .register_fn("get_percent", |x: (Beats, f64)| x.1);
 
-        fn make_bullet(start_time: f64, start: LiveWorldPos, end: LiveWorldPos) -> BeatAction {
-            BeatAction::new(
-                Beats(start_time),
-                crate::chart::SpawnCmd::Bullet { start, end },
-            )
-        }
-
+        // Enemy creation
         engine
             .register_type::<BeatAction>()
-            .register_fn("bullet", make_bullet);
+            .register_fn(
+                "bullet",
+                |start_time: f64, start: LiveWorldPos, end: LiveWorldPos| {
+                    BeatAction::new(
+                        Beats(start_time),
+                        crate::chart::SpawnCmd::Bullet { start, end },
+                    )
+                },
+            )
+            .register_fn(
+                "laser",
+                |start_time: f64, a: LiveWorldPos, b: LiveWorldPos| {
+                    BeatAction::new(
+                        Beats(start_time),
+                        crate::chart::SpawnCmd::LaserThruPoints { a, b },
+                    )
+                },
+            )
+            .register_fn(
+                "laser_angle",
+                |start_time: f64, position: LiveWorldPos, angle: f64| {
+                    BeatAction::new(
+                        Beats(start_time),
+                        crate::chart::SpawnCmd::Laser {
+                            position,
+                            angle: angle.to_radians(),
+                        },
+                    )
+                },
+            )
+            .register_fn("bomb", |start_time: f64, pos: LiveWorldPos| {
+                BeatAction::new(
+                    Beats(start_time),
+                    crate::chart::SpawnCmd::CircleBomb { pos },
+                )
+            });
 
-        Ok(engine.eval::<SongMap>(script.as_str())?)
+        engine.eval::<SongMap>(script)
     }
 
     fn set_bpm(&mut self, bpm: f64) {
@@ -159,21 +254,6 @@ impl Default for SongMap {
             skip_amount: Beats(0.0),
             bpm: 150.0,
             actions: vec![],
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum TimingData {
-    BeatSplitter(BeatSplitter),
-    MidiBeat((f64, Vec<Beats>)),
-}
-
-impl TimingData {
-    pub fn to_beat_vec(&self) -> Vec<(Beats, f64)> {
-        match self {
-            TimingData::BeatSplitter(splitter) => splitter.split(),
-            TimingData::MidiBeat((start, beats)) => crate::chart::mark_beats(*start, beats),
         }
     }
 }
