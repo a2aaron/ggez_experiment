@@ -63,6 +63,13 @@ impl WorldPos {
         )
     }
 
+    pub fn as_mint(&self) -> mint::Point2<f32> {
+        mint::Point2 {
+            x: self.x as f32,
+            y: self.y as f32,
+        }
+    }
+
     pub fn distance(a: WorldPos, b: WorldPos) -> WorldLen {
         let dx = a.x - b.x;
         let dy = a.y - b.y;

@@ -15,7 +15,7 @@ Ex: do this:
 
 let map = default_map();
 map.set_bpm(150.0);
-map.set_skip_amount(25.0 * 4.0);
+map.set_skip_amount(0.0 * 4.0);
 
 // let kick1laser = to_beat_tuple(20.0 * 4.0, parse_midi("./resources/kick1.mid", 150.0));
 
@@ -180,10 +180,10 @@ map = clear_all(map, 20.0 * 4.0);
 // Measure 24 - 27
 
 map = make_actions(map, kick1bomb, bomb_grid());
-
 map = make_actions(map, drop1kick1, laser_circle(origin(), 0.0, -360.0 * 1.1));
 
 // Instant triple laser (beat 103)
+
 // map = clear_all(map, 103.0);
 map.add_action(show_warmup(103.0, false));
 map = make_actions(map, kick1solo, laser_solo());

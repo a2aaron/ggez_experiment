@@ -1,5 +1,6 @@
 #![feature(drain_filter)]
 #![feature(trait_alias)]
+#![feature(float_interpolation)]
 
 use std::env;
 use std::path::PathBuf;
@@ -156,7 +157,7 @@ impl MainState {
             delta
         );
         if delta > std::time::Duration::from_millis(16) {
-            println!("Slow frame! {:?}", delta);
+            log::warn!("Slow frame! {:?}", delta);
         }
         let fragment = TextFragment {
             text,
@@ -213,7 +214,9 @@ impl MainState {
 
     fn draw_debug_hitbox(&self, ctx: &mut Context) -> Result<(), GameError> {
         if let Some(enemy) = &self.debug {
-            // enemy.draw(ctx)?;
+            if ggez::input::keyboard::is_key_pressed(ctx, KeyCode::C) {
+                enemy.draw(ctx, self.time.get_beats())?;
+            }
 
             for x in -20..20 {
                 for y in -20..20 {
@@ -310,6 +313,16 @@ impl event::EventHandler for MainState {
                 drop(self.assets.music.play(ctx));
             }
         }
+
+        if keycode == KeyCode::X {
+            self.debug = Some(Box::new(crate::enemy::Laser::new_through_points(
+                WorldPos::origin(),
+                self.world.player.pos,
+                self.time.get_beats(),
+                Beats(16.0),
+            )));
+        }
+
         self.keyboard.update(keycode, true);
     }
 
@@ -319,7 +332,6 @@ impl event::EventHandler for MainState {
 
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         graphics::clear(ctx, ggez::graphics::Color::BLACK);
-        // ggez::graphics::set_screen_coordinates(ctx, Rect::new(-320.0, 240.0, 640.0, -480.0))?;
         let curr_time = self.time.get_beats();
 
         for enemy in self.world.enemies.iter() {
@@ -373,6 +385,12 @@ pub fn main() {
     } else {
         println!("Not building from cargo");
     }
+
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .init()
+        .unwrap();
+
     let (mut ctx, events_loop) = cb.build().unwrap();
     let state = MainState::new(&mut ctx).unwrap();
     ggez::event::run(ctx, events_loop, state);

@@ -1,10 +1,10 @@
-use ggez::graphics::{BlendMode, Color, DrawMode, DrawParam, Drawable, Mesh, MeshBuilder};
-use ggez::{mint, Context, GameResult};
+use ggez::graphics::{Color, DrawMode, DrawParam, Drawable, Mesh, MeshBuilder};
+use ggez::{Context, GameResult};
 
 use cg::prelude::*;
 use cgmath as cg;
 
-use crate::color::{self, GREEN, LASER_RED, RED, TRANSPARENT, WHITE};
+use crate::color::{self, LASER_RED, RED, TRANSPARENT, WHITE};
 use crate::ease::{Easing, Lerp};
 use crate::time::Beats;
 use crate::util;
@@ -16,14 +16,15 @@ pub const BOMB_WARMUP: Beats = Beats(4.0);
 
 const LASER_COOLDOWN: Beats = Beats(0.25);
 
-const BULLET_GUIDE_RADIUS: f32 = 10.0;
-const BULLET_GUIDE_WIDTH: f32 = 1.0;
+const TOLERANCE: f32 = 0.1;
+const OUTLINE_THICKNESS: f32 = 0.25;
 
 /// The public facing enemy trait that specifies how an enemy behaves over its
 /// lifetime of existence.
 pub trait Enemy {
     fn update(&mut self, curr_time: Beats);
     fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()>;
+    // fn position_info(&self, curr_time: Beats) -> (WorldPos, f64);
     /// If None, the enemy has no hitbox, otherwise, positive values give the
     /// distance to the object and negative values are inside the object.
     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen>;
@@ -62,7 +63,9 @@ pub trait EnemyImpl {
     fn update(&mut self, curr_time: Beats);
     /// Draw the enemy. Called only if this enemy's lifetime is
     /// in Warmup/Active/Cooldown
-    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()>;
+    fn get_mesh(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<Mesh>;
+
+    fn position_info(&self, curr_time: Beats) -> (WorldPos, f64);
 }
 
 impl<T: EnemyImpl> Enemy for T {
@@ -76,10 +79,24 @@ impl<T: EnemyImpl> Enemy for T {
 
     fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()> {
         match self.lifetime_state(curr_time) {
-            EnemyLifetime::Unspawned => Ok(()),
-            EnemyLifetime::Dead => Ok(()),
-            _ => self.draw(ctx, curr_time),
+            EnemyLifetime::Unspawned => (),
+            EnemyLifetime::Dead => (),
+            _ => {
+                let mesh = self.get_mesh(ctx, curr_time)?;
+                let (pos, angle) = self.position_info(curr_time);
+                // Note that the negative angle is required here as `rotation`
+                // rotates objects clockwise, but we need counterclockwise
+                // rotation. Also note the -4.0 on `scale`. This is needed to
+                // flip the y-axis since screen space has the y-axis increasing
+                // downwards but worldspace is increasing upwards.
+                let param = DrawParam::default()
+                    .dest(pos.as_screen_coords())
+                    .rotation(-angle as f32)
+                    .scale([4.0, -4.0]);
+                mesh.draw(ctx, param)?;
+            }
         }
+        Ok(())
     }
 
     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen> {
@@ -149,8 +166,6 @@ impl EnemyDurations {
 // TODO: Add a predelay for fairness
 #[derive(Debug)]
 pub struct Bullet {
-    // Current position
-    pub pos: WorldPos,
     // Position bullet started from
     start_pos: WorldPos,
     // Position bullet must end up at
@@ -175,7 +190,6 @@ impl Bullet {
         duration: Beats,
     ) -> Bullet {
         Bullet {
-            pos: start_pos,
             start_pos,
             end_pos,
             start_time,
@@ -185,74 +199,71 @@ impl Bullet {
             size: WorldLen(3.0),
         }
     }
+
+    fn pos(&self, curr_time: Beats) -> WorldPos {
+        let delta_time = self.delta_time(curr_time);
+        let total_percent = delta_time.0 / self.duration.0;
+        WorldPos::lerp(self.start_pos, self.end_pos, total_percent)
+    }
 }
 
 impl EnemyImpl for Bullet {
     // TODO: Make this use some sort of percent over duration.
     /// Move bullet towards end position. Also do the cool glow thing.
     fn update(&mut self, curr_time: Beats) {
-        let delta_time = self.delta_time(curr_time);
-        let total_percent = delta_time.0 / self.duration.0;
-        self.pos = WorldPos::lerp(self.start_pos, self.end_pos, total_percent);
-
         let percent = curr_time.0 % 1.0;
         self.glow_size = self.size + WorldLen(5.0 * crate::util::rev_quartic(percent));
         self.glow_trans = 0.5 * (1.0 - percent as f32).powi(4);
     }
 
-    fn sdf(&self, pos: WorldPos, _curr_time: Beats) -> WorldLen {
-        WorldPos::distance(pos, self.pos) - self.size
+    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> WorldLen {
+        WorldPos::distance(pos, self.pos(curr_time)) - self.size
     }
 
-    fn draw(&self, ctx: &mut Context, _curr_time: Beats) -> GameResult<()> {
-        let pos = self.pos.as_screen_coords();
-        let end_pos = self.end_pos.as_screen_coords();
-        // Draw the guide
-        let mut guide = MeshBuilder::new();
-        guide.circle(
-            DrawMode::stroke(0.5),
+    fn get_mesh(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<Mesh> {
+        let origin = WorldPos::origin().as_mint();
+        let pos = self.pos(curr_time);
+        let end_pos = WorldPos::from((self.end_pos.x - pos.x, self.end_pos.y - pos.y)).as_mint();
+
+        let guide_radius = self.size.0 as f32;
+
+        // Draw the guide circle
+        let mut mesh = MeshBuilder::new();
+        mesh.circle(
+            DrawMode::stroke(OUTLINE_THICKNESS),
             end_pos,
-            BULLET_GUIDE_RADIUS,
-            0.1,
+            guide_radius,
+            TOLERANCE,
             crate::color::GREEN,
         )?;
-        let cg_pos = util::into_cg(pos);
+        // Draw the green guide line
+        let cg_origin = util::into_cg(origin);
         let cg_end_pos = util::into_cg(end_pos);
-        let distance = cg_pos.distance(cg_end_pos);
-        if distance > BULLET_GUIDE_RADIUS {
-            let scale_factor = (distance - BULLET_GUIDE_RADIUS) / distance;
-            let cg_delta = (cg_end_pos - cg_pos) * scale_factor;
-            guide.line(
-                &[pos, util::into_mint(cg_pos + cg_delta)],
-                BULLET_GUIDE_WIDTH,
+        let distance = cg_origin.distance(cg_end_pos);
+        if distance > guide_radius {
+            let scale_factor = (distance - guide_radius) / distance;
+            let cg_delta = (cg_end_pos - cg_origin) * scale_factor;
+            mesh.line(
+                &[origin, util::into_mint(cg_origin + cg_delta)],
+                OUTLINE_THICKNESS,
                 crate::color::GREEN,
             )?;
         }
 
-        let glow_color = Color::new(1.0, 0.0, 0.0, self.glow_trans);
         // Draw the bullet itself.
-        // TODO: consider using draw param "dst" feature here?
-        let mut bullet = MeshBuilder::new();
-        bullet
-            .circle(
-                DrawMode::fill(),
-                pos,
-                self.size.as_screen_length(),
-                2.0,
-                RED,
-            )?
-            // transparent glow
-            .circle(
-                DrawMode::fill(),
-                pos,
-                self.glow_size.as_screen_length(),
-                2.0,
-                glow_color,
-            )?;
+        mesh.circle(DrawMode::fill(), origin, self.size.0 as f32, TOLERANCE, RED)?;
 
-        guide.build(ctx)?.draw(ctx, DrawParam::default())?;
-        bullet.build(ctx)?.draw(ctx, DrawParam::default())?;
-        Ok(())
+        // transparent glow
+        let glow_color = Color::new(1.0, 0.0, 0.0, self.glow_trans);
+        mesh.circle(
+            DrawMode::fill(),
+            origin,
+            self.glow_size.0 as f32,
+            TOLERANCE,
+            glow_color,
+        )?;
+
+        mesh.build(ctx)
     }
 
     fn durations(&self) -> EnemyDurations {
@@ -265,6 +276,10 @@ impl EnemyImpl for Bullet {
 
     fn start_time(&self) -> Beats {
         self.start_time
+    }
+
+    fn position_info(&self, curr_time: Beats) -> (WorldPos, f64) {
+        (self.pos(curr_time), 0.0)
     }
 }
 
@@ -330,10 +345,6 @@ impl Laser {
                     end: 1.0,
                     mid: 2.0,
                     split_at: 0.6,
-                    // easing: Box::new(Easing::Exponential {
-                    //     start: 0.0,
-                    //     end: 1.0,
-                    // }),
                 },
                 Easing::Linear {
                     start: 1.0,
@@ -391,13 +402,13 @@ impl EnemyImpl for Laser {
                     r: 0.3,
                     g: 0.1,
                     b: 0.1,
-                    a: 0.0,
+                    a: 0.3,
                 };
                 let red2 = Color {
                     r: 0.5,
                     g: 0.1,
                     b: 0.1,
-                    a: 0.0,
+                    a: 0.3,
                 };
                 if percent < 0.25 {
                     Color::lerp(TRANSPARENT, red1, percent)
@@ -411,26 +422,29 @@ impl EnemyImpl for Laser {
         };
     }
 
-    fn draw(&self, ctx: &mut Context, _curr_time: Beats) -> GameResult<()> {
-        let position = self.position.as_screen_coords();
-        let width = self.width.as_screen_length();
-        let hitbox_thickness = self.hitbox_thickness.as_screen_length();
-        let outline_thickness = self.outline_thickness.as_screen_length();
-        let angle = self.angle as f32;
-        draw_laser_rect(
-            ctx,
-            position,
-            width,
-            outline_thickness,
-            angle,
-            self.outline_color,
-        )?;
-        draw_laser_rect(ctx, position, width, hitbox_thickness, angle, WHITE)?;
-        // (probably debug, show the center point of the lazer)
-        let green_circle = Mesh::new_circle(ctx, DrawMode::fill(), position, 4.0, 2.0, GREEN)?;
-        green_circle.draw(ctx, DrawParam::default())?;
+    fn get_mesh(&self, ctx: &mut Context, _curr_time: Beats) -> GameResult<Mesh> {
+        let length = self.width.0 as f32;
+        let hitbox_thickness = self.hitbox_thickness.0 as f32;
+        let outline_thickness = self.outline_thickness.0 as f32;
 
-        Ok(())
+        fn draw_laser_rect(
+            mesh: &mut MeshBuilder,
+            length: f32,
+            thickness: f32,
+            color: Color,
+        ) -> GameResult<()> {
+            let points = [util::mint(-length, 0.0), util::mint(length, 0.0)];
+            // Multiply by two here so that the laser is of appropriate thickness.
+            mesh.line(&points, thickness * 2.0, color)?;
+            Ok(())
+        }
+        let mut mesh = MeshBuilder::new();
+        // outline
+        draw_laser_rect(&mut mesh, length, outline_thickness, self.outline_color)?;
+        // hitbox
+        draw_laser_rect(&mut mesh, length, hitbox_thickness, WHITE)?;
+
+        mesh.build(ctx)
     }
 
     fn sdf(&self, pos: WorldPos, _curr_time: Beats) -> WorldLen {
@@ -450,41 +464,10 @@ impl EnemyImpl for Laser {
     fn start_time(&self) -> Beats {
         self.start_time
     }
-}
 
-fn draw_laser_rect(
-    ctx: &mut Context,
-    position: mint::Point2<f32>,
-    width: f32,
-    thickness: f32,
-    angle: f32,
-    color: Color,
-) -> GameResult<()> {
-    // The mesh is done like this so that we draw about the center of the position
-    // this lets us easily rotate the laser about its position.
-    let points = [
-        util::mint(1.0, 1.0),
-        util::mint(1.0, -1.0),
-        util::mint(-1.0, -1.0),
-        util::mint(-1.0, 1.0),
-    ];
-    let mesh = Mesh::new_polygon(ctx, DrawMode::fill(), &points, color).unwrap();
-    // TODO: Setting blend mode on meshes seems to not work. File an issue &
-    // investigate why?
-    // mesh.set_blend_mode(Some(BlendMode::Add));
-    ggez::graphics::set_blend_mode(ctx, BlendMode::Lighten)?;
-    mesh.draw(
-        ctx,
-        DrawParam::default()
-            .dest(position)
-            .scale([width, thickness])
-            .rotation(-angle),
-    )?;
-    // TODO/NOTE: There is no way to get the current blend mode, so we will just
-    // assume Alpha is the default blend mode.
-    ggez::graphics::set_blend_mode(ctx, BlendMode::Alpha)?;
-
-    Ok(())
+    fn position_info(&self, _curr_time: Beats) -> (WorldPos, f64) {
+        (self.position, self.angle)
+    }
 }
 
 pub struct CircleBomb {
@@ -539,33 +522,36 @@ impl EnemyImpl for CircleBomb {
         // Nothing lmao
     }
 
-    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()> {
-        let point = self.position.as_screen_coords();
+    fn get_mesh(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<Mesh> {
+        let mut mesh = MeshBuilder::new();
+        let origin = WorldPos::origin().as_mint();
         let t = self.percent_over_curr_state(curr_time);
 
-        let outline_radius = self.max_radius.as_screen_length();
+        // outline
+        let outline_radius = self.max_radius.0 as f32;
         let outline_color = match self.lifetime_state(curr_time) {
             EnemyLifetime::Warmup => color::WARNING_RED,
             EnemyLifetime::Active => color::RED,
             EnemyLifetime::Cooldown => color::TRANSPARENT,
             _ => unreachable!(),
         };
-        let outline = Mesh::new_circle(
-            ctx,
-            DrawMode::stroke(1.0),
-            point,
+
+        mesh.circle(
+            DrawMode::stroke(OUTLINE_THICKNESS),
+            origin,
             outline_radius,
-            1.0,
+            TOLERANCE,
             outline_color,
         )?;
 
+        // inner solid circle
         let inner_radius = match self.lifetime_state(curr_time) {
             EnemyLifetime::Warmup => WorldLen::lerp(WorldLen(0.0), self.max_radius, t),
             EnemyLifetime::Active => self.radius(curr_time),
             EnemyLifetime::Cooldown => WorldLen::lerp(self.max_radius, WorldLen(0.0), t),
             _ => unreachable!(),
         }
-        .as_screen_length();
+        .0 as f32;
         let inner_color = match self.lifetime_state(curr_time) {
             EnemyLifetime::Warmup => Color::lerp(color::DARK_WARNING_RED, color::WARNING_RED, t),
             EnemyLifetime::Active => color::RED,
@@ -573,14 +559,19 @@ impl EnemyImpl for CircleBomb {
             _ => unreachable!(),
         };
 
-        let inner = Mesh::new_circle(ctx, DrawMode::fill(), point, inner_radius, 1.0, inner_color)?;
+        mesh.circle(
+            DrawMode::fill(),
+            origin,
+            inner_radius,
+            TOLERANCE,
+            inner_color,
+        )?;
 
-        ggez::graphics::set_blend_mode(ctx, BlendMode::Lighten)?;
-        outline.draw(ctx, DrawParam::default())?;
-        inner.draw(ctx, DrawParam::default())?;
-        ggez::graphics::set_blend_mode(ctx, BlendMode::Alpha)?;
+        mesh.build(ctx)
+    }
 
-        Ok(())
+    fn position_info(&self, _curr_time: Beats) -> (WorldPos, f64) {
+        (self.position, 0.0)
     }
 }
 

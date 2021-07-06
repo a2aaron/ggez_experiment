@@ -99,9 +99,7 @@ impl SongMap {
             }
         });
 
-        engine.register_fn("lerp", |start: f64, end: f64, t: f64| {
-            f64::lerp(start, end, t)
-        });
+        engine.register_fn("lerp", |start: f64, end: f64, t: f64| t.lerp(start, end));
 
         engine.register_fn(
             "circle",
@@ -197,6 +195,28 @@ impl SongMap {
                 "bullet",
                 |start_time: f64, start: LiveWorldPos, end: LiveWorldPos| {
                     BeatAction::new(Beats(start_time), SpawnCmd::Bullet { start, end })
+                },
+            )
+            .register_fn(
+                "bullet_angle_start",
+                |start_time: f64, angle: f64, length, start: LiveWorldPos| {
+                    BeatAction::new(
+                        Beats(start_time),
+                        SpawnCmd::BulletAngleStart {
+                            angle,
+                            length,
+                            start,
+                        },
+                    )
+                },
+            )
+            .register_fn(
+                "bullet_angle_end",
+                |start_time: f64, angle: f64, length, end: LiveWorldPos| {
+                    BeatAction::new(
+                        Beats(start_time),
+                        SpawnCmd::BulletAngleEnd { angle, length, end },
+                    )
                 },
             )
             .register_fn(
