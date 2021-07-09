@@ -15,7 +15,7 @@ Ex: do this:
 
 let map = default_map();
 map.set_bpm(150.0);
-map.set_skip_amount(0.0 * 4.0);
+map.set_skip_amount(16.0 * 4.0);
 
 // let kick1laser = to_beat_tuple(20.0 * 4.0, parse_midi("./resources/kick1.mid", 150.0));
 

@@ -1,4 +1,4 @@
-use ggez::graphics::{Color, DrawMode, DrawParam, Drawable, Mesh, MeshBuilder};
+use ggez::graphics::{Color, DrawMode, DrawParam, Mesh, MeshBuilder};
 use ggez::{Context, GameResult};
 
 use cg::prelude::*;
@@ -23,7 +23,7 @@ const OUTLINE_THICKNESS: f32 = 0.25;
 /// lifetime of existence.
 pub trait Enemy {
     fn update(&mut self, curr_time: Beats);
-    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()>;
+    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<Option<(Mesh, DrawParam)>>;
     // fn position_info(&self, curr_time: Beats) -> (WorldPos, f64);
     /// If None, the enemy has no hitbox, otherwise, positive values give the
     /// distance to the object and negative values are inside the object.
@@ -77,10 +77,10 @@ impl<T: EnemyImpl> Enemy for T {
         }
     }
 
-    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()> {
+    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<Option<(Mesh, DrawParam)>> {
         match self.lifetime_state(curr_time) {
-            EnemyLifetime::Unspawned => (),
-            EnemyLifetime::Dead => (),
+            EnemyLifetime::Unspawned => Ok(None),
+            EnemyLifetime::Dead => Ok(None),
             _ => {
                 let mesh = self.get_mesh(ctx, curr_time)?;
                 let (pos, angle) = self.position_info(curr_time);
@@ -93,10 +93,9 @@ impl<T: EnemyImpl> Enemy for T {
                     .dest(pos.as_screen_coords())
                     .rotation(-angle as f32)
                     .scale([4.0, -4.0]);
-                mesh.draw(ctx, param)?;
+                Ok(Some((mesh, param)))
             }
         }
-        Ok(())
     }
 
     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen> {

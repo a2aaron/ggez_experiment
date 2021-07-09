@@ -81,6 +81,58 @@ impl WorldState {
             show_warmup: true,
         }
     }
+    fn update(
+        &mut self,
+        _ctx: &mut Context,
+        keyboard: &KeyboardState,
+        physics_delta_time: f64,
+        curr_time: Beats,
+    ) -> GameResult<()> {
+        self.player.update(physics_delta_time, keyboard);
+
+        for enemy in self.enemies.iter_mut() {
+            enemy.update(curr_time);
+            if let Some(sdf) = enemy.sdf(self.player.pos, curr_time) {
+                if sdf < self.player.size {
+                    self.player.on_hit();
+                }
+            }
+        }
+
+        // Update enemies in the fade_out vector, but don't do any hit detection
+        // on them.
+        for enemy in self.fade_out.iter_mut() {
+            enemy.update(curr_time);
+        }
+
+        Ok(())
+    }
+
+    fn draw(&mut self, ctx: &mut Context, curr_time: Beats) -> GameResult<()> {
+        for enemy in self.enemies.iter() {
+            if !self.show_warmup && enemy.lifetime_state(curr_time) == EnemyLifetime::Warmup {
+                continue;
+            }
+
+            if let Some((mesh, param)) = enemy.draw(ctx, curr_time)? {
+                mesh.draw(ctx, param)?;
+            }
+        }
+
+        for enemy in self.fade_out.iter() {
+            if let Some((mesh, param)) = enemy.draw(ctx, curr_time)? {
+                mesh.draw(ctx, param.color(Color::new(0.0, 1.0, 0.0, 1.0)))?;
+            }
+        }
+
+        let player_mesh = self.player.get_mesh(ctx)?;
+        player_mesh.draw(
+            ctx,
+            DrawParam::default().dest(self.player.pos.as_screen_coords()),
+        )?;
+
+        Ok(())
+    }
 }
 
 struct MainState {
@@ -213,9 +265,11 @@ impl MainState {
     }
 
     fn draw_debug_hitbox(&self, ctx: &mut Context) -> Result<(), GameError> {
+        let curr_time = self.time.get_beats();
+
         if let Some(enemy) = &self.debug {
             if ggez::input::keyboard::is_key_pressed(ctx, KeyCode::C) {
-                enemy.draw(ctx, self.time.get_beats())?;
+                enemy.draw(ctx, curr_time)?;
             }
 
             for x in -20..20 {
@@ -264,23 +318,14 @@ impl event::EventHandler for MainState {
 
             if let Some(debug) = &mut self.debug {
                 debug.update(curr_time);
-            }
 
-            self.world.player.update(physics_delta_time, &self.keyboard);
-            for enemy in self.world.enemies.iter_mut() {
-                enemy.update(curr_time);
-                if let Some(sdf) = enemy.sdf(self.world.player.pos, curr_time) {
-                    if sdf < self.world.player.size {
-                        self.world.player.on_hit();
-                    }
+                if debug.lifetime_state(curr_time) == EnemyLifetime::Dead {
+                    self.debug = None;
                 }
             }
 
-            // Update enemies in the fade_out vector, but don't do any hit detection
-            // on them.
-            for enemy in self.world.fade_out.iter_mut() {
-                enemy.update(curr_time);
-            }
+            self.world
+                .update(ctx, &self.keyboard, physics_delta_time, curr_time)?;
 
             self.update_scheduler(curr_time);
 
@@ -334,25 +379,7 @@ impl event::EventHandler for MainState {
         graphics::clear(ctx, ggez::graphics::Color::BLACK);
         let curr_time = self.time.get_beats();
 
-        for enemy in self.world.enemies.iter() {
-            if !self.world.show_warmup && enemy.lifetime_state(curr_time) == EnemyLifetime::Warmup {
-                continue;
-            }
-
-            enemy.draw(ctx, self.time.get_beats())?;
-        }
-
-        if curr_time.0 % 0.125 < 0.125 / 2.0 {
-            for enemy in self.world.fade_out.iter() {
-                enemy.draw(ctx, self.time.get_beats())?;
-            }
-        }
-
-        let player_mesh = self.world.player.get_mesh(ctx)?;
-        player_mesh.draw(
-            ctx,
-            DrawParam::default().dest(self.world.player.pos.as_screen_coords()),
-        )?;
+        self.world.draw(ctx, curr_time)?;
 
         self.draw_debug_time(ctx)?;
         self.draw_debug_world_lines(ctx)?;
