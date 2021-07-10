@@ -1,6 +1,8 @@
 use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::AtomicUsize;
 
+use ggez::graphics::Color;
 use ggez::Context;
 use midly::Smf;
 use rand::Rng;
@@ -169,6 +171,7 @@ impl SongMap {
                 },
             );
 
+        // Splitting LiveWorldPoses
         engine
             .register_type::<LiveWorldPos>()
             .register_get_result("x", |pos: &mut LiveWorldPos| match pos {
@@ -180,6 +183,13 @@ impl SongMap {
                 _ => Err("Position is a symbolic player position".into()),
             });
 
+        // Colors
+        engine
+            .register_type::<Color>()
+            .register_fn("color", |r: f64, g: f64, b: f64, a: f64| {
+                Color::new(r as f32, g as f32, b as f32, a as f32)
+            });
+
         engine.register_type::<SpawnCmd>();
 
         // Needed so that we can split apart tuples.
@@ -188,63 +198,57 @@ impl SongMap {
             .register_fn("get_beat", |x: (Beats, f64)| x.0 .0)
             .register_fn("get_percent", |x: (Beats, f64)| x.1);
 
-        // Enemy creation
+        engine.register_type::<BeatAction>().register_fn(
+            "beat_action",
+            |start_time: f64, group_number: usize, action: SpawnCmd| {
+                BeatAction::new(Beats(start_time), group_number, action)
+            },
+        );
+
+        fn try_into_usize(x: i64) -> Result<usize, Box<rhai::EvalAltResult>> {
+            std::convert::TryInto::<usize>::try_into(x)
+                .map_err(|x| Box::new(rhai::EvalAltResult::from(x.to_string())))
+        }
+
+        engine.register_result_fn("usize", try_into_usize);
+
+        // SpawnCmds
         engine
-            .register_type::<BeatAction>()
-            .register_fn(
-                "bullet",
-                |start_time: f64, start: LiveWorldPos, end: LiveWorldPos| {
-                    BeatAction::new(Beats(start_time), SpawnCmd::Bullet { start, end })
-                },
-            )
-            .register_fn(
-                "bullet_angle_start",
-                |start_time: f64, angle: f64, length, start: LiveWorldPos| {
-                    BeatAction::new(
-                        Beats(start_time),
-                        SpawnCmd::BulletAngleStart {
-                            angle,
-                            length,
-                            start,
-                        },
-                    )
-                },
-            )
-            .register_fn(
-                "bullet_angle_end",
-                |start_time: f64, angle: f64, length, end: LiveWorldPos| {
-                    BeatAction::new(
-                        Beats(start_time),
-                        SpawnCmd::BulletAngleEnd { angle, length, end },
-                    )
-                },
-            )
-            .register_fn(
-                "laser",
-                |start_time: f64, a: LiveWorldPos, b: LiveWorldPos| {
-                    BeatAction::new(Beats(start_time), SpawnCmd::LaserThruPoints { a, b })
-                },
-            )
-            .register_fn(
-                "laser_angle",
-                |start_time: f64, position: LiveWorldPos, angle: f64| {
-                    BeatAction::new(
-                        Beats(start_time),
-                        SpawnCmd::Laser {
-                            position,
-                            angle: angle.to_radians(),
-                        },
-                    )
-                },
-            )
-            .register_fn("bomb", |start_time: f64, pos: LiveWorldPos| {
-                BeatAction::new(Beats(start_time), SpawnCmd::CircleBomb { pos })
+            .register_type::<SpawnCmd>()
+            .register_fn("bullet", |start, end| SpawnCmd::Bullet { start, end })
+            .register_fn("bullet_angle_start", |angle, length, start| {
+                SpawnCmd::BulletAngleStart {
+                    angle,
+                    length,
+                    start,
+                }
             })
-            .register_fn("section_clear", |start_time| {
-                BeatAction::new(Beats(start_time), SpawnCmd::ClearActiveEnemies)
+            .register_fn("bullet_angle_end", |angle, length, end| {
+                SpawnCmd::BulletAngleEnd { angle, length, end }
             })
-            .register_fn("show_warmup", |start_time: f64, show: bool| {
-                BeatAction::new(Beats(start_time), SpawnCmd::ShowWarmup(show))
+            .register_fn("laser", |a, b| SpawnCmd::LaserThruPoints { a, b })
+            .register_fn("laser_angle", |position, angle: f64| SpawnCmd::Laser {
+                position,
+                angle: angle.to_radians(),
+            })
+            .register_fn("bomb", |pos| SpawnCmd::CircleBomb { pos })
+            .register_fn("set_fadeout_on", |color: Color| {
+                SpawnCmd::SetFadeOut(Some(color))
+            })
+            .register_fn("set_fadeout_off", || SpawnCmd::SetFadeOut(None))
+            .register_fn("set_use_hitbox", |use_hitbox: bool| {
+                SpawnCmd::SetHitbox(use_hitbox)
+            })
+            .register_fn("set_render_warmup", SpawnCmd::ShowWarmup);
+
+        static CURR_GROUP: AtomicUsize = AtomicUsize::new(0);
+        engine
+            .register_result_fn("set_curr_group", move |group: i64| {
+                CURR_GROUP.store(try_into_usize(group)?, std::sync::atomic::Ordering::Relaxed);
+                Ok(())
+            })
+            .register_fn("get_curr_group", move || {
+                CURR_GROUP.load(std::sync::atomic::Ordering::Relaxed)
             });
 
         engine.eval::<SongMap>(script)
@@ -263,7 +267,6 @@ impl SongMap {
     }
 
     fn add_actions(&mut self, actions: &[BeatAction]) {
-        // dbg!(actions);
         self.actions.extend(actions)
     }
 }

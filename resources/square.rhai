@@ -43,6 +43,26 @@ let topright = pos(50.0, 50.0);
 let botleft = pos(-50.0, -50.0);
 let botright = pos(50.0, -50.0);
 
+fn curr_group(time, spawn_cmd) {
+    return beat_action(time, get_curr_group(), spawn_cmd);
+}
+
+fn bullet_curr(beat, startpos, endpos) {
+    return curr_group(beat, bullet(startpos, endpos));
+}
+
+fn bomb_curr(beat, pos) {
+    return curr_group(beat, bomb(pos));
+}
+
+fn laser_curr(beat, a, b) {
+    return curr_group(beat, laser(a, b));
+}
+
+fn laser_angle_curr(beat, pos, angle) {
+    return curr_group(beat, laser_angle(pos, angle));
+}
+
 fn bullet_lerp(map, splitter, start1, end1, start2, end2) {
     let arr = [];
     for beat_tuple in splitter {
@@ -51,8 +71,7 @@ fn bullet_lerp(map, splitter, start1, end1, start2, end2) {
 
         let startpos = lerp_pos(start1, start2, t);
         let endpos = lerp_pos(end1, end2, t);
-
-        arr.push(bullet(beat, startpos, endpos));
+        arr.push(bullet_curr(beat, startpos, endpos));
     }
     map.add_actions(arr);
     return map;
@@ -85,19 +104,19 @@ fn bullet_lerp(start1, end1, start2, end2) {
 }
 
 fn laser_player() {
-    return |beat, t, i| laser(beat, origin(), player());
+    return |beat, t, i| curr_group(beat, laser(origin(), player()));
 }
 
 fn bomb_grid() {
-    return |beat, t, i| bomb(beat, grid());
+    return |beat, t, i| bomb_curr(beat, grid());
 }
 
 fn laser_solo() {
     return |beat, t, i| {
         let side = if i % 2 == 0 { 1.0 } else { -1.0 };
-        return [laser_angle(beat, pos(50.0 * side, 0.0), 90.0),
-                laser_angle(beat, pos(40.0 * side, 0.0), 90.0),
-                laser_angle(beat, pos(30.0 * side, 0.0), 90.0)];
+        return [laser_angle_curr(beat, pos(50.0 * side, 0.0), 90.0),
+                laser_angle_curr(beat, pos(40.0 * side, 0.0), 90.0),
+                laser_angle_curr(beat, pos(30.0 * side, 0.0), 90.0)];
     }
 }
 
@@ -106,14 +125,14 @@ fn bullet_circle_in(center, radius, start_angle, end_angle) {
         let angle = lerp(start_angle, end_angle, t);
         let startpos = circle(center.x, center.y, radius, angle);
         let endpos = center;
-        return bullet(beat, startpos, endpos);
+        return bullet_curr(beat, startpos, endpos);
     }
 }
 
 fn laser_circle(center, start_angle, end_angle) {
     return |beat, t, i| {
         let angle = lerp(start_angle, end_angle, t);
-        return laser_angle(beat, center, angle);
+        return laser_angle_curr(beat, center, angle);
     }
 }
 
@@ -132,7 +151,7 @@ fn laser_diamond(step) {
         let a = positions[step * i % 4];
         let b = positions[step * (i + 1) % 4];
 
-        return laser(beat, a, b);
+        return laser_curr(beat, a, b);
     }
 }
 
@@ -143,12 +162,28 @@ fn bullet_player() {
         } else {
             pos(50.0, 50.0)
         };
-        return bullet(beat, pos, player());
+        return bullet_curr(beat, pos, player());
     }
 }
 
-fn clear_all(map, time) {
-    map.add_action(section_clear(time - 0.01));
+// Disable the hitboxes for a group and fade out the objects over 4 beats. Then
+// reenable the hitboxes and disable fade.
+fn clear_group(map, group, time) {
+    print("cleared group"); print(group);
+    let group = usize(group);
+    let fade_color = color(0.0, 1.0, 0.0, 1.0);
+
+    let fadeout_on = beat_action(time - 0.01, group, set_fadeout_on(fade_color));
+    let fadeout_off = beat_action(time + 4.0, group, set_fadeout_off());
+    let hitbox_off = beat_action(time - 0.01, group, set_use_hitbox(false));
+    let hitbox_on = beat_action(time + 4.0, group, set_use_hitbox(true));
+    
+    map.add_action(fadeout_on);
+    map.add_action(hitbox_off);
+
+    map.add_action(fadeout_off);
+    map.add_action(hitbox_on);
+    
     return map;
 }
 
@@ -157,6 +192,8 @@ let every2 = beat_splitter(0.0, 2.0);
 let every1 = beat_splitter(0.0, 1.0);
 
 // Measures 4 - 7 (beat 16)
+set_curr_group(0);
+
 map = bullet_lerp(map, every4.with_start(4.0 * 4.0), botleft, origin(), botright, origin());
 map = bullet_lerp(map, every4.with_start(4.0 * 4.0), topright, origin(), topleft, origin());
 
@@ -175,7 +212,8 @@ map = make_actions(map, buildup1main2, bullet_player());
 // map = bullet_lerp(map, every1.with_start(16.0 * 4.0).with_delay(0.5), botleft, player(), botright, player());
 
 // [DROP]
-map = clear_all(map, 20.0 * 4.0);
+map = clear_group(map, 0, 20.0 * 4.0);
+set_curr_group(1);
 
 // Measure 24 - 27
 
@@ -184,15 +222,15 @@ map = make_actions(map, drop1kick1, laser_circle(origin(), 0.0, -360.0 * 1.1));
 
 // Instant triple laser (beat 103)
 
-// map = clear_all(map, 103.0);
-map.add_action(show_warmup(103.0, false));
+map.add_action(curr_group(103.0, set_render_warmup(false)));
 map = make_actions(map, kick1solo, laser_solo());
-map.add_action(show_warmup(104.0, true));
+map.add_action(curr_group(104.0, set_render_warmup(true)));
 
 map = make_actions(map, drop1kick2, laser_circle(origin(), 0.0, 360.0 * 0.6));
 
-// Measure 28 - 31
-map = clear_all(map, 28.0 * 4.0);
+// // Measure 28 - 31
+map = clear_group(map, 1, 28.0 * 4.0);
+set_curr_group(0);
 
 map = make_actions(map, main1, bullet_circle_in(origin(), 60.0, 0.0, 360.0 * 3.1));
 map = make_actions(map, main2, bullet_circle_in(origin(), 60.0, 60.0, -360.0 * 3.1));
@@ -202,6 +240,7 @@ map = make_actions(map, drop1kick4, laser_diamond(false));
 
 // [BREAK]
 // Measure 32 - 36
-map = clear_all(map, 36.0 * 4.0);
+map = clear_group(map, 0, 36.0 * 4.0);
+set_curr_group(1);
 
 map

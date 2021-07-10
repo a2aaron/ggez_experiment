@@ -64,10 +64,67 @@ impl Assets {
     }
 }
 
+pub struct EnemyGroup {
+    pub enemies: Vec<Box<dyn Enemy>>,
+    pub use_hitbox: bool,
+    pub render_warmup: bool,
+    pub fadeout: Option<(Beats, Color)>,
+}
+
+impl EnemyGroup {
+    fn new() -> EnemyGroup {
+        EnemyGroup {
+            enemies: Vec::with_capacity(128),
+            use_hitbox: true,
+            render_warmup: true,
+            fadeout: None,
+        }
+    }
+
+    fn update(&mut self, player: &mut Player, curr_time: Beats) {
+        for enemy in self.enemies.iter_mut() {
+            enemy.update(curr_time);
+            if let Some(sdf) = enemy.sdf(player.pos, curr_time) {
+                if sdf < player.size && self.use_hitbox {
+                    player.on_hit();
+                }
+            }
+        }
+
+        // remove dead enemies
+        self.enemies
+            .retain(|e| e.lifetime_state(curr_time) != EnemyLifetime::Dead);
+    }
+
+    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()> {
+        for enemy in self.enemies.iter() {
+            if !self.render_warmup && enemy.lifetime_state(curr_time) == EnemyLifetime::Warmup {
+                continue;
+            }
+
+            if let Some((mesh, param)) = enemy.draw(ctx, curr_time)? {
+                let param = if let Some((fade_start, fadeout_color)) = self.fadeout {
+                    // fade out the object over 4.0 beats.
+                    param.color(Color::lerp(
+                        Color::WHITE,
+                        fadeout_color,
+                        curr_time.0 - fade_start.0 / 4.0,
+                    ))
+                } else {
+                    param
+                };
+
+                mesh.draw(ctx, param)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 pub struct WorldState {
     pub player: Player,
-    pub enemies: Vec<Box<dyn Enemy>>,
-    pub fade_out: Vec<Box<dyn Enemy>>,
+    pub groups: Vec<EnemyGroup>,
     pub show_warmup: bool,
 }
 
@@ -75,9 +132,7 @@ impl WorldState {
     fn new() -> WorldState {
         WorldState {
             player: Player::new(),
-            // Usually there are less than 128 enemies on screen, right??
-            enemies: Vec::with_capacity(128),
-            fade_out: Vec::with_capacity(128),
+            groups: vec![EnemyGroup::new(), EnemyGroup::new()],
             show_warmup: true,
         }
     }
@@ -90,39 +145,16 @@ impl WorldState {
     ) -> GameResult<()> {
         self.player.update(physics_delta_time, keyboard);
 
-        for enemy in self.enemies.iter_mut() {
-            enemy.update(curr_time);
-            if let Some(sdf) = enemy.sdf(self.player.pos, curr_time) {
-                if sdf < self.player.size {
-                    self.player.on_hit();
-                }
-            }
-        }
-
-        // Update enemies in the fade_out vector, but don't do any hit detection
-        // on them.
-        for enemy in self.fade_out.iter_mut() {
-            enemy.update(curr_time);
+        for group in self.groups.iter_mut() {
+            group.update(&mut self.player, curr_time);
         }
 
         Ok(())
     }
 
     fn draw(&mut self, ctx: &mut Context, curr_time: Beats) -> GameResult<()> {
-        for enemy in self.enemies.iter() {
-            if !self.show_warmup && enemy.lifetime_state(curr_time) == EnemyLifetime::Warmup {
-                continue;
-            }
-
-            if let Some((mesh, param)) = enemy.draw(ctx, curr_time)? {
-                mesh.draw(ctx, param)?;
-            }
-        }
-
-        for enemy in self.fade_out.iter() {
-            if let Some((mesh, param)) = enemy.draw(ctx, curr_time)? {
-                mesh.draw(ctx, param.color(Color::new(0.0, 1.0, 0.0, 1.0)))?;
-            }
+        for group in self.groups.iter() {
+            group.draw(ctx, curr_time)?;
         }
 
         let player_mesh = self.player.get_mesh(ctx)?;
@@ -184,15 +216,6 @@ impl MainState {
 
     fn update_scheduler(&mut self, time: Beats) {
         self.scheduler.update(time, &mut self.world);
-
-        // Delete all dead enemies
-        self.world
-            .enemies
-            .retain(|e| e.lifetime_state(time) != EnemyLifetime::Dead);
-
-        self.world
-            .fade_out
-            .retain(|e| e.lifetime_state(time) != EnemyLifetime::Dead);
     }
 
     /// Draw debug text at the bottom of the screen showing the time in the song, in beats.
