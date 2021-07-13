@@ -9,6 +9,7 @@ use rand::Rng;
 
 use crate::chart::{BeatAction, BeatSplitter, LiveWorldPos, SpawnCmd};
 use crate::ease::Lerp;
+use crate::enemy::EnemyDurations;
 use crate::time::Beats;
 use crate::world::WorldPos;
 use crate::{time, util};
@@ -240,6 +241,20 @@ impl SongMap {
             },
         );
 
+        // EnemyDurations
+        engine
+            .register_type::<EnemyDurations>()
+            .register_fn("durations", |warmup: f64, active: f64, cooldown: f64| {
+                EnemyDurations {
+                    warmup: Beats(warmup),
+                    active: Beats(active),
+                    cooldown: Beats(cooldown),
+                }
+            })
+            .register_fn("default_laser_duration", || {
+                EnemyDurations::default_laser(Beats(1.0))
+            });
+
         // All the SpawnCmds
         engine
             .register_type::<SpawnCmd>()
@@ -254,10 +269,17 @@ impl SongMap {
             .register_fn("bullet_angle_end", |angle, length, end| {
                 SpawnCmd::BulletAngleEnd { angle, length, end }
             })
-            .register_fn("laser", |a, b| SpawnCmd::LaserThruPoints { a, b })
-            .register_fn("laser_angle", |position, angle: f64| SpawnCmd::Laser {
-                position,
-                angle: angle.to_radians(),
+            .register_fn("laser", |a, b, durations| SpawnCmd::LaserThruPoints {
+                a,
+                b,
+                durations,
+            })
+            .register_fn("laser_angle", |position, angle: f64, durations| {
+                SpawnCmd::Laser {
+                    position,
+                    angle: angle.to_radians(),
+                    durations,
+                }
             })
             .register_fn("bomb", |pos| SpawnCmd::CircleBomb { pos })
             .register_fn("set_fadeout_on", |color: Color, duration: f64| {

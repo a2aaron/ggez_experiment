@@ -17,7 +17,7 @@ use ggez::{audio, conf, event, graphics, timer, Context, ContextBuilder, GameErr
 use cgmath as cg;
 
 use chart::Scheduler;
-use enemy::{Enemy, EnemyLifetime};
+use enemy::{Enemy, EnemyDurations, EnemyLifetime};
 use keyboard::KeyboardState;
 use player::Player;
 use time::{to_secs, Beats, Time};
@@ -411,7 +411,7 @@ impl event::EventHandler for MainState {
                 self.world.player.pos,
                 WorldPos::origin(),
                 self.time.get_beats(),
-                Beats(16.0),
+                EnemyDurations::default_laser(Beats(16.0)),
             )));
         }
 

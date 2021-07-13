@@ -163,12 +163,20 @@ impl<T: EnemyImpl> Enemy for T {
 
 #[derive(Debug, Clone, Copy)]
 pub struct EnemyDurations {
-    warmup: Beats,   // The amount of time to show a warmup warning
-    active: Beats,   // The amount of time to actually do hit detection
-    cooldown: Beats, // The amount of time to show a "cool off" animation (and disable hit detection)
+    pub warmup: Beats,   // The amount of time to show a warmup warning
+    pub active: Beats,   // The amount of time to actually do hit detection
+    pub cooldown: Beats, // The amount of time to show a "cool off" animation (and disable hit detection)
 }
 
 impl EnemyDurations {
+    pub fn default_laser(active_duration: Beats) -> EnemyDurations {
+        EnemyDurations {
+            warmup: LASER_WARMUP,
+            active: active_duration,
+            cooldown: LASER_COOLDOWN,
+        }
+    }
+
     fn percent_over_warmup(&self, delta_time: Beats) -> f64 {
         delta_time.0 / self.warmup.0
     }
@@ -347,26 +355,21 @@ impl Laser {
         a: WorldPos,
         b: WorldPos,
         start_time: Beats,
-        duration: Beats,
+        durations: EnemyDurations,
     ) -> Laser {
         let dx = a.x - b.x;
         let dy = a.y - b.y;
         let angle = (dy / dx).atan();
         let angle = if !angle.is_finite() { 0.0 } else { angle };
-        Laser::new_through_point(a, angle, start_time, duration)
+        Laser::new_through_point(a, angle, start_time, durations)
     }
 
     pub fn new_through_point(
         point: WorldPos,
         angle: f64,
         start_time: Beats,
-        duration: Beats,
+        durations: EnemyDurations,
     ) -> Laser {
-        let durations = EnemyDurations {
-            warmup: LASER_WARMUP,
-            active: duration,
-            cooldown: LASER_COOLDOWN,
-        };
         Laser {
             start_time,
             durations,

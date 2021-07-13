@@ -8,7 +8,7 @@ use ggez::graphics::Color;
 use ggez::Context;
 
 use crate::ease::{BeatEasing, Easing};
-use crate::enemy::{Bullet, CircleBomb, Laser, BOMB_WARMUP, LASER_WARMUP};
+use crate::enemy::{Bullet, CircleBomb, EnemyDurations, Laser, BOMB_WARMUP, LASER_WARMUP};
 use crate::parse::{MarkedBeat, SongMap};
 use crate::time::Beats;
 use crate::world::WorldPos;
@@ -271,10 +271,12 @@ pub enum SpawnCmd {
     Laser {
         position: LiveWorldPos,
         angle: f64,
+        durations: EnemyDurations,
     },
     LaserThruPoints {
         a: LiveWorldPos,
         b: LiveWorldPos,
+        durations: EnemyDurations,
     },
     CircleBomb {
         pos: LiveWorldPos,
@@ -330,21 +332,25 @@ impl SpawnCmd {
                 let bullet = Bullet::new(start_pos, end_pos, start_time, Beats(4.0));
                 group.enemies.push(Box::new(bullet));
             }
-            SpawnCmd::Laser { position, angle } => {
+            SpawnCmd::Laser {
+                position,
+                angle,
+                durations,
+            } => {
                 let laser = Laser::new_through_point(
                     position.world_pos(player_pos),
                     *angle,
                     start_time,
-                    Beats(1.0),
+                    *durations,
                 );
                 group.enemies.push(Box::new(laser));
             }
-            SpawnCmd::LaserThruPoints { a, b } => {
+            SpawnCmd::LaserThruPoints { a, b, durations } => {
                 let laser = Laser::new_through_points(
                     a.world_pos(player_pos),
                     b.world_pos(player_pos),
                     start_time,
-                    Beats(1.0),
+                    *durations,
                 );
                 group.enemies.push(Box::new(laser));
             }

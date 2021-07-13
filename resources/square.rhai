@@ -15,7 +15,7 @@ Ex: do this:
 
 let map = default_map();
 map.set_bpm(150.0);
-map.set_skip_amount(43.0 * 4.0);
+map.set_skip_amount(0.0 * 4.0);
 
 // read midi files...
 let buildup1main1 = offset_tuple(12.0 * 4.0, parse_midi("./resources/buildup1main1.mid", 150.0));
@@ -73,12 +73,12 @@ fn bomb_curr(beat, pos) {
 
 // Spawn a laser thru points a and b in the current enemygroup
 fn laser_curr(beat, a, b) {
-    return curr_group(beat, laser(a, b));
+    return curr_group(beat, laser(a, b, default_laser_duration()));
 }
 
 // Spawn a laser at point pos and with the given angle in the current enemygroup
 fn laser_angle_curr(beat, pos, angle) {
-    return curr_group(beat, laser_angle(pos, angle));
+    return curr_group(beat, laser_angle(pos, angle, default_laser_duration()));
 }
 
 // Using a beat splitter, create a set of bullets whose initial paths are along 
@@ -435,5 +435,6 @@ map = make_actions_grouped(map, breakkick1, circle_sector_player_attack());
 map = make_actions(map, normalize_pitch(breaktine1), tine_attack(false, -50.0, 50.0));
 map = make_actions(map, normalize_pitch(breaktine2), tine_attack(false, 50.0, -50.0));
 map = make_actions(map, normalize_pitch(breaktine3), tine_attack(true, 50.0, -50.0));
+
 // Return the SongMap.
 map
