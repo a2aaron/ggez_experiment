@@ -15,7 +15,7 @@ Ex: do this:
 
 let map = default_map();
 map.set_bpm(150.0);
-map.set_skip_amount(32.0 * 4.0);
+map.set_skip_amount(43.0 * 4.0);
 
 // read midi files...
 let buildup1main1 = offset_tuple(12.0 * 4.0, parse_midi("./resources/buildup1main1.mid", 150.0));
@@ -48,8 +48,16 @@ let topright = pos(50.0, 50.0);
 let botleft = pos(-50.0, -50.0);
 let botright = pos(50.0, -50.0);
 
-// Create a beat action with the group as the current group
-fn curr_group(time, spawn_cmd) {
+// Create a beat action with the group as the current group. If beat is a MarkedBeat,
+// then curr_group uses the MarkedBeat's time. If beat is an f64, then it uses
+// the f64.
+fn curr_group(beat, spawn_cmd) {
+    let time = 0.0;
+    if type_of(beat) == "f64" {
+        time = beat;
+    } else {
+        time = get_beat(beat);
+    }
     return beat_action(time, get_curr_group(), spawn_cmd);
 }
 
@@ -123,16 +131,17 @@ fn make_actions_grouped(map, beat_group_vec, spawner) {
 
 // Create an action using a Vec<MarkedBeat>. Note that spawner is closure called
 // with the following arguments
-// beat - the time, in beats, that the closure is called
-// t    - the percentage, between 0.0 and 1.0, that beat is from the first beat in the midi
-// total_i - an index, the ith time the spawner has been called
+// beat_tuple - a MarkedBeat, containing when the beat occurs, its percentage
+//              through the vector, and its normalized absolute pitch
+// i          - an index, the ith time the spawner has been called
 // The spawner must return either an array of beat_actions or a single beat_action.
 fn make_actions(map, beat_tuple_vec, spawner) {
     let arr = [];
     for (beat_tuple, i) in beat_tuple_vec {
         let beat = get_beat(beat_tuple);
         let t = get_percent(beat_tuple);
-        let beat_action = spawner.call(beat, t, i);
+        let pitch = get_pitch(beat_tuple);
+        let beat_action = spawner.call(beat_tuple, i);
         
         if type_of(beat_action) == "array" {
             arr.append(beat_action)
@@ -147,7 +156,7 @@ fn make_actions(map, beat_tuple_vec, spawner) {
 // Spawner Closures
 
 fn bullet_lerp(start1, end1, start2, end2) {
-    return |beat, t, i| { 
+    return |beat, i| { 
         let startpos = lerp_pos(start1, start2, t);
         let endpos = lerp_pos(end1, end2, t);
         return bullet(beat, startpos, endpos);
@@ -155,15 +164,15 @@ fn bullet_lerp(start1, end1, start2, end2) {
 }
 
 fn laser_player() {
-    return |beat, t, i| curr_group(beat, laser(origin(), player()));
+    return |beat, i| curr_group(beat, laser(origin(), player()));
 }
 
 fn bomb_grid() {
-    return |beat, t, i| bomb_curr(beat, grid());
+    return |beat, i| bomb_curr(beat, grid());
 }
 
 fn laser_solo() {
-    return |beat, t, i| {
+    return |beat, i| {
         let side = if i % 2 == 0 { 1.0 } else { -1.0 };
         return [laser_angle_curr(beat, pos(50.0 * side, 0.0), 90.0),
                 laser_angle_curr(beat, pos(40.0 * side, 0.0), 90.0),
@@ -172,7 +181,8 @@ fn laser_solo() {
 }
 
 fn bullet_circle_in(center, radius, start_angle, end_angle) {
-    return |beat, t, i| {
+    return |beat, i| {
+        let t = get_percent(beat);
         let angle = lerp(start_angle, end_angle, t);
         let startpos = circle(center.x, center.y, radius, angle);
         let endpos = center;
@@ -181,14 +191,15 @@ fn bullet_circle_in(center, radius, start_angle, end_angle) {
 }
 
 fn laser_circle(center, start_angle, end_angle) {
-    return |beat, t, i| {
+    return |beat, i| {
+        let t = get_percent(beat);
         let angle = lerp(start_angle, end_angle, t);
         return laser_angle_curr(beat, center, angle);
     }
 }
 
 fn laser_diamond(step) {
-    return |beat, t, i| {
+    return |beat, i| {
         let positions = [
             pos(-60.0, 0.0),
             pos(0.0, 60.0),
@@ -207,7 +218,7 @@ fn laser_diamond(step) {
 }
 
 fn bullet_player() {
-    return |beat, t, i| {
+    return |beat, i| {
         let pos = if i % 2 == 0 {
             pos(-50.0, 50.0)
         } else {
@@ -253,7 +264,9 @@ fn circle_sector_player_attack() {
                 // set the rotation for the group...            
                 let sign = if midigroup_i % 2 == 0 { 1 } else { -1 };
                 let rotation = beat_action(beat, enemy_group, set_rotation_on(0.0, sign * 60.0, 4.0, player()));
+                let rotation_off = beat_action(beat + 4.0, enemy_group, set_rotation_off());
                 actions.push(rotation);
+                actions.push(rotation_off);
                 
                 // get angles for the bullets
                 let angles = circle_sector(1, 7, 60.0, 0.0);
@@ -315,6 +328,40 @@ fn fadeout_clear(map, group, time, fade_duration) {
     return map;
 }
 
+fn add_rotation(map, group, start_time, duration, start_angle, end_angle, rot_point) {
+    let group = usize(group);
+    let rotation_on = beat_action(start_time, group, set_rotation_on(start_angle, end_angle, duration, rot_point));
+    let rotation_off = beat_action(start_time + duration, group, set_rotation_off());
+
+    map.add_action(rotation_on);
+    map.add_action(rotation_off);
+
+    return map;
+}
+
+fn tine_attack(pitch_axis_is_x, start_pos, end_pos) {
+    return |beat, i| {
+        let pitch = get_pitch(beat);
+        // let angle = pitch * 360.0;
+        // let startpos = circle(0.0, 0.0, 50.0, angle);
+        // let startpos = offset_player(startpos);
+        let pitch_pos = (pitch - 0.5) * 100.0;
+        let startpos = pos(0.0, 0.0);
+        let endpos = pos(0.0, 0.0);
+        if pitch_axis_is_x {
+            startpos = pos(pitch_pos, start_pos);
+            endpos = pos(pitch_pos, end_pos);
+        } else {
+            startpos = pos(start_pos, pitch_pos);
+            endpos = pos(end_pos, pitch_pos);
+        }
+
+        let action = bullet_curr(beat, startpos, endpos);
+
+        return action;
+    }
+}
+
 // beatsplitter convience
 let every4 = beat_splitter(0.0, 4.0);
 let every2 = beat_splitter(0.0, 2.0);
@@ -374,7 +421,7 @@ map.add_action(curr_group(32.0 * 4.0, set_rotation_on(90.0, 0.0, 16.0, origin())
 map.add_action(curr_group(36.0 * 4.0, set_rotation_off()));
 
 // [BREAK]
-// Measure 32 - 36
+// Measure 32 - 39
 map = fadeout_clear(map, 2, 36.0 * 4.0, 1.0);
 map = fadeout_clear(map, 3, 36.0 * 4.0, 1.0);
 
@@ -382,5 +429,11 @@ set_curr_group(0);
 
 map = make_actions_grouped(map, breakkick1, circle_sector_player_attack());
 
+// Measure 40 - 43
+
+// map = add_rotation(map, 0, 40.0 * 4.0, 12.0 * 4.0, 0.0, 360.0, origin());
+map = make_actions(map, normalize_pitch(breaktine1), tine_attack(false, -50.0, 50.0));
+map = make_actions(map, normalize_pitch(breaktine2), tine_attack(false, 50.0, -50.0));
+map = make_actions(map, normalize_pitch(breaktine3), tine_attack(true, 50.0, -50.0));
 // Return the SongMap.
 map

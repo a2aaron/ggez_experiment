@@ -97,7 +97,7 @@ impl SongMap {
         engine
             .register_result_fn("parse_midi", |path: rhai::ImmutableString, bpm: f64| {
                 match parse_midi(path.as_str(), bpm, midi_to_beats_ungrouped) {
-                    Ok(result) => Ok(MarkedBeat::mark_beats(&result)),
+                    Ok(result) => Ok(result),
                     Err(err) => Err(err.to_string().into()),
                 }
             })
@@ -108,13 +108,7 @@ impl SongMap {
                     bpm,
                     midi_to_beats_grouped,
                 ) {
-                    Ok(result) => {
-                        let marked_beats: Vec<Vec<MarkedBeat>> = result
-                            .iter()
-                            .map(|beats| MarkedBeat::mark_beats(beats))
-                            .collect();
-                        Ok(marked_beats)
-                    }
+                    Ok(result) => Ok(result),
                     Err(err) => Err(err.to_string().into()),
                 },
             );
@@ -122,9 +116,6 @@ impl SongMap {
         // MarkedBeat
         engine
             .register_type::<MarkedBeat>()
-            .register_fn("to_beat_tuple", |beats: Vec<Beats>| {
-                MarkedBeat::mark_beats(&beats)
-            })
             .register_fn("offset_tuple", |offset: f64, beats: Vec<MarkedBeat>| {
                 MarkedBeat::offset(&beats, Beats(offset))
             })
@@ -138,8 +129,12 @@ impl SongMap {
                 },
             )
             .register_fn("len", |x: Vec<MarkedBeat>| x.len() as i64)
+            .register_fn("normalize_pitch", |x: Vec<MarkedBeat>| {
+                MarkedBeat::normalize_pitch(&x)
+            })
             .register_fn("get_beat", |x: MarkedBeat| x.beat.0)
-            .register_fn("get_percent", |x: MarkedBeat| x.percent);
+            .register_fn("get_percent", |x: MarkedBeat| x.percent)
+            .register_fn("get_pitch", |x: MarkedBeat| x.pitch);
 
         engine
             .register_iterator::<Vec<MarkedBeat>>()
@@ -332,25 +327,52 @@ impl Default for SongMap {
 pub struct MarkedBeat {
     pub beat: Beats,
     pub percent: f64,
+    pub pitch: f64,
 }
 
 impl MarkedBeat {
     /// The slice is assumed to be in sorted order and the last beat is assumed
     /// to be the duration of the whole slice.
-    pub fn mark_beats(beats: &[Beats]) -> Vec<MarkedBeat> {
+    pub fn mark_beats(beats: &[(Beats, f64)]) -> Vec<MarkedBeat> {
         if beats.is_empty() {
             return vec![];
         }
         let mut marked_beats = vec![];
-        let duration = beats.last().unwrap();
-        for &beat in beats {
+        let duration = beats.last().unwrap().0;
+        for &(beat, pitch) in beats {
             let marked_beat = MarkedBeat {
                 beat,
                 percent: beat.0 / duration.0,
+                pitch,
             };
             marked_beats.push(marked_beat)
         }
         marked_beats
+    }
+
+    pub fn normalize_pitch(beats: &[MarkedBeat]) -> Vec<MarkedBeat> {
+        if beats.is_empty() {
+            return vec![];
+        }
+        let min = beats
+            .iter()
+            .map(|beat| beat.pitch)
+            .reduce(f64::min)
+            .unwrap();
+        let max = beats
+            .iter()
+            .map(|beat| beat.pitch)
+            .reduce(f64::max)
+            .unwrap();
+
+        beats
+            .iter()
+            .map(|beat| {
+                let mut new_beat = *beat;
+                new_beat.pitch = (beat.pitch - min) / (max - min);
+                new_beat
+            })
+            .collect()
     }
 
     fn offset(beats: &[MarkedBeat], offset: Beats) -> Vec<MarkedBeat> {
@@ -359,14 +381,16 @@ impl MarkedBeat {
             .map(|old| MarkedBeat {
                 beat: old.beat + offset,
                 percent: old.percent,
+                pitch: old.pitch,
             })
             .collect()
     }
 }
 
-pub fn midi_to_beats_grouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<Vec<Beats>> {
+pub fn midi_to_beats_grouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<Vec<MarkedBeat>> {
     let mut tick_number = 0;
     let mut beats = vec![];
+
     let mut group = vec![];
 
     let mut last_note = None;
@@ -381,11 +405,13 @@ pub fn midi_to_beats_grouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<V
             let beat = Beats(tick_number as f64 / ticks_per_beat);
             if let Some(last_note) = last_note {
                 if last_note != key {
-                    beats.push(group.clone());
+                    beats.push(MarkedBeat::mark_beats(&group));
                     group.clear();
                 }
             }
-            group.push(beat);
+
+            let pitch = key.as_int() as f64 / midly::num::u7::max_value().as_int() as f64;
+            group.push((beat, pitch));
             last_note = Some(key);
         }
     }
@@ -393,21 +419,23 @@ pub fn midi_to_beats_grouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<V
     beats
 }
 
-pub fn midi_to_beats_ungrouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<Beats> {
+pub fn midi_to_beats_ungrouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<MarkedBeat> {
     let mut tick_number = 0;
     let mut beats = vec![];
 
     for event in track {
         tick_number += event.delta.as_int();
         if let midly::TrackEventKind::Midi {
-            message: midly::MidiMessage::NoteOn { .. },
+            message: midly::MidiMessage::NoteOn { key, .. },
             ..
         } = event.kind
         {
-            beats.push(Beats(tick_number as f64 / ticks_per_beat));
+            let beat = Beats(tick_number as f64 / ticks_per_beat);
+            let pitch = key.as_int() as f64 / midly::num::u7::max_value().as_int() as f64;
+            beats.push((beat, pitch));
         }
     }
-    beats
+    MarkedBeat::mark_beats(&beats)
 }
 
 pub fn get_ticks_per_beat(header: &Header, bpm: f64) -> f64 {
