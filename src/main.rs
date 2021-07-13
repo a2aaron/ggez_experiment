@@ -242,7 +242,7 @@ impl MainState {
             delta
         );
         if delta > std::time::Duration::from_millis(16) {
-            log::warn!("Slow frame! {:?}", delta);
+            // log::warn!("Slow frame! {:?}", delta);
         }
         let fragment = TextFragment {
             text,

@@ -37,7 +37,7 @@ let main_melo = parse_midi("./resources/mainsimpleadd.mid", 150.0);
 let main1 = offset_tuple(28.0 * 4.0, main_melo);
 let main2 = offset_tuple(32.0 * 4.0, main_melo);
 
-let breakkick = parse_midi_grouped("./resources/break1kick1.mid", 150.0);
+let breakkick = parse_midi_grouped("./resources/break1kickgrouped.mid", 150.0);
 let breakkick1 = offset_tuple_grouped(36.0 * 4.0, breakkick);
 let breaktine1 = offset_tuple(44.0 * 4.0, parse_midi("./resources/break1tine1.mid", 150.0));
 let breaktine2 = offset_tuple(48.0 * 4.0, parse_midi("./resources/break1tine2.mid", 150.0));
@@ -86,17 +86,21 @@ fn bullet_lerp(map, splitter, start1, end1, start2, end2) {
 
 fn make_actions_grouped(map, beat_group_vec, spawner) {
     let arr = [];
-    for (beat_group, group_i) in beat_group_vec {
-        for (beat_tuple, i) in beat_group {
+    let total_i = 0;
+    for (beat_group, midigroup_i) in beat_group_vec {
+        for (beat_tuple, this_i) in beat_group {
             let beat = get_beat(beat_tuple);
             let t = get_percent(beat_tuple);
-            let beat_action = spawner.call(beat, t, i, group_i);
+            let midigroup_len = beat_group.len();
+            let beat_action = spawner.call(beat, t, total_i, this_i, midigroup_i, midigroup_len);
             
             if type_of(beat_action) == "array" {
                 arr.append(beat_action)
             } else {
                 arr.push(beat_action);
             }
+
+            total_i += 1;
         }
     }
     map.add_actions(arr);
@@ -192,28 +196,66 @@ fn bullet_player() {
     }
 }
 
-fn circle_sector_player() {
-    return |beat, t, i, group_i| {
-        let bullets = [];
-        let group = usize(i);
+fn circle_sector(num_sectors, num_per_sector, sector_size, sector_gap) {
+    let positions = [];
 
-        let sign = if i % 2 == 0 { 1 } else { -1 };
-
-        let rotation = beat_action(beat, group, set_rotation_on(0.0, sign * 60.0, 4.0, player()));
-
-        bullets.push(rotation);
-        let offset = random(0.0, 360.0);
-        for angle in range(0, 10) {
-            let angle = offset + (90.0 * to_float(angle) / 10.0);
-
-            let pos = circle(0.0, 0.0, 75.0, angle);
-            let pos = offset_player(pos);
-            let bullet = beat_action(beat, group, bullet(pos, player()));
-
-
-            bullets.push(bullet);
+    let start_angle = 0.0;
+    for i in range(0, num_sectors) {
+        for j in range(0, num_per_sector) {
+            let this_angle = start_angle + to_float(j) / to_float(num_per_sector) * sector_size; 
+            positions.push(this_angle);
         }
-        return bullets;
+        start_angle += sector_gap;
+    }
+
+    return positions;
+}
+
+fn circle_sector_player_attack() {
+    return |beat, t, total_i, this_i, midigroup_i, midigroup_len| {
+        let actions = [];
+        // Spawn all the bullets at the begining of the midigroup
+        // and turn each group on at the right time.
+        if this_i == 0 {
+            // the next midigroup_len groups will be apart of this midi group. This
+            // set of actions triggers on the first note of the midigroup.
+            let offset = random(0.0, 360.0);
+            for group_j in range(0, midigroup_len) {
+                // add 4 to avoid group collision issues w prev attack...
+                let enemy_group = usize(total_i + group_j + 4);
+                // print("total_i: " + total_i + " midigroup_len: "  + midigroup_len + " enemy_group: " + (total_i + group_j));
+                // set the rotation for the group...            
+                let sign = if midigroup_i % 2 == 0 { 1 } else { -1 };
+                let rotation = beat_action(beat, enemy_group, set_rotation_on(0.0, sign * 60.0, 4.0, player()));
+                actions.push(rotation);
+                
+                // get angles for the bullets
+                let angles = circle_sector(1, 7, 60.0, 0.0);
+
+                let sector_gap = 0.0;
+                if midigroup_len == 2 {
+                    sector_gap = 180.0;
+                } else if midigroup_len == 3 {
+                    sector_gap = 120.0;
+                }
+                let offset = offset + sector_gap * group_j;
+                // now make the bullets...
+                for angle in angles {
+                    let angle = offset + angle;
+                    let pos = circle(0.0, 0.0, 75.0, angle);
+                    let pos = offset_player(pos);
+                    let bullet = beat_action(beat, enemy_group, bullet(pos, player()));
+                    
+                    actions.push(bullet);
+                }   
+            }
+        } else {
+            let enemy_group = usize(total_i + 4);
+            let show = set_rotation_on(0.0, 360.0, 4.0, player());
+            let action = beat_action(beat, enemy_group, show);
+            actions.push(action);
+        }
+        return actions;
     }
 }
 
@@ -299,6 +341,6 @@ map = clear_group(map, 2, 36.0 * 4.0);
 map = clear_group(map, 3, 36.0 * 4.0);
 set_curr_group(0);
 
-map = make_actions_grouped(map, breakkick1, circle_sector_player());
+map = make_actions_grouped(map, breakkick1, circle_sector_player_attack());
 
 map

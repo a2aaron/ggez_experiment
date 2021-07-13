@@ -137,6 +137,7 @@ impl SongMap {
                         .collect::<Vec<Vec<MarkedBeat>>>()
                 },
             )
+            .register_fn("len", |x: Vec<MarkedBeat>| x.len() as i64)
             .register_fn("get_beat", |x: MarkedBeat| x.beat.0)
             .register_fn("get_percent", |x: MarkedBeat| x.percent);
 
@@ -377,7 +378,7 @@ pub fn midi_to_beats_grouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<V
         {
             let beat = Beats(tick_number as f64 / ticks_per_beat);
             if let Some(last_note) = last_note {
-                if last_note == key {
+                if last_note != key {
                     beats.push(group.clone());
                     group.clear();
                 }
