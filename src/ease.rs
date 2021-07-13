@@ -1,5 +1,7 @@
 use ggez::graphics::Color;
 
+use crate::time::Beats;
+
 pub trait Lerp: Sized + Copy {
     /// Lerp between two values. This function will clamp t.
     fn lerp(a: Self, b: Self, t: f64) -> Self {
@@ -59,56 +61,93 @@ impl Lerp for Color {
 }
 
 #[derive(Debug, Clone)]
-/// An enum representing an ease.
-pub enum Easing<T> {
-    /// Linearly ease from start to end.
-    Linear { start: T, end: T },
-    /// Linearly ease from start to mid when `t` is between `0.0` and `split_at`,
-    /// then linearly ease from mid to end when `t` is between `split_at` and `1.0`
-    SplitLinear {
-        start: T,
-        mid: T,
-        end: T,
-        split_at: f64,
-    },
-    /// Exponentially ease from start to end.
-    Exponential { start: T, end: T },
-    /// Transform an ease into an ease-out (f(x) => 1 - f(1 - x))
-    EaseOut {
-        start: T,
-        end: T,
-        easing: Box<Easing<f64>>,
-    },
+pub struct BeatEasing<T> {
+    pub easing: Easing<T>,
+    pub start_time: Beats,
+    pub duration: Beats,
+}
+
+impl<T: Lerp> BeatEasing<T> {
+    pub fn ease(&self, curr_time: Beats) -> T {
+        let delta_time = curr_time.0 - self.start_time.0;
+        let t = delta_time / self.duration.0;
+        self.easing.ease(t)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Easing<T> {
+    pub start: T,
+    pub end: T,
+    pub kind: EasingKind,
 }
 
 impl<T: Lerp> Easing<T> {
-    /// Ease using the given interpolation value `t`. `t` is expected to be in
-    /// [0.0, 1.0] range.
+    pub fn constant(val: T) -> Easing<T> {
+        Easing {
+            start: val,
+            end: val,
+            kind: EasingKind::Constant,
+        }
+    }
+
+    pub fn linear(start: T, end: T) -> Easing<T> {
+        Easing {
+            start,
+            end,
+            kind: EasingKind::Linear,
+        }
+    }
+
     pub fn ease(&self, t: f64) -> T {
+        let t = self.kind.ease(t);
+        T::lerp(self.start, self.end, t)
+    }
+}
+
+impl<T: InvLerp> Easing<T> {
+    pub fn split_linear(start: T, mid_val: T, mid_t: f64, end: T) -> Easing<T> {
+        let mid_val = T::inv_lerp(start, end, mid_val);
+        Easing {
+            start,
+            end,
+            kind: EasingKind::SplitLinear { mid_val, mid_t },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+/// An enum representing an ease.
+pub enum EasingKind {
+    /// Returns `start` always.
+    Constant,
+    /// Linearly ease from start to end.
+    Linear,
+    /// Linearly ease from 0.0 to `mid_val` when `t` is between `0.0` and `mid_t`,
+    /// then linearly ease from `mid_val` to 1.0 when `t` is between `mid_t` and `1.0`
+    SplitLinear { mid_val: f64, mid_t: f64 },
+    /// Exponentially ease from start to end.
+    Exponential,
+    /// Transform an ease into an ease-out (f(x) => 1 - f(1 - x))
+    EaseOut { easing: Box<EasingKind> },
+}
+
+impl EasingKind {
+    fn ease(&self, t: f64) -> f64 {
         match self {
-            &Easing::Linear { start, end } => T::lerp(start, end, t),
-            &Easing::SplitLinear {
-                start,
-                mid,
-                end,
-                split_at,
-            } => {
-                if t < split_at {
-                    // Map [0.0, split_at] to the [start, mid] range
-                    remap(0.0, split_at, t, start, mid)
+            EasingKind::Constant => 0.0,
+            EasingKind::Linear => t,
+            &EasingKind::SplitLinear { mid_val, mid_t } => {
+                if t < mid_t {
+                    // Map [0.0, mid_t] to the [0.0, mid_val] range
+                    remap(0.0, mid_t, t, 0.0, mid_val)
                 } else {
-                    // Map [split_at, 1.0] to the [mid, end] range
-                    remap(split_at, 1.0, t, mid, end)
+                    // Map [mid_t, 1.0] to the [mid_val, 1.0] range
+                    remap(mid_t, 1.0, t, mid_val, 1.0)
                 }
             }
-            &Easing::Exponential { start, end } => {
-                let expo_t = ease_in_expo(t);
-                T::lerp(start, end, expo_t)
-            }
-            Easing::EaseOut { start, end, easing } => {
-                let out_t = 1.0 - easing.ease(1.0 - t);
-                T::lerp(*start, *end, out_t)
-            }
+            EasingKind::Exponential => ease_in_expo(t),
+            EasingKind::EaseOut { easing } => 1.0 - easing.ease(1.0 - t),
         }
     }
 }

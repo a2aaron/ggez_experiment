@@ -7,11 +7,12 @@ use std::collections::BinaryHeap;
 use ggez::graphics::Color;
 use ggez::Context;
 
+use crate::ease::{BeatEasing, Easing};
 use crate::enemy::{Bullet, CircleBomb, Laser, BOMB_WARMUP, LASER_WARMUP};
-use crate::parse::SongMap;
+use crate::parse::{MarkedBeat, SongMap};
 use crate::time::Beats;
 use crate::world::WorldPos;
-use crate::WorldState;
+use crate::{EnemyGroup, WorldState};
 
 /// This struct contains all the events that occur during a song. It will perform
 /// a set of events every time update is called.
@@ -79,7 +80,7 @@ impl Default for BeatSplitter {
 }
 
 impl IntoIterator for BeatSplitter {
-    type Item = (Beats, f64);
+    type Item = MarkedBeat;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -88,14 +89,14 @@ impl IntoIterator for BeatSplitter {
 }
 
 impl BeatSplitter {
-    pub fn split(&self) -> Vec<(Beats, f64)> {
+    pub fn split(&self) -> Vec<MarkedBeat> {
         let mut beats = vec![];
         let mut this_beat = self.start;
         while self.duration > this_beat - self.start {
-            beats.push((
-                Beats(this_beat + self.delay + self.offset),
-                (this_beat + self.offset - self.start) / self.duration,
-            ));
+            beats.push(MarkedBeat {
+                beat: Beats(this_beat + self.delay + self.offset),
+                percent: (this_beat + self.offset - self.start) / self.duration,
+            });
             this_beat += self.frequency;
         }
         beats
@@ -152,21 +153,6 @@ impl BeatSplitter {
     }
 }
 
-/// Given a vector of beats, shift every value by `start` Beats. The slice is
-/// assumed to be in sorted order and the last beat is assumed to be the duration
-/// of the whole slice.
-pub fn mark_beats(start: f64, beats: &[Beats]) -> Vec<(Beats, f64)> {
-    if beats.is_empty() {
-        return vec![];
-    }
-    let mut marked_beats = vec![];
-    let duration = beats.last().unwrap();
-    for &beat in beats {
-        marked_beats.push((Beats(start) + beat, beat.0 / duration.0))
-    }
-    marked_beats
-}
-
 /// A wrapper struct of a Beat and a Boxed Action. The beat has reversed ordering
 /// to allow for the Scheduler to actually get the latest beat times.
 /// When used in the Scheduler, the action is `perform`'d when `beat` occurs.
@@ -176,7 +162,7 @@ pub fn mark_beats(start: f64, beats: &[Beats]) -> Vec<(Beats, f64)> {
 /// command. This also means that some actions may be scheduled earlier than
 /// needed, and that some actions have a maximum latest time at which they can
 /// get scheduled at all.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct BeatAction {
     // Stored in reverse ordering so that we can get the _earliest_ beat when in
     // the scheduler, rather than the latest.
@@ -236,17 +222,19 @@ impl Ord for BeatAction {
 
 /// A WorldPosition which depends on some dynamic value (ex: the player's
 /// position). This is computed at run time.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum LiveWorldPos {
     Constant(WorldPos),
     PlayerPos,
+    OffsetPlayer(Box<LiveWorldPos>),
 }
 
 impl LiveWorldPos {
     fn world_pos(&self, player_pos: WorldPos) -> WorldPos {
         match self {
-            LiveWorldPos::Constant(pos) => *pos,
+            &LiveWorldPos::Constant(pos) => pos,
             LiveWorldPos::PlayerPos => player_pos,
+            LiveWorldPos::OffsetPlayer(offset) => player_pos + offset.world_pos(player_pos),
         }
     }
 }
@@ -263,7 +251,7 @@ impl From<(f64, f64)> for LiveWorldPos {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum SpawnCmd {
     Bullet {
         start: LiveWorldPos,
@@ -290,7 +278,8 @@ pub enum SpawnCmd {
     CircleBomb {
         pos: LiveWorldPos,
     },
-    SetFadeOut(Option<Color>),
+    SetFadeOut(Option<(Color, Beats)>),
+    SetGroupRotation(Option<(f64, f64, Beats, LiveWorldPos)>),
     SetHitbox(bool),
     ShowWarmup(bool),
 }
@@ -300,14 +289,10 @@ impl SpawnCmd {
         let player_pos = world.player.pos;
 
         if group_number >= world.groups.len() {
-            log::warn!(
-                "Invalid group number: {} (value should be in range 0 to {})",
-                group_number,
-                world.groups.len()
-            )
+            world.groups.resize_with(group_number + 1, EnemyGroup::new)
         }
         let group = &mut world.groups[group_number];
-        match *self {
+        match self {
             SpawnCmd::Bullet { start, end } => {
                 let bullet = Bullet::new(
                     start.world_pos(player_pos),
@@ -345,7 +330,7 @@ impl SpawnCmd {
             SpawnCmd::Laser { position, angle } => {
                 let laser = Laser::new_through_point(
                     position.world_pos(player_pos),
-                    angle,
+                    *angle,
                     start_time,
                     Beats(1.0),
                 );
@@ -364,15 +349,33 @@ impl SpawnCmd {
                 let bomb = CircleBomb::new(start_time, pos.world_pos(player_pos));
                 group.enemies.push(Box::new(bomb))
             }
-            SpawnCmd::SetFadeOut(color) => {
-                if let Some(color) = color {
-                    group.fadeout = Some((start_time, color));
+            &SpawnCmd::SetFadeOut(fadeout) => {
+                if let Some((color, duration)) = fadeout {
+                    group.fadeout = Some(BeatEasing {
+                        easing: Easing::linear(Color::WHITE, color),
+                        start_time,
+                        duration,
+                    });
                 } else {
                     group.fadeout = None;
                 }
             }
-            SpawnCmd::SetHitbox(use_hitbox) => group.use_hitbox = use_hitbox,
-            SpawnCmd::ShowWarmup(show) => group.render_warmup = show,
+            &SpawnCmd::SetHitbox(use_hitbox) => group.use_hitbox = use_hitbox,
+            &SpawnCmd::ShowWarmup(show) => group.render_warmup = show,
+            SpawnCmd::SetGroupRotation(rotation) => {
+                if let Some((start_angle, end_angle, duration, rot_point)) = rotation {
+                    group.rotation = Some((
+                        BeatEasing {
+                            easing: Easing::linear(*start_angle, *end_angle),
+                            start_time,
+                            duration: *duration,
+                        },
+                        rot_point.world_pos(player_pos),
+                    ));
+                } else {
+                    group.rotation = None;
+                }
+            }
         }
     }
 }

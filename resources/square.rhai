@@ -15,34 +15,41 @@ Ex: do this:
 
 let map = default_map();
 map.set_bpm(150.0);
-map.set_skip_amount(16.0 * 4.0);
+map.set_skip_amount(35.0 * 4.0);
 
-// let kick1laser = to_beat_tuple(20.0 * 4.0, parse_midi("./resources/kick1.mid", 150.0));
+// let kick1laser = offset_tuple(20.0 * 4.0, parse_midi("./resources/kick1.mid", 150.0));
 
-let buildup1main1 = to_beat_tuple(12.0 * 4.0, parse_midi("./resources/buildup1main1.mid", 150.0));
-let buildup1main2 = to_beat_tuple(16.0 * 4.0, parse_midi("./resources/buildup1main2.mid", 150.0));
+let buildup1main1 = offset_tuple(12.0 * 4.0, parse_midi("./resources/buildup1main1.mid", 150.0));
+let buildup1main2 = offset_tuple(16.0 * 4.0, parse_midi("./resources/buildup1main2.mid", 150.0));
 
-let drop1kick1 = to_beat_tuple(20.0 * 4.0, parse_midi("./resources/drop1kick1.mid", 150.0));
-let drop1kick2 = to_beat_tuple(26.0 * 4.0, parse_midi("./resources/drop1kick2.mid", 150.0));
-let drop1kick3 = to_beat_tuple(28.0 * 4.0, parse_midi("./resources/drop1kick3.mid", 150.0));
-let drop1kick4 = to_beat_tuple(32.0 * 4.0, parse_midi("./resources/drop1kick4.mid", 150.0));
+let drop1kick1 = offset_tuple(20.0 * 4.0, parse_midi("./resources/drop1kick1.mid", 150.0));
+let drop1kick2 = offset_tuple(26.0 * 4.0, parse_midi("./resources/drop1kick2.mid", 150.0));
+let drop1kick3 = offset_tuple(28.0 * 4.0, parse_midi("./resources/drop1kick3.mid", 150.0));
+let drop1kick4 = offset_tuple(32.0 * 4.0, parse_midi("./resources/drop1kick4.mid", 150.0));
 
-let kick1bomb = to_beat_tuple(20.0 * 4.0, parse_midi("./resources/kick1simple.mid", 150.0));
+let kick1bomb = offset_tuple(20.0 * 4.0, parse_midi("./resources/kick1simple.mid", 150.0));
 
-let kick1solo = to_beat_tuple(20.0 * 4.0, parse_midi("./resources/kick1solo.mid", 150.0));
+let kick1solo = offset_tuple(20.0 * 4.0, parse_midi("./resources/kick1solo.mid", 150.0));
 
-let kick2 = to_beat_tuple(28.0 * 4.0, parse_midi("./resources/kick2.mid", 150.0));
-// let main1 = to_beat_tuple(28.0 * 4.0, parse_midi("./resources/main1.mid", 150.0));
+let kick2 = offset_tuple(28.0 * 4.0, parse_midi("./resources/kick2.mid", 150.0));
 
 let main_melo = parse_midi("./resources/mainsimpleadd.mid", 150.0);
-let main1 = to_beat_tuple(28.0 * 4.0, main_melo);
-let main2 = to_beat_tuple(32.0 * 4.0, main_melo);
+let main1 = offset_tuple(28.0 * 4.0, main_melo);
+let main2 = offset_tuple(32.0 * 4.0, main_melo);
+
+let breakkick = parse_midi_grouped("./resources/break1kick1.mid", 150.0);
+let breakkick1 = offset_tuple_grouped(36.0 * 4.0, breakkick);
+let breaktine1 = offset_tuple(44.0 * 4.0, parse_midi("./resources/break1tine1.mid", 150.0));
+let breaktine2 = offset_tuple(48.0 * 4.0, parse_midi("./resources/break1tine2.mid", 150.0));
+let breaktine3 = offset_tuple(52.0 * 4.0, parse_midi("./resources/break1tine3.mid", 150.0));
+let breaktinesolo = offset_tuple(55.0 * 4.0, parse_midi("./resources/break1tinesolo.mid", 150.0));
 
 let topleft = pos(-50.0, 50.0);
 let topright = pos(50.0, 50.0);
 let botleft = pos(-50.0, -50.0);
 let botright = pos(50.0, -50.0);
 
+// Create a beat action with the group as the current group
 fn curr_group(time, spawn_cmd) {
     return beat_action(time, get_curr_group(), spawn_cmd);
 }
@@ -72,6 +79,25 @@ fn bullet_lerp(map, splitter, start1, end1, start2, end2) {
         let startpos = lerp_pos(start1, start2, t);
         let endpos = lerp_pos(end1, end2, t);
         arr.push(bullet_curr(beat, startpos, endpos));
+    }
+    map.add_actions(arr);
+    return map;
+}
+
+fn make_actions_grouped(map, beat_group_vec, spawner) {
+    let arr = [];
+    for (beat_group, group_i) in beat_group_vec {
+        for (beat_tuple, i) in beat_group {
+            let beat = get_beat(beat_tuple);
+            let t = get_percent(beat_tuple);
+            let beat_action = spawner.call(beat, t, i, group_i);
+            
+            if type_of(beat_action) == "array" {
+                arr.append(beat_action)
+            } else {
+                arr.push(beat_action);
+            }
+        }
     }
     map.add_actions(arr);
     return map;
@@ -139,10 +165,10 @@ fn laser_circle(center, start_angle, end_angle) {
 fn laser_diamond(step) {
     return |beat, t, i| {
         let positions = [
-            pos(-50.0, 0.0),
-            pos(0.0, 50.0),
-            pos(50.0, 0.0),
-            pos(0.0, -50.0),
+            pos(-60.0, 0.0),
+            pos(0.0, 60.0),
+            pos(60.0, 0.0),
+            pos(0.0, -60.0),
         ];
         
         
@@ -166,17 +192,42 @@ fn bullet_player() {
     }
 }
 
-// Disable the hitboxes for a group and fade out the objects over 4 beats. Then
-// reenable the hitboxes and disable fade.
-fn clear_group(map, group, time) {
-    print("cleared group"); print(group);
-    let group = usize(group);
-    let fade_color = color(0.0, 1.0, 0.0, 1.0);
+fn circle_sector_player() {
+    return |beat, t, i, group_i| {
+        let bullets = [];
+        let group = usize(i);
 
-    let fadeout_on = beat_action(time - 0.01, group, set_fadeout_on(fade_color));
-    let fadeout_off = beat_action(time + 4.0, group, set_fadeout_off());
-    let hitbox_off = beat_action(time - 0.01, group, set_use_hitbox(false));
-    let hitbox_on = beat_action(time + 4.0, group, set_use_hitbox(true));
+        let sign = if i % 2 == 0 { 1 } else { -1 };
+
+        let rotation = beat_action(beat, group, set_rotation_on(0.0, sign * 60.0, 4.0, player()));
+
+        bullets.push(rotation);
+        let offset = random(0.0, 360.0);
+        for angle in range(0, 10) {
+            let angle = offset + (90.0 * to_float(angle) / 10.0);
+
+            let pos = circle(0.0, 0.0, 75.0, angle);
+            let pos = offset_player(pos);
+            let bullet = beat_action(beat, group, bullet(pos, player()));
+
+
+            bullets.push(bullet);
+        }
+        return bullets;
+    }
+}
+
+// Disable the hitboxes for a group and fade out the objects.
+fn clear_group(map, group, time) {
+    let fade_duration = 1.0;
+    let reenable_time = time + 4.0;
+    let group = usize(group);
+    let fade_color = color(0.0, 0.0, 0.0, 1.0);
+
+    let fadeout_on = beat_action(time, group, set_fadeout_on(fade_color, fade_duration));
+    let fadeout_off = beat_action(reenable_time, group, set_fadeout_off());
+    let hitbox_off = beat_action(time, group, set_use_hitbox(false));
+    let hitbox_on = beat_action(reenable_time, group, set_use_hitbox(true));
     
     map.add_action(fadeout_on);
     map.add_action(hitbox_off);
@@ -230,17 +281,24 @@ map = make_actions(map, drop1kick2, laser_circle(origin(), 0.0, 360.0 * 0.6));
 
 // // Measure 28 - 31
 map = clear_group(map, 1, 28.0 * 4.0);
-set_curr_group(0);
+set_curr_group(2);
 
-map = make_actions(map, main1, bullet_circle_in(origin(), 60.0, 0.0, 360.0 * 3.1));
-map = make_actions(map, main2, bullet_circle_in(origin(), 60.0, 60.0, -360.0 * 3.1));
+map = make_actions(map, main1, bullet_circle_in(origin(), 60.0, 0.0, -360.0 * 3.1));
+map = make_actions(map, main2, bullet_circle_in(origin(), 60.0, 60.0, 360.0 * 3.1));
 
+set_curr_group(3);
 map = make_actions(map, drop1kick3, laser_diamond(true));
 map = make_actions(map, drop1kick4, laser_diamond(false));
+map.add_action(curr_group(28.0 * 4.0, set_rotation_on(0.0, 90.0, 16.0, origin())));
+map.add_action(curr_group(32.0 * 4.0, set_rotation_on(90.0, 0.0, 16.0, origin())));
+map.add_action(curr_group(36.0 * 4.0, set_rotation_off()));
 
 // [BREAK]
 // Measure 32 - 36
-map = clear_group(map, 0, 36.0 * 4.0);
-set_curr_group(1);
+map = clear_group(map, 2, 36.0 * 4.0);
+map = clear_group(map, 3, 36.0 * 4.0);
+set_curr_group(0);
+
+map = make_actions_grouped(map, breakkick1, circle_sector_player());
 
 map

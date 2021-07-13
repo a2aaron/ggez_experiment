@@ -5,7 +5,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use ease::Lerp;
+use ease::{BeatEasing, Lerp};
 use ggez::audio::{SoundSource, Source};
 use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::mint::Point2;
@@ -68,23 +68,26 @@ pub struct EnemyGroup {
     pub enemies: Vec<Box<dyn Enemy>>,
     pub use_hitbox: bool,
     pub render_warmup: bool,
-    pub fadeout: Option<(Beats, Color)>,
+    pub fadeout: Option<BeatEasing<Color>>,
+    pub rotation: Option<(BeatEasing<f64>, WorldPos)>,
 }
 
 impl EnemyGroup {
     fn new() -> EnemyGroup {
         EnemyGroup {
-            enemies: Vec::with_capacity(128),
+            enemies: Vec::with_capacity(16),
             use_hitbox: true,
             render_warmup: true,
             fadeout: None,
+            rotation: None,
         }
     }
 
     fn update(&mut self, player: &mut Player, curr_time: Beats) {
+        let rotated_about = self.rotation_ease(curr_time);
         for enemy in self.enemies.iter_mut() {
             enemy.update(curr_time);
-            if let Some(sdf) = enemy.sdf(player.pos, curr_time) {
+            if let Some(sdf) = enemy.sdf(player.pos, curr_time, rotated_about) {
                 if sdf < player.size && self.use_hitbox {
                     player.on_hit();
                 }
@@ -102,14 +105,11 @@ impl EnemyGroup {
                 continue;
             }
 
-            if let Some((mesh, param)) = enemy.draw(ctx, curr_time)? {
-                let param = if let Some((fade_start, fadeout_color)) = self.fadeout {
-                    // fade out the object over 4.0 beats.
-                    param.color(Color::lerp(
-                        Color::WHITE,
-                        fadeout_color,
-                        curr_time.0 - fade_start.0 / 4.0,
-                    ))
+            if let Some((mesh, param)) =
+                enemy.draw(ctx, curr_time, self.rotation_ease(curr_time))?
+            {
+                let param = if let Some(fadeout) = &self.fadeout {
+                    param.color(fadeout.ease(curr_time))
                 } else {
                     param
                 };
@@ -119,6 +119,12 @@ impl EnemyGroup {
         }
 
         Ok(())
+    }
+
+    fn rotation_ease(&self, curr_time: Beats) -> Option<(WorldPos, f64)> {
+        self.rotation
+            .as_ref()
+            .map(|(easing, rot_point)| (*rot_point, easing.ease(curr_time)))
     }
 }
 
@@ -132,7 +138,11 @@ impl WorldState {
     fn new() -> WorldState {
         WorldState {
             player: Player::new(),
-            groups: vec![EnemyGroup::new(), EnemyGroup::new()],
+            groups: {
+                let mut vec = Vec::with_capacity(8);
+                vec.resize_with(8, EnemyGroup::new);
+                vec
+            },
             show_warmup: true,
         }
     }
@@ -289,36 +299,44 @@ impl MainState {
 
     fn draw_debug_hitbox(&self, ctx: &mut Context) -> Result<(), GameError> {
         let curr_time = self.time.get_beats();
+        let rotated_about = if ggez::input::keyboard::is_key_pressed(ctx, KeyCode::V) {
+            Some((self.world.player.pos, curr_time.0 * 400.0))
+        } else {
+            None
+        };
 
         if let Some(enemy) = &self.debug {
             if ggez::input::keyboard::is_key_pressed(ctx, KeyCode::C) {
-                enemy.draw(ctx, curr_time)?;
+                if let Some((mesh, param)) = enemy.draw(ctx, curr_time, rotated_about)? {
+                    mesh.draw(ctx, param)?;
+                }
             }
-
-            for x in -20..20 {
-                for y in -20..20 {
-                    let pos = WorldPos {
-                        x: x as f64,
-                        y: y as f64,
-                    };
-                    let sdf = enemy.sdf(pos, self.time.get_beats());
-                    let color = match sdf {
-                        None => crate::color::GUIDE_GREY,
-                        Some(sdf) => Color::lerp(
-                            crate::color::RED,
-                            crate::color::GREEN,
-                            (sdf.0.atan() / (std::f64::consts::PI / 2.0) + 1.0) / 2.0,
-                        ),
-                    };
-                    Mesh::new_circle(
-                        ctx,
-                        DrawMode::fill(),
-                        pos.as_screen_coords(),
-                        1.0,
-                        5.0,
-                        color,
-                    )?
-                    .draw(ctx, DrawParam::default())?;
+            if ggez::input::keyboard::is_key_pressed(ctx, KeyCode::Z) {
+                for x in -20..20 {
+                    for y in -20..20 {
+                        let pos = WorldPos {
+                            x: x as f64,
+                            y: y as f64,
+                        };
+                        let sdf = enemy.sdf(pos, self.time.get_beats(), rotated_about);
+                        let color = match sdf {
+                            None => crate::color::GUIDE_GREY,
+                            Some(sdf) => Color::lerp(
+                                crate::color::RED,
+                                crate::color::GREEN,
+                                (sdf.0.atan() / (std::f64::consts::PI / 2.0) + 1.0) / 2.0,
+                            ),
+                        };
+                        Mesh::new_circle(
+                            ctx,
+                            DrawMode::fill(),
+                            pos.as_screen_coords(),
+                            1.0,
+                            5.0,
+                            color,
+                        )?
+                        .draw(ctx, DrawParam::default())?;
+                    }
                 }
             }
         }
@@ -384,8 +402,8 @@ impl event::EventHandler for MainState {
 
         if keycode == KeyCode::X {
             self.debug = Some(Box::new(crate::enemy::Laser::new_through_points(
-                WorldPos::origin(),
                 self.world.player.pos,
+                WorldPos::origin(),
                 self.time.get_beats(),
                 Beats(16.0),
             )));

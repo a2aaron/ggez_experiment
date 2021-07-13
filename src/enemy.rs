@@ -5,7 +5,7 @@ use cg::prelude::*;
 use cgmath as cg;
 
 use crate::color::{self, LASER_RED, RED, TRANSPARENT, WHITE};
-use crate::ease::{Easing, Lerp};
+use crate::ease::{Easing, EasingKind, Lerp};
 use crate::time::Beats;
 use crate::util;
 use crate::world::{WorldLen, WorldPos};
@@ -23,11 +23,21 @@ const OUTLINE_THICKNESS: f32 = 0.25;
 /// lifetime of existence.
 pub trait Enemy {
     fn update(&mut self, curr_time: Beats);
-    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<Option<(Mesh, DrawParam)>>;
+    fn draw(
+        &self,
+        ctx: &mut Context,
+        curr_time: Beats,
+        rotated_about: Option<(WorldPos, f64)>,
+    ) -> GameResult<Option<(Mesh, DrawParam)>>;
     // fn position_info(&self, curr_time: Beats) -> (WorldPos, f64);
     /// If None, the enemy has no hitbox, otherwise, positive values give the
     /// distance to the object and negative values are inside the object.
-    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen>;
+    fn sdf(
+        &self,
+        pos: WorldPos,
+        curr_time: Beats,
+        rotated_about: Option<(WorldPos, f64)>,
+    ) -> Option<WorldLen>;
     fn lifetime_state(&self, curr_time: Beats) -> EnemyLifetime;
 }
 
@@ -77,13 +87,26 @@ impl<T: EnemyImpl> Enemy for T {
         }
     }
 
-    fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<Option<(Mesh, DrawParam)>> {
+    fn draw(
+        &self,
+        ctx: &mut Context,
+        curr_time: Beats,
+        rotated_about: Option<(WorldPos, f64)>,
+    ) -> GameResult<Option<(Mesh, DrawParam)>> {
         match self.lifetime_state(curr_time) {
             EnemyLifetime::Unspawned => Ok(None),
             EnemyLifetime::Dead => Ok(None),
             _ => {
                 let mesh = self.get_mesh(ctx, curr_time)?;
                 let (pos, angle) = self.position_info(curr_time);
+
+                // apply the rotation if need be
+                let (pos, angle) = if let Some((rot_point, rot_angle)) = rotated_about {
+                    (rotate_point(pos, rot_point, rot_angle), angle + rot_angle)
+                } else {
+                    (pos, angle)
+                };
+
                 // Note that the negative angle is required here as `rotation`
                 // rotates objects clockwise, but we need counterclockwise
                 // rotation. Also note the -4.0 on `scale`. This is needed to
@@ -98,7 +121,20 @@ impl<T: EnemyImpl> Enemy for T {
         }
     }
 
-    fn sdf(&self, pos: WorldPos, curr_time: Beats) -> Option<WorldLen> {
+    fn sdf(
+        &self,
+        pos: WorldPos,
+        curr_time: Beats,
+        rotated_about: Option<(WorldPos, f64)>,
+    ) -> Option<WorldLen> {
+        let pos = if let Some((rot_point, rot_angle)) = rotated_about {
+            // since rotated_about rotates the enemy, we can simulate this by
+            // rotating the player point opposite to the rot_angle.
+            rotate_point(pos, rot_point, -rot_angle)
+        } else {
+            pos
+        };
+
         if self.lifetime_state(curr_time) != EnemyLifetime::Active {
             None
         } else {
@@ -335,40 +371,20 @@ impl Laser {
             start_time,
             durations,
             outline_keyframes: [
-                Easing::Linear {
-                    start: 1.0,
-                    end: 3.0,
-                },
-                Easing::SplitLinear {
-                    start: 6.0,
-                    end: 1.0,
-                    mid: 2.0,
-                    split_at: 0.6,
-                },
-                Easing::Linear {
-                    start: 1.0,
-                    end: 0.0,
-                },
+                Easing::linear(1.0, 3.0),
+                Easing::split_linear(6.0, 2.0, 0.6, 1.0),
+                Easing::linear(1.0, 0.0),
             ],
             hitbox_keyframes: [
-                Easing::Linear {
-                    start: 0.0,
-                    end: 0.0,
-                },
-                Easing::EaseOut {
+                Easing::linear(0.0, 0.0),
+                Easing {
                     start: 2.0,
                     end: 0.5,
-                    easing: Box::new(Easing::Exponential {
-                        start: 0.0,
-                        end: 1.0,
-                    }),
+                    kind: EasingKind::EaseOut {
+                        easing: Box::new(EasingKind::Exponential),
+                    },
                 },
-                Easing::SplitLinear {
-                    start: 0.5,
-                    mid: 0.0,
-                    end: 0.0,
-                    split_at: 0.5,
-                },
+                Easing::split_linear(0.5, 0.0, 0.5, 0.0),
             ],
             position: point,
             angle,
@@ -599,6 +615,21 @@ pub fn shortest_distance_to_line(
     // Now get the perpendicular, this is the distance to the laser.
     let perp = LP_vec - proj;
     perp.magnitude()
+}
+
+/// Rotate `point` about `rot_point` by `rot_angle` radians.
+pub fn rotate_point(point: WorldPos, rot_point: WorldPos, rot_angle: f64) -> WorldPos {
+    // first translate the point so that the rotation point is at the origin
+    let (pos_x, pos_y) = (point.x - rot_point.x, point.y - rot_point.y);
+    // now rotate the point by rot_angle
+    let (pos_x, pos_y) = (
+        pos_x * rot_angle.cos() - pos_y * rot_angle.sin(),
+        pos_x * rot_angle.sin() + pos_y * rot_angle.cos(),
+    );
+    // finally translate the point back
+    let (pos_x, pos_y) = (pos_x + rot_point.x, pos_y + rot_point.y);
+
+    WorldPos::from((pos_x, pos_y))
 }
 
 #[cfg(test)]

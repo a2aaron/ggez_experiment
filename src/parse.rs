@@ -4,10 +4,10 @@ use std::sync::atomic::AtomicUsize;
 
 use ggez::graphics::Color;
 use ggez::Context;
-use midly::Smf;
+use midly::{Header, Smf, TrackEvent};
 use rand::Rng;
 
-use crate::chart::{mark_beats, BeatAction, BeatSplitter, LiveWorldPos, SpawnCmd};
+use crate::chart::{BeatAction, BeatSplitter, LiveWorldPos, SpawnCmd};
 use crate::ease::Lerp;
 use crate::time::Beats;
 use crate::world::WorldPos;
@@ -89,51 +89,62 @@ impl SongMap {
                     )
                     .collect::<Result<Vec<_>, _>>()?;
 
-                map.add_actions(&arr);
+                map.add_actions(arr);
                 Ok(())
             });
 
-        // Various extras
-        engine.register_result_fn("parse_midi", |path: rhai::ImmutableString, bpm: f64| {
-            match parse_midi_to_beats(path.as_str(), bpm) {
-                Ok(beats) => Ok(beats),
-                Err(err) => Err(err.to_string().into()),
-            }
-        });
+        // Midi parsing
+        engine
+            .register_result_fn("parse_midi", |path: rhai::ImmutableString, bpm: f64| {
+                match parse_midi(path.as_str(), bpm, midi_to_beats_ungrouped) {
+                    Ok(result) => Ok(MarkedBeat::mark_beats(&result)),
+                    Err(err) => Err(err.to_string().into()),
+                }
+            })
+            .register_result_fn(
+                "parse_midi_grouped",
+                |path: rhai::ImmutableString, bpm: f64| match parse_midi(
+                    path.as_str(),
+                    bpm,
+                    midi_to_beats_grouped,
+                ) {
+                    Ok(result) => {
+                        let marked_beats: Vec<Vec<MarkedBeat>> = result
+                            .iter()
+                            .map(|beats| MarkedBeat::mark_beats(beats))
+                            .collect();
+                        Ok(marked_beats)
+                    }
+                    Err(err) => Err(err.to_string().into()),
+                },
+            );
 
-        engine.register_fn("lerp", |start: f64, end: f64, t: f64| t.lerp(start, end));
+        // MarkedBeat
+        engine
+            .register_type::<MarkedBeat>()
+            .register_fn("to_beat_tuple", |beats: Vec<Beats>| {
+                MarkedBeat::mark_beats(&beats)
+            })
+            .register_fn("offset_tuple", |offset: f64, beats: Vec<MarkedBeat>| {
+                MarkedBeat::offset(&beats, Beats(offset))
+            })
+            .register_fn(
+                "offset_tuple_grouped",
+                |offset: f64, beat_groups: Vec<Vec<MarkedBeat>>| {
+                    beat_groups
+                        .iter()
+                        .map(|beats| MarkedBeat::offset(beats, Beats(offset)))
+                        .collect::<Vec<Vec<MarkedBeat>>>()
+                },
+            )
+            .register_fn("get_beat", |x: MarkedBeat| x.beat.0)
+            .register_fn("get_percent", |x: MarkedBeat| x.percent);
 
-        engine.register_fn(
-            "circle",
-            |center_x: f64, center_y: f64, radius: f64, angle: f64| {
-                let angle = angle.to_radians();
-                LiveWorldPos::from((
-                    angle.cos() * radius + center_x,
-                    angle.sin() * radius + center_y,
-                ))
-            },
-        );
+        engine
+            .register_iterator::<Vec<MarkedBeat>>()
+            .register_iterator::<Vec<Vec<MarkedBeat>>>();
 
-        engine.register_fn("grid", || {
-            LiveWorldPos::from(util::random_grid((-50.0, 50.0), (-50.0, 50.0), 20))
-        });
-
-        engine.register_result_fn("random", |min: f64, max: f64| {
-            if min < max {
-                Ok(rand::thread_rng().gen_range(min..max))
-            } else {
-                Err(format!("min: {} must be smaller than max: {}", min, max).into())
-            }
-        });
-
-        // Iterators
-        engine.register_fn("to_beat_tuple", |start: f64, beats: Vec<Beats>| {
-            mark_beats(start, &beats)
-        });
-
-        engine.register_iterator::<Vec<(Beats, f64)>>();
-
-        // Beat splitting things
+        // BeatSplitter
         engine
             .register_type::<BeatSplitter>()
             .register_iterator::<BeatSplitter>()
@@ -154,6 +165,9 @@ impl SongMap {
             .register_fn("pos", |x: f64, y: f64| LiveWorldPos::from((x, y)))
             .register_fn("origin", || LiveWorldPos::from((0.0, 0.0)))
             .register_fn("player", || LiveWorldPos::PlayerPos)
+            .register_fn("offset_player", |pos| {
+                LiveWorldPos::OffsetPlayer(Box::new(pos))
+            })
             .register_result_fn(
                 "lerp_pos",
                 |a: LiveWorldPos, b: LiveWorldPos, t: f64| match (a, b) {
@@ -183,27 +197,38 @@ impl SongMap {
                 _ => Err("Position is a symbolic player position".into()),
             });
 
+        // LiveWorldPos helpers
+        engine.register_fn("lerp", |start: f64, end: f64, t: f64| t.lerp(start, end));
+
+        engine.register_fn(
+            "circle",
+            |center_x: f64, center_y: f64, radius: f64, angle: f64| {
+                let angle = angle.to_radians();
+                LiveWorldPos::from((
+                    angle.cos() * radius + center_x,
+                    angle.sin() * radius + center_y,
+                ))
+            },
+        );
+
+        engine.register_fn("grid", || {
+            LiveWorldPos::from(util::random_grid((-50.0, 50.0), (-50.0, 50.0), 20))
+        });
+
+        engine.register_result_fn("random", |min: f64, max: f64| {
+            if min < max {
+                Ok(rand::thread_rng().gen_range(min..max))
+            } else {
+                Err(format!("min: {} must be smaller than max: {}", min, max).into())
+            }
+        });
+
         // Colors
         engine
             .register_type::<Color>()
             .register_fn("color", |r: f64, g: f64, b: f64, a: f64| {
                 Color::new(r as f32, g as f32, b as f32, a as f32)
             });
-
-        engine.register_type::<SpawnCmd>();
-
-        // Needed so that we can split apart tuples.
-        engine
-            .register_type::<(Beats, f64)>()
-            .register_fn("get_beat", |x: (Beats, f64)| x.0 .0)
-            .register_fn("get_percent", |x: (Beats, f64)| x.1);
-
-        engine.register_type::<BeatAction>().register_fn(
-            "beat_action",
-            |start_time: f64, group_number: usize, action: SpawnCmd| {
-                BeatAction::new(Beats(start_time), group_number, action)
-            },
-        );
 
         fn try_into_usize(x: i64) -> Result<usize, Box<rhai::EvalAltResult>> {
             std::convert::TryInto::<usize>::try_into(x)
@@ -212,7 +237,14 @@ impl SongMap {
 
         engine.register_result_fn("usize", try_into_usize);
 
-        // SpawnCmds
+        engine.register_type::<BeatAction>().register_fn(
+            "beat_action",
+            |start_time: f64, group_number: usize, action: SpawnCmd| {
+                BeatAction::new(Beats(start_time), group_number, action)
+            },
+        );
+
+        // All the SpawnCmds
         engine
             .register_type::<SpawnCmd>()
             .register_fn("bullet", |start, end| SpawnCmd::Bullet { start, end })
@@ -232,10 +264,22 @@ impl SongMap {
                 angle: angle.to_radians(),
             })
             .register_fn("bomb", |pos| SpawnCmd::CircleBomb { pos })
-            .register_fn("set_fadeout_on", |color: Color| {
-                SpawnCmd::SetFadeOut(Some(color))
+            .register_fn("set_fadeout_on", |color: Color, duration: f64| {
+                SpawnCmd::SetFadeOut(Some((color, Beats(duration))))
             })
             .register_fn("set_fadeout_off", || SpawnCmd::SetFadeOut(None))
+            .register_fn(
+                "set_rotation_on",
+                |start_angle: f64, end_angle: f64, duration, rot_point| {
+                    SpawnCmd::SetGroupRotation(Some((
+                        start_angle.to_radians(),
+                        end_angle.to_radians(),
+                        Beats(duration),
+                        rot_point,
+                    )))
+                },
+            )
+            .register_fn("set_rotation_off", || SpawnCmd::SetGroupRotation(None))
             .register_fn("set_use_hitbox", |use_hitbox: bool| {
                 SpawnCmd::SetHitbox(use_hitbox)
             })
@@ -266,7 +310,7 @@ impl SongMap {
         self.actions.push(action);
     }
 
-    fn add_actions(&mut self, actions: &[BeatAction]) {
+    fn add_actions(&mut self, actions: impl IntoIterator<Item = BeatAction>) {
         self.actions.extend(actions)
     }
 }
@@ -281,35 +325,106 @@ impl Default for SongMap {
     }
 }
 
-pub fn parse_midi_to_beats<P: AsRef<Path>>(
-    path: P,
-    bpm: f64,
-) -> Result<Vec<Beats>, Box<dyn std::error::Error>> {
-    let buffer = std::fs::read(path)?;
-    let smf = Smf::parse(&buffer)?;
+#[derive(Debug, Clone, Copy)]
+pub struct MarkedBeat {
+    pub beat: Beats,
+    pub percent: f64,
+}
+
+impl MarkedBeat {
+    /// The slice is assumed to be in sorted order and the last beat is assumed
+    /// to be the duration of the whole slice.
+    pub fn mark_beats(beats: &[Beats]) -> Vec<MarkedBeat> {
+        if beats.is_empty() {
+            return vec![];
+        }
+        let mut marked_beats = vec![];
+        let duration = beats.last().unwrap();
+        for &beat in beats {
+            let marked_beat = MarkedBeat {
+                beat,
+                percent: beat.0 / duration.0,
+            };
+            marked_beats.push(marked_beat)
+        }
+        marked_beats
+    }
+
+    fn offset(beats: &[MarkedBeat], offset: Beats) -> Vec<MarkedBeat> {
+        beats
+            .iter()
+            .map(|old| MarkedBeat {
+                beat: old.beat + offset,
+                percent: old.percent,
+            })
+            .collect()
+    }
+}
+
+pub fn midi_to_beats_grouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<Vec<Beats>> {
+    let mut tick_number = 0;
+    let mut beats = vec![];
+    let mut group = vec![];
+
+    let mut last_note = None;
+
+    for event in track {
+        tick_number += event.delta.as_int();
+        if let midly::TrackEventKind::Midi {
+            message: midly::MidiMessage::NoteOn { key, .. },
+            ..
+        } = event.kind
+        {
+            let beat = Beats(tick_number as f64 / ticks_per_beat);
+            if let Some(last_note) = last_note {
+                if last_note == key {
+                    beats.push(group.clone());
+                    group.clear();
+                }
+            }
+            group.push(beat);
+            last_note = Some(key);
+        }
+    }
+
+    beats
+}
+
+pub fn midi_to_beats_ungrouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<Beats> {
     let mut tick_number = 0;
     let mut beats = vec![];
 
-    let ticks_per_beat = match smf.header.timing {
+    for event in track {
+        tick_number += event.delta.as_int();
+        if let midly::TrackEventKind::Midi {
+            message: midly::MidiMessage::NoteOn { .. },
+            ..
+        } = event.kind
+        {
+            beats.push(Beats(tick_number as f64 / ticks_per_beat));
+        }
+    }
+    beats
+}
+
+pub fn get_ticks_per_beat(header: &Header, bpm: f64) -> f64 {
+    match header.timing {
         midly::Timing::Metrical(ticks_per_beat) => ticks_per_beat.as_int() as f64,
         midly::Timing::Timecode(fps, num_subframes) => {
             let ticks_per_second = fps.as_f32() * num_subframes as f32;
             let seconds_per_beat = time::beat_length(bpm).0;
             ticks_per_second as f64 * seconds_per_beat
         }
-    };
-
-    for track in &smf.tracks[0] {
-        tick_number += track.delta.as_int();
-        if let midly::TrackEventKind::Midi { message, .. } = track.kind {
-            match message {
-                midly::MidiMessage::NoteOn { .. } => {
-                    beats.push(Beats(tick_number as f64 / ticks_per_beat));
-                }
-                midly::MidiMessage::NoteOff { .. } => {} // explicitly ignore NoteOff
-                _ => {}
-            }
-        }
     }
-    Ok(beats)
+}
+
+pub fn parse_midi<P: AsRef<Path>, T>(
+    path: P,
+    bpm: f64,
+    func: impl Fn(&[TrackEvent], f64) -> T,
+) -> Result<T, Box<dyn std::error::Error>> {
+    let buffer = std::fs::read(path)?;
+    let smf = Smf::parse(&buffer)?;
+    let ticks_per_beat = get_ticks_per_beat(&smf.header, bpm);
+    Ok(func(&smf.tracks[0], ticks_per_beat))
 }
