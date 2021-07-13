@@ -67,6 +67,7 @@ impl Assets {
 pub struct EnemyGroup {
     pub enemies: Vec<Box<dyn Enemy>>,
     pub use_hitbox: bool,
+    pub do_render: bool,
     pub render_warmup: bool,
     pub fadeout: Option<BeatEasing<Color>>,
     pub rotation: Option<(BeatEasing<f64>, WorldPos)>,
@@ -77,6 +78,7 @@ impl EnemyGroup {
         EnemyGroup {
             enemies: Vec::with_capacity(16),
             use_hitbox: true,
+            do_render: true,
             render_warmup: true,
             fadeout: None,
             rotation: None,
@@ -100,6 +102,10 @@ impl EnemyGroup {
     }
 
     fn draw(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<()> {
+        if !self.do_render {
+            return Ok(());
+        }
+
         for enemy in self.enemies.iter() {
             if !self.render_warmup && enemy.lifetime_state(curr_time) == EnemyLifetime::Warmup {
                 continue;

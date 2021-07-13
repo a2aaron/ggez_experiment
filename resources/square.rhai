@@ -1,4 +1,4 @@
-print("-----------\n-------------\n");
+print("-----------");
 
 /* Some important things to keep in mind
 1. Functions pass by reference! If you want to mutate an object, return it back!
@@ -15,10 +15,9 @@ Ex: do this:
 
 let map = default_map();
 map.set_bpm(150.0);
-map.set_skip_amount(35.0 * 4.0);
+map.set_skip_amount(32.0 * 4.0);
 
-// let kick1laser = offset_tuple(20.0 * 4.0, parse_midi("./resources/kick1.mid", 150.0));
-
+// read midi files...
 let buildup1main1 = offset_tuple(12.0 * 4.0, parse_midi("./resources/buildup1main1.mid", 150.0));
 let buildup1main2 = offset_tuple(16.0 * 4.0, parse_midi("./resources/buildup1main2.mid", 150.0));
 
@@ -54,22 +53,28 @@ fn curr_group(time, spawn_cmd) {
     return beat_action(time, get_curr_group(), spawn_cmd);
 }
 
+// Spawn a bullet in the current enemygroup
 fn bullet_curr(beat, startpos, endpos) {
     return curr_group(beat, bullet(startpos, endpos));
 }
 
+// Spawn a bomb in the current enemygroup
 fn bomb_curr(beat, pos) {
     return curr_group(beat, bomb(pos));
 }
 
+// Spawn a laser thru points a and b in the current enemygroup
 fn laser_curr(beat, a, b) {
     return curr_group(beat, laser(a, b));
 }
 
+// Spawn a laser at point pos and with the given angle in the current enemygroup
 fn laser_angle_curr(beat, pos, angle) {
     return curr_group(beat, laser_angle(pos, angle));
 }
 
+// Using a beat splitter, create a set of bullets whose initial paths are along 
+// start1 -> end1 and final paths along along start2 -> end2
 fn bullet_lerp(map, splitter, start1, end1, start2, end2) {
     let arr = [];
     for beat_tuple in splitter {
@@ -84,6 +89,15 @@ fn bullet_lerp(map, splitter, start1, end1, start2, end2) {
     return map;
 }
 
+// Create a set of actions using a Vec<Vec<MarkedBeat>>. Note that spawner is a closure called once
+// for each midi note that takes the following arguments
+// beat - the time, in beats, that the closure is called
+// t    - the percentage, between 0.0 and 1.0, that beat is from the first beat in the midi
+// total_i - an index, the ith time the spawner has been called at all
+// this_i - an index, the ith the the spawner has been called in this midigroup
+// midigroup_i - an index, the ith midigroup
+// midigroup_len - the length, in notes, of this midigroup
+// The spawner must return either an array of beat_actions or a single beat_action.
 fn make_actions_grouped(map, beat_group_vec, spawner) {
     let arr = [];
     let total_i = 0;
@@ -107,7 +121,12 @@ fn make_actions_grouped(map, beat_group_vec, spawner) {
     return map;
 }
 
-
+// Create an action using a Vec<MarkedBeat>. Note that spawner is closure called
+// with the following arguments
+// beat - the time, in beats, that the closure is called
+// t    - the percentage, between 0.0 and 1.0, that beat is from the first beat in the midi
+// total_i - an index, the ith time the spawner has been called
+// The spawner must return either an array of beat_actions or a single beat_action.
 fn make_actions(map, beat_tuple_vec, spawner) {
     let arr = [];
     for (beat_tuple, i) in beat_tuple_vec {
@@ -124,6 +143,8 @@ fn make_actions(map, beat_tuple_vec, spawner) {
     map.add_actions(arr);
     return map;
 }
+
+// Spawner Closures
 
 fn bullet_lerp(start1, end1, start2, end2) {
     return |beat, t, i| { 
@@ -196,6 +217,11 @@ fn bullet_player() {
     }
 }
 
+// Return an array of angles representing sectors of a circle.
+// num_sectors - the number of sectors to make
+// num_per_sector - the number of angles per sector
+// sector_size - the size, in angles, of each sector
+// sector_gap - the gap, in angles, between each sector
 fn circle_sector(num_sectors, num_per_sector, sector_size, sector_gap) {
     let positions = [];
 
@@ -222,7 +248,7 @@ fn circle_sector_player_attack() {
             let offset = random(0.0, 360.0);
             for group_j in range(0, midigroup_len) {
                 // add 4 to avoid group collision issues w prev attack...
-                let enemy_group = usize(total_i + group_j + 4);
+                let enemy_group = usize(total_i + group_j);
                 // print("total_i: " + total_i + " midigroup_len: "  + midigroup_len + " enemy_group: " + (total_i + group_j));
                 // set the rotation for the group...            
                 let sign = if midigroup_i % 2 == 0 { 1 } else { -1 };
@@ -247,11 +273,16 @@ fn circle_sector_player_attack() {
                     let bullet = beat_action(beat, enemy_group, bullet(pos, player()));
                     
                     actions.push(bullet);
-                }   
+                }
+
+                // and hide the sectors that correspond to not-the-first-note...
+                if group_j != 0 {
+                    actions.push(beat_action(beat, enemy_group, set_render(false)))
+                }
             }
         } else {
-            let enemy_group = usize(total_i + 4);
-            let show = set_rotation_on(0.0, 360.0, 4.0, player());
+            let enemy_group = usize(total_i);
+            let show = set_render(true);
             let action = beat_action(beat, enemy_group, show);
             actions.push(action);
         }
@@ -259,30 +290,37 @@ fn circle_sector_player_attack() {
     }
 }
 
-// Disable the hitboxes for a group and fade out the objects.
-fn clear_group(map, group, time) {
-    let fade_duration = 1.0;
-    let reenable_time = time + 4.0;
+// Disable the hitboxes for a group and fade out the objects. Then clear the group 
+// + reenable hitboxes + disable fade at time + fade_duration. Note that this 
+// issues a clear command at time + fade_duration, so if you see weird disappearing
+// objects, it's probably because of the clear command.
+fn fadeout_clear(map, group, time, fade_duration) {
     let group = usize(group);
-    let fade_color = color(0.0, 0.0, 0.0, 1.0);
+    let fade_color = color(1.0, 1.0, 1.0, 0.0);
 
     let fadeout_on = beat_action(time, group, set_fadeout_on(fade_color, fade_duration));
-    let fadeout_off = beat_action(reenable_time, group, set_fadeout_off());
+    let fadeout_off = beat_action(time + fade_duration, group, set_fadeout_off());
     let hitbox_off = beat_action(time, group, set_use_hitbox(false));
-    let hitbox_on = beat_action(reenable_time, group, set_use_hitbox(true));
-    
+    let hitbox_on = beat_action(time + fade_duration, group, set_use_hitbox(true));
+    let clear = beat_action(time + fade_duration, group, clear_enemies());
+
     map.add_action(fadeout_on);
     map.add_action(hitbox_off);
 
     map.add_action(fadeout_off);
     map.add_action(hitbox_on);
+
+    map.add_action(clear);
     
     return map;
 }
 
+// beatsplitter convience
 let every4 = beat_splitter(0.0, 4.0);
 let every2 = beat_splitter(0.0, 2.0);
 let every1 = beat_splitter(0.0, 1.0);
+
+// Actual map data
 
 // Measures 4 - 7 (beat 16)
 set_curr_group(0);
@@ -305,7 +343,7 @@ map = make_actions(map, buildup1main2, bullet_player());
 // map = bullet_lerp(map, every1.with_start(16.0 * 4.0).with_delay(0.5), botleft, player(), botright, player());
 
 // [DROP]
-map = clear_group(map, 0, 20.0 * 4.0);
+map = fadeout_clear(map, 0, 20.0 * 4.0, 1.0);
 set_curr_group(1);
 
 // Measure 24 - 27
@@ -322,7 +360,7 @@ map.add_action(curr_group(104.0, set_render_warmup(true)));
 map = make_actions(map, drop1kick2, laser_circle(origin(), 0.0, 360.0 * 0.6));
 
 // // Measure 28 - 31
-map = clear_group(map, 1, 28.0 * 4.0);
+map = fadeout_clear(map, 1, 28.0 * 4.0, 1.0);
 set_curr_group(2);
 
 map = make_actions(map, main1, bullet_circle_in(origin(), 60.0, 0.0, -360.0 * 3.1));
@@ -337,10 +375,12 @@ map.add_action(curr_group(36.0 * 4.0, set_rotation_off()));
 
 // [BREAK]
 // Measure 32 - 36
-map = clear_group(map, 2, 36.0 * 4.0);
-map = clear_group(map, 3, 36.0 * 4.0);
+map = fadeout_clear(map, 2, 36.0 * 4.0, 1.0);
+map = fadeout_clear(map, 3, 36.0 * 4.0, 1.0);
+
 set_curr_group(0);
 
 map = make_actions_grouped(map, breakkick1, circle_sector_player_attack());
 
+// Return the SongMap.
 map

@@ -284,7 +284,9 @@ impl SongMap {
             .register_fn("set_use_hitbox", |use_hitbox: bool| {
                 SpawnCmd::SetHitbox(use_hitbox)
             })
-            .register_fn("set_render_warmup", SpawnCmd::ShowWarmup);
+            .register_fn("set_render_warmup", SpawnCmd::ShowWarmup)
+            .register_fn("set_render", SpawnCmd::SetRender)
+            .register_fn("clear_enemies", || SpawnCmd::ClearEnemies);
 
         static CURR_GROUP: AtomicUsize = AtomicUsize::new(0);
         engine

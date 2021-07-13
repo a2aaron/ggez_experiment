@@ -282,6 +282,8 @@ pub enum SpawnCmd {
     SetGroupRotation(Option<(f64, f64, Beats, LiveWorldPos)>),
     SetHitbox(bool),
     ShowWarmup(bool),
+    SetRender(bool),
+    ClearEnemies,
 }
 
 impl SpawnCmd {
@@ -362,6 +364,7 @@ impl SpawnCmd {
             }
             &SpawnCmd::SetHitbox(use_hitbox) => group.use_hitbox = use_hitbox,
             &SpawnCmd::ShowWarmup(show) => group.render_warmup = show,
+            &SpawnCmd::SetRender(show) => group.do_render = show,
             SpawnCmd::SetGroupRotation(rotation) => {
                 if let Some((start_angle, end_angle, duration, rot_point)) = rotation {
                     group.rotation = Some((
@@ -376,6 +379,7 @@ impl SpawnCmd {
                     group.rotation = None;
                 }
             }
+            SpawnCmd::ClearEnemies => group.enemies.clear(),
         }
     }
 }
