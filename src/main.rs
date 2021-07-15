@@ -43,7 +43,7 @@ const MUSIC_PATH: &str = "/supersquare.mp3"; //"/metronome120.ogg"; // "/bbkkbkk
                                              // const ARIAL_PATH: &str = "/Arial.ttf";
 const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
 // Files manually read by me (usually maps)
-const MAP_PATH: &str = "/square.rhai";
+const MAP_PATH: &str = "/square.lua";
 
 pub const WINDOW_WIDTH: f32 = 640.0;
 pub const WINDOW_HEIGHT: f32 = 480.0;

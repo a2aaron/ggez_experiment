@@ -6,6 +6,7 @@ use ggez::graphics::Color;
 use ggez::Context;
 use midly::{Header, Smf, TrackEvent};
 use rand::Rng;
+use rlua::{FromLua, Lua, Table};
 
 use crate::chart::{BeatAction, BeatSplitter, LiveWorldPos, SpawnCmd};
 use crate::ease::Lerp;
@@ -29,34 +30,19 @@ impl SongMap {
         ctx: &mut Context,
         path: P,
     ) -> Result<SongMap, Box<dyn std::error::Error>> {
-        // Read the file to a String
         let mut file = ggez::filesystem::open(ctx, path)?;
-        let mut script = String::new();
-        file.read_to_string(&mut script)?;
+        let mut source = Vec::new();
+        file.read_to_end(&mut source)?;
+        Ok(SongMap::run_lua(&source)?)
+    }
 
-        // Spawn a seperate thread to evaluate the script. This is done because
-        // some Rhai scripts seem to cause the engine to lock up forever as it
-        // tries to compile it. To avoid this, we use a channel with a timeout.
-        // See also: https://github.com/rhaiscript/rhai/issues/421
-        // Note that this will result in the thread just dangling forever, doing
-        // active work, so it would be Really Good if this bug got fixed.
-        let (send, recv) = std::sync::mpsc::channel();
-
-        std::thread::spawn(move || {
-            let result = SongMap::run_rhai(script.as_str());
-            match result {
-                Ok(result) => match send.send(result) {
-                    Ok(()) => (),
-                    Err(err) => println!("Sending evulation result failed! {:?}", err),
-                },
-                Err(err) => println!("Evaluation of script failed! {:?}", err),
-            };
+    pub fn run_lua(source: &[u8]) -> Result<SongMap, rlua::Error> {
+        let lua = Lua::new();
+        let result = lua.context(|ctx| {
+            let source = ctx.load(source);
+            source.eval::<SongMap>()
         });
-
-        match recv.recv_timeout(std::time::Duration::new(1, 0)) {
-            Ok(result) => Ok(result),
-            Err(err) => Err(err.into()),
-        }
+        result
     }
 
     pub fn run_rhai(script: &str) -> Result<SongMap, Box<rhai::EvalAltResult>> {
@@ -342,6 +328,44 @@ impl Default for SongMap {
             bpm: 150.0,
             actions: vec![],
         }
+    }
+}
+
+impl<'lua> rlua::FromLua<'lua> for SongMap {
+    fn from_lua(lua_value: rlua::Value<'lua>, lua: rlua::Context<'lua>) -> rlua::Result<Self> {
+        let mut songmap = SongMap::default();
+        // dump_value(&lua_value);
+        let table = Table::from_lua(lua_value, lua)?;
+        for entry in table.sequence_values() {
+            let entry = Table::from_lua(entry?, lua)?;
+
+            if let Ok(bpm) = entry.get::<&str, f64>("bpm") {
+                songmap.set_bpm(bpm);
+            } else if let Ok(skip) = entry.get::<&str, f64>("skip") {
+                songmap.set_skip_amount(skip);
+            } else {
+                println!("Skipped entry: {:?}", entry);
+            }
+        }
+
+        Ok(songmap)
+    }
+}
+
+fn dump_value(value: &rlua::Value) {
+    match value.clone() {
+        rlua::Value::Table(table) => {
+            for pair in table.clone().pairs() {
+                match pair {
+                    Ok((key, value)) => {
+                        dump_value(&key);
+                        dump_value(&value);
+                    }
+                    Err(err) => println!("Err: {:?}", err),
+                }
+            }
+        }
+        value => println!("{:?}", value),
     }
 }
 
