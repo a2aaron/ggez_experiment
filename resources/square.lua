@@ -1,3 +1,4 @@
+---@diagnostic disable: lowercase-global
 SONGMAP = {}
 CURR_GROUP = 0
 
@@ -117,7 +118,8 @@ end
 --                            the note. If not present, this will default to 0.0.
 -- @param spawner - A function returning spawn_cmd tables. This function is
 --                  expected to take a marked_beat table. It is expected to return
---                  a spawn_cmd or an array of spawn_cmds
+--                  a spawn_cmd or an array of spawn_cmds. (A spawn_cmd is
+--                  considered to be an array if index 1 is not nil)
 -- Note that the enemygroup will be CURR_GROUP and the start time will be the
 -- beattime given by marked_beats
 
@@ -127,7 +129,15 @@ function make_actions(marked_beats, spawner)
       local beat = marked_beat.beat
       marked_beat["i"] = i
       local spawn_cmd = spawner(marked_beat)
-      add_action(beat, CURR_GROUP, spawn_cmd)
+      -- Single spawn_cmd
+      if not spawn_cmd[1] then
+         add_action(beat, CURR_GROUP, spawn_cmd)
+      else
+      -- Array of spawn_cmds
+         for _, cmd in ipairs(spawn_cmd) do
+            add_action(beat, CURR_GROUP, cmd)
+         end
+      end
       i = i + 1
    end
 end
@@ -227,6 +237,20 @@ function laser_circle(center, start_angle, end_angle)
       return {spawn_cmd = "laser", angle = angle, position = center}
    end
 end
+
+function laser_solo()
+   return function(marked_beat)
+      local side;
+      if marked_beat.i % 2 == 0 then
+         side = 1.0
+      else
+         side = -1.0
+      end
+      return {{spawn_cmd = "laser", position = pos(50.0 * side, 0.0), angle = 90.0},
+              {spawn_cmd = "laser", position = pos(40.0 * side, 0.0), angle = 90.0},
+              {spawn_cmd = "laser", position = pos(30.0 * side, 0.0), angle = 90.0},}
+   end
+end
 -- Song data
 
 
@@ -264,7 +288,11 @@ make_actions(drop1kick1, laser_circle(ORIGIN, 0.0, -360.0 * 1.1));
 -- Instant triple laser (beat 103)
 
 add_action(103.0, CURR_GROUP, {spawn_cmd = "set_render", value = false})
--- make_actions(kick1solo, laser_solo());
+
+CURR_GROUP = 0
+make_actions(kick1solo, laser_solo());
+CURR_GROUP = 1
+
 add_action(104.0, CURR_GROUP, {spawn_cmd = "set_render", value = true})
 
 make_actions(drop1kick2, laser_circle(ORIGIN, 0.0, 360.0 * 0.6));
