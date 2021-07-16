@@ -165,9 +165,34 @@ BOTRIGHT = pos(50.0, -50.0)
 buildup1main1 = add_offset(read_midi("./resources/buildup1main1.mid", 150.0), 12.0 * 4.0);
 buildup1main2 = add_offset(read_midi("./resources/buildup1main2.mid", 150.0), 16.0 * 4.0);
 
+
+drop1kick1 = add_offset(read_midi("./resources/drop1kick1.mid", 150.0), 20.0 * 4.0);
+drop1kick2 = add_offset(read_midi("./resources/drop1kick2.mid", 150.0), 26.0 * 4.0);
+drop1kick3 = add_offset(read_midi("./resources/drop1kick3.mid", 150.0), 28.0 * 4.0);
+drop1kick4 = add_offset(read_midi("./resources/drop1kick4.mid", 150.0), 32.0 * 4.0);
+
+kick1bomb = add_offset(read_midi("./resources/kick1simple.mid", 150.0), 20.0 * 4.0);
+
+kick1solo = add_offset(read_midi("./resources/kick1solo.mid", 150.0), 20.0 * 4.0);
+
+kick2 = add_offset(read_midi("./resources/kick2.mid", 150.0), 28.0 * 4.0);
+
+main_melo = read_midi("./resources/mainsimpleadd.mid", 150.0);
+main1 = add_offset(main_melo, 28.0 * 4.0);
+main2 = add_offset(main_melo, 32.0 * 4.0);
+
+-- breakkick = read_midi_grouped("./resources/break1kickgrouped.mid", 150.0);
+-- breakkick1 = add_offset_grouped(breakkick, 36.0 * 4.0);
+breaktine1 = add_offset(read_midi("./resources/break1tine1.mid", 150.0), 44.0 * 4.0);
+breaktine2 = add_offset(read_midi("./resources/break1tine2.mid", 150.0), 48.0 * 4.0);
+breaktine3 = add_offset(read_midi("./resources/break1tine3.mid", 150.0), 52.0 * 4.0);
+breaktinesolo = add_offset(read_midi("./resources/break1tinesolo.mid", 150.0), 55.0 * 4.0);
+
+
 -- Custom attacks
+-- note that argument order should be: beat, percent, i, pitch
 function bullet_lerp(start1, end1, start2, end2)
-   return function(beat, t)
+   return function(_, t)
       local start_pos = lerp_pos(start1, start2, t)
       local end_pos = lerp_pos(end1, end2, t)
       return bullet(start_pos, end_pos)
@@ -175,7 +200,7 @@ function bullet_lerp(start1, end1, start2, end2)
 end
 
 function bullet_player()
-   return function(beat, percent, i)
+   return function(_, _, i)
       local the_pos;
       if i % 2 == 0 then
          the_pos = pos(-50.0, 50.0)
@@ -183,6 +208,20 @@ function bullet_player()
          the_pos = pos(50.0, 50.0)
       end
       return bullet(the_pos, "player")
+   end
+end
+
+function bomb_grid()
+   return function() 
+      local grid = {x = math.random(-50, 50), y = math.random(-50, 50)}
+      return {spawn_cmd = "bomb", pos = grid}
+   end
+end
+
+function laser_circle(center, start_angle, end_angle)
+   return function(_, percent)
+      local angle = lerp(start_angle, end_angle, percent)
+      return {spawn_cmd = "laser", angle = angle, position = center}
    end
 end
 -- Song data
@@ -213,9 +252,19 @@ make_actions(buildup1main2, bullet_player());
 
 -- [DROP]
 fadeout_clear(20.0 * 4.0, 0.0, 1.0)
+CURR_GROUP = 1
 
+-- Measure 24 - 27
+make_actions(kick1bomb, bomb_grid());
+make_actions(drop1kick1, laser_circle(ORIGIN, 0.0, -360.0 * 1.1));
 
+-- Instant triple laser (beat 103)
 
+add_action(103.0, CURR_GROUP, {spawn_cmd = "set_render", value = false})
+-- make_actions(kick1solo, laser_solo());
+add_action(104.0, CURR_GROUP, {spawn_cmd = "set_render", value = true})
+
+make_actions(drop1kick2, laser_circle(ORIGIN, 0.0, 360.0 * 0.6));
 
 
 

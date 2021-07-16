@@ -408,7 +408,7 @@ impl SpawnCmd {
                     let angle = get_key::<f64>(&spawn_cmd, "angle")?;
                     Ok(SpawnCmd::Laser {
                         position,
-                        angle,
+                        angle: angle.to_radians(),
                         durations,
                     })
                 }
