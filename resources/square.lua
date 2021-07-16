@@ -35,6 +35,15 @@ function deepcopy(orig)
     return copy
 end
 
+-- return a if true, b if false
+function ternary(cond, a, b)
+    if cond then
+        return a
+    else
+        return b
+    end
+end
+
 -- Creates a copy of the marked_beats table and offsets each beat by `offset`
 -- Note that this will deepcopy marked_beats!
 function add_offset(marked_beats, offset)
@@ -45,9 +54,23 @@ function add_offset(marked_beats, offset)
     return marked_beats
 end
 
+-- Add an spawn_cmd to the songmap.
 function add_action(beat, group, action)
     action["beat"] = beat
     action["enemygroup"] = group
+    table.insert(SONGMAP, action)
+end
+
+-- Add an spawn_cmd to the songmap. If beat or enemygroup are already present in
+-- action, then the passed in argument is not used
+function add_action_overridable(beat, group, action)
+    if not action["beat"] then
+        action["beat"] = beat
+    end
+
+    if not action["enemygroup"] then
+        action["enemygroup"] = group
+    end
     table.insert(SONGMAP, action)
 end
 
@@ -174,8 +197,8 @@ end
 --                  expected to take a marked_beat table. It is expected to return
 --                  a spawn_cmd or an array of spawn_cmds. (A spawn_cmd is
 --                  considered to be an array if index 1 is not nil)
--- Note that the enemygroup will be CURR_GROUP and the start time will be the
--- beattime given by marked_beats
+-- Note that the enemygroup will be CURR_GROUP if none is provided and the start
+-- time will be the beattime given by marked_beats if none is provided
 
 function make_actions(marked_beats, spawner)
     local i = 1
@@ -185,11 +208,11 @@ function make_actions(marked_beats, spawner)
         local spawn_cmd = spawner(marked_beat)
         -- Single spawn_cmd
         if not spawn_cmd[1] then
-            add_action(beat, CURR_GROUP, spawn_cmd)
+            add_action_overridable(beat, CURR_GROUP, spawn_cmd)
         else
             -- Array of spawn_cmds
-            for _, cmd in ipairs(spawn_cmd) do
-                add_action(beat, CURR_GROUP, cmd)
+            for _, spawn_cmd in ipairs(spawn_cmd) do
+                add_action_overridable(beat, CURR_GROUP, spawn_cmd)
             end
         end
         i = i + 1
@@ -229,6 +252,25 @@ function fadeout_clear(time, group, fade_duration)
     add_action(time + fade_duration, group, clear_enemies)
 end
 
+-- Return an array of angles representing sectors of a circle.
+-- num_sectors - the number of sectors to make
+-- num_per_sector - the number of angles per sector
+-- sector_size - the size, in angles, of each sector
+-- sector_gap - the gap, in angles, between each sector
+function circle_sector(num_sectors, num_per_sector, sector_size, sector_gap)
+    local angles = {}
+
+    local start_angle = 0.0
+    for i = 0, num_sectors do
+        for j = 0, num_per_sector do
+            local angle = start_angle + sector_size * (j / num_per_sector)
+            table.insert(angles, angle)
+        end
+        start_angle = start_angle + sector_gap
+    end
+    return angles
+end
+
 -- Position constants
 ORIGIN = pos(0.0, 0.0)
 TOPLEFT = pos(-50.0, 50.0)
@@ -255,8 +297,8 @@ main_melo = read_midi("./resources/mainsimpleadd.mid", 150.0);
 main1 = add_offset(main_melo, 28.0 * 4.0);
 main2 = add_offset(main_melo, 32.0 * 4.0);
 
--- breakkick = read_midi_grouped("./resources/break1kickgrouped.mid", 150.0);
--- breakkick1 = add_offset_grouped(breakkick, 36.0 * 4.0);
+breakkick = read_midi_grouped("./resources/break1kickgrouped.mid", 150.0);
+breakkick1 = add_offset(breakkick, 36.0 * 4.0);
 breaktine1 = add_offset(read_midi("./resources/break1tine1.mid", 150.0), 44.0 * 4.0);
 breaktine2 = add_offset(read_midi("./resources/break1tine2.mid", 150.0), 48.0 * 4.0);
 breaktine3 = add_offset(read_midi("./resources/break1tine3.mid", 150.0), 52.0 * 4.0);
@@ -319,19 +361,8 @@ function laser_solo()
         else
             side = -1.0
         end
-        return {{
-            spawn_cmd = "laser",
-            position = pos(50.0 * side, 0.0),
-            angle = 90.0
-        }, {
-            spawn_cmd = "laser",
-            position = pos(40.0 * side, 0.0),
-            angle = 90.0
-        }, {
-            spawn_cmd = "laser",
-            position = pos(30.0 * side, 0.0),
-            angle = 90.0
-        }}
+        return {laser_angle(pos(50.0 * side, 0.0), 90.0), laser_angle(pos(40.0 * side, 0.0), 90.0),
+                laser_angle(pos(30.0 * side, 0.0), 90.0)}
     end
 end
 
@@ -362,6 +393,78 @@ function laser_diamond(clockwise)
     end
 end
 
+function circle_sector_player_attack()
+    return function(marked_beat)
+        local i = marked_beat.midigroup_i
+        local len = marked_beat.midigroup_len
+
+        if i == 0 then
+            local actions = {}
+            local offset = math.random() * 360.0
+            for j = 0, len - 1 do
+                -- this assigns a unique enemygroup to each sector (specifically
+                -- we get the i-index value that the sector ought to correspond
+                -- to, which works since these midigroups have consecutive notes
+                local enemygroup = marked_beat.i - 1 + j
+
+                -- Set up rotations
+                local sign = ternary(i % 2 == 0, 1, -1)
+                local rot_on = set_rotation_on(0.0, sign * 60.0, 4.0, "player")
+                local rot_off = set_rotation_off()
+                rot_on["enemygroup"] = enemygroup
+                rot_off["enemygroup"] = enemygroup
+                rot_off["beat"] = marked_beat.beat + 4.0
+
+                table.insert(actions, rot_on)
+                table.insert(actions, rot_off)
+
+                -- Get bullet angles
+                local sector_gap
+                if len == 2 then
+                    sector_gap = 180.0
+                elseif len == 3 then
+                    sector_gap = 120.0
+                else
+                    sector_gap = 0.0
+                end
+
+                local offset = offset + sector_gap * j
+
+                -- Make bullet actions
+                local angles = circle_sector(1, 7, 60.0, 0.0)
+                for _, angle in ipairs(angles) do
+
+                    local pos = {
+                        offset_from = circle(ORIGIN, 75.0, offset + angle)
+                    }
+                    local bullet = bullet(pos, "player")
+                    bullet["enemygroup"] = enemygroup
+                    table.insert(actions, bullet)
+                end
+
+                -- Hide the sector
+                if j ~= 0 then
+                    local hide = {
+                        spawn_cmd = "set_render",
+                        value = false,
+                        enemygroup = enemygroup
+                    }
+                    table.insert(actions, hide)
+                end
+
+            end
+            return actions
+        else
+            local enemygroup = marked_beat.i - 1
+            return {
+                spawn_cmd = "set_render",
+                value = true,
+                enemygroup = enemygroup
+            }
+        end
+    end
+end
+
 -- Song data
 
 -- Set up BPM, amount of song to skip, etc
@@ -369,7 +472,7 @@ table.insert(SONGMAP, {
     bpm = 150.0
 })
 table.insert(SONGMAP, {
-    skip = 28.0 * 4.0
+    skip = 35.0 * 4.0
 })
 
 -- Measures 4 - 7 (beats 16)
@@ -427,5 +530,12 @@ make_actions(drop1kick4, laser_diamond(false))
 add_action(28.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, 90.0, 16.0, ORIGIN))
 add_action(32.0 * 4.0, CURR_GROUP, set_rotation_on(90.0, 0.0, 16.0, ORIGIN))
 add_action(36.0 * 4.0, CURR_GROUP, set_rotation_off())
+
+-- Measure 36 - 39
+fadeout_clear(36.0 * 4.0, 2, 1.0)
+fadeout_clear(36.0 * 4.0, 3, 1.0)
+CURR_GROUP = 0
+
+make_actions(breakkick1, circle_sector_player_attack())
 
 return SONGMAP

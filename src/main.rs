@@ -378,7 +378,7 @@ impl event::EventHandler for MainState {
 
             ggez::graphics::window(ctx).set_title(&format!("{}", ggez::timer::fps(ctx)));
         }
-        // ggez::timer::sleep(ggez::timer::remaining_update_time(ctx));
+        ggez::timer::sleep(ggez::timer::remaining_update_time(ctx));
 
         Ok(())
     }

@@ -96,7 +96,8 @@ impl BeatSplitter {
             beats.push(MarkedBeat {
                 beat: Beats(this_beat + self.delay + self.offset),
                 percent: (this_beat + self.offset - self.start) / self.duration,
-                pitch: 0.0,
+                pitch: None,
+                midigroup: None,
             });
             this_beat += self.frequency;
         }

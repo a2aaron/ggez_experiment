@@ -576,7 +576,10 @@ fn get_key<'lua, T: rlua::FromLua<'lua>>(table: &Table<'lua>, key: &'lua str) ->
 pub struct MarkedBeat {
     pub beat: Beats,
     pub percent: f64,
-    pub pitch: f64,
+    pub pitch: Option<f64>,
+    // a triple describing the midigroup_id, the ith note into the midigroup, and
+    // total length of the midigroup
+    pub midigroup: Option<(usize, usize, usize)>,
 }
 
 impl MarkedBeat {
@@ -592,7 +595,8 @@ impl MarkedBeat {
             let marked_beat = MarkedBeat {
                 beat,
                 percent: beat.0 / duration.0,
-                pitch,
+                pitch: Some(pitch),
+                midigroup: None,
             };
             marked_beats.push(marked_beat)
         }
@@ -605,12 +609,12 @@ impl MarkedBeat {
         }
         let min = beats
             .iter()
-            .map(|beat| beat.pitch)
+            .map(|beat| beat.pitch.unwrap_or(0.0))
             .reduce(f64::min)
             .unwrap();
         let max = beats
             .iter()
-            .map(|beat| beat.pitch)
+            .map(|beat| beat.pitch.unwrap_or(0.0))
             .reduce(f64::max)
             .unwrap();
 
@@ -618,7 +622,7 @@ impl MarkedBeat {
             .iter()
             .map(|beat| {
                 let mut new_beat = *beat;
-                new_beat.pitch = (beat.pitch - min) / (max - min);
+                new_beat.pitch = Some((beat.pitch.unwrap_or(0.0) - min) / (max - min));
                 new_beat
             })
             .collect()
@@ -631,6 +635,7 @@ impl MarkedBeat {
                 beat: old.beat + offset,
                 percent: old.percent,
                 pitch: old.pitch,
+                midigroup: old.midigroup,
             })
             .collect()
     }
@@ -642,46 +647,64 @@ impl<'lua> rlua::ToLua<'lua> for MarkedBeat {
         table.set("beat", self.beat.0)?;
         table.set("percent", self.percent)?;
         table.set("pitch", self.pitch)?;
+        let (midigroup_id, midigroup_i, midigroup_len) = if let Some((id, i, len)) = self.midigroup
+        {
+            (Some(id), Some(i), Some(len))
+        } else {
+            (None, None, None)
+        };
+        table.set("midigroup_id", midigroup_id)?;
+        table.set("midigroup_i", midigroup_i)?;
+        table.set("midigroup_len", midigroup_len)?;
         Ok(rlua::Value::Table(table))
     }
 }
 
-pub fn midi_to_beats_grouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<Vec<MarkedBeat>> {
-    let mut tick_number = 0;
-    let mut beats = vec![];
+fn get_track_duration(track: &[TrackEvent], ticks_per_beat: f64) -> Beats {
+    let ticks: u32 = track.iter().map(|event| event.delta.as_int()).sum();
+    Beats(ticks as f64 / ticks_per_beat)
+}
 
-    let mut group = vec![];
+fn normalized_absolute_pitch(pitch: midly::num::u7) -> f64 {
+    pitch.as_int() as f64 / midly::num::u7::max_value().as_int() as f64
+}
 
+pub fn midi_to_beats_grouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<MarkedBeat> {
+    let ungrouped_beats = midi_to_beats_ungrouped(track, ticks_per_beat);
+    let mut grouped_beats = vec![];
+    let mut this_group = vec![];
     let mut last_note = None;
 
-    for event in track {
-        tick_number += event.delta.as_int();
-        if let midly::TrackEventKind::Midi {
-            message: midly::MidiMessage::NoteOn { key, .. },
-            ..
-        } = event.kind
-        {
-            let beat = Beats(tick_number as f64 / ticks_per_beat);
-            if let Some(last_note) = last_note {
-                if last_note != key {
-                    beats.push(MarkedBeat::mark_beats(&group));
-                    group.clear();
-                }
+    for beat in ungrouped_beats {
+        if let Some(last_note) = last_note {
+            // this is okay because the pitches have no arithmetic done to them
+            #[allow(clippy::float_cmp)]
+            if last_note != beat.pitch.unwrap() {
+                grouped_beats.push(this_group.clone());
+                this_group.clear();
             }
+        }
 
-            let pitch = key.as_int() as f64 / midly::num::u7::max_value().as_int() as f64;
-            group.push((beat, pitch));
-            last_note = Some(key);
+        this_group.push(beat);
+        last_note = Some(beat.pitch.unwrap());
+    }
+
+    for (midigroup_id, group) in grouped_beats.iter_mut().enumerate() {
+        let midigroup_len = group.len();
+        for (midigroup_i, beat) in group.iter_mut().enumerate() {
+            beat.midigroup = Some((midigroup_id, midigroup_i, midigroup_len));
         }
     }
 
-    beats
+    grouped_beats.into_iter().flatten().collect()
 }
 
 pub fn midi_to_beats_ungrouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec<MarkedBeat> {
     let mut tick_number = 0;
     let mut beats = vec![];
 
+    let duration = get_track_duration(track, ticks_per_beat);
+
     for event in track {
         tick_number += event.delta.as_int();
         if let midly::TrackEventKind::Midi {
@@ -690,11 +713,16 @@ pub fn midi_to_beats_ungrouped(track: &[TrackEvent], ticks_per_beat: f64) -> Vec
         } = event.kind
         {
             let beat = Beats(tick_number as f64 / ticks_per_beat);
-            let pitch = key.as_int() as f64 / midly::num::u7::max_value().as_int() as f64;
-            beats.push((beat, pitch));
+
+            beats.push(MarkedBeat {
+                beat,
+                percent: beat.0 / duration.0,
+                pitch: Some(normalized_absolute_pitch(key)),
+                midigroup: None,
+            });
         }
     }
-    MarkedBeat::mark_beats(&beats)
+    beats
 }
 
 pub fn get_ticks_per_beat(header: &Header, bpm: f64) -> f64 {
