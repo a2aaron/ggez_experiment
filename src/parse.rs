@@ -1,20 +1,15 @@
 use std::io::Read;
 use std::path::Path;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
 
 use ggez::graphics::Color;
 use ggez::Context;
 use midly::{Header, Smf, TrackEvent};
-use rand::Rng;
-use rlua::{Lua, Table, ToLua};
+use rlua::{Lua, Table};
 
-use crate::chart::{BeatAction, BeatSplitter, LiveWorldPos, SpawnCmd};
-use crate::ease::Lerp;
+use crate::chart::{BeatAction, LiveWorldPos, SpawnCmd};
 use crate::enemy::EnemyDurations;
+use crate::time;
 use crate::time::Beats;
-use crate::world::WorldPos;
-use crate::{time, util};
 
 /// This struct essentially acts as an interpreter for a song's file. All parsing
 /// occurs before the actual level is played, with the file format being line
@@ -64,265 +59,6 @@ impl SongMap {
         })
     }
 
-    pub fn run_rhai(script: &str) -> Result<SongMap, Box<rhai::EvalAltResult>> {
-        // Create scripting engine
-        let mut engine = rhai::Engine::new();
-
-        // Allow deeply nested expressions
-        engine.set_max_expr_depths(0, 0);
-
-        // Register functions for use within the rhai file.
-
-        // SongMap commands
-        engine
-            .register_fn("default_map", SongMap::default)
-            .register_fn("set_bpm", SongMap::set_bpm)
-            .register_fn("set_skip_amount", SongMap::set_skip_amount)
-            .register_fn("add_action", SongMap::add_action)
-            .register_result_fn("add_actions", |map: &mut SongMap, arr: rhai::Array| {
-                let arr: Vec<BeatAction> = arr
-                    .iter()
-                    .enumerate()
-                    .map(
-                        |(i, action)| match action.clone().try_cast::<BeatAction>() {
-                            Some(x) => Ok(x),
-                            None => Err(format!(
-                                "Object at index {} must be type BeatAction. Got {}",
-                                i,
-                                action.type_name()
-                            )),
-                        },
-                    )
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                map.add_actions(arr);
-                Ok(())
-            });
-
-        // Midi parsing
-        engine
-            .register_result_fn("parse_midi", |path: rhai::ImmutableString, bpm: f64| {
-                match parse_midi(path.as_str(), bpm, midi_to_beats_ungrouped) {
-                    Ok(result) => Ok(result),
-                    Err(err) => Err(err.to_string().into()),
-                }
-            })
-            .register_result_fn(
-                "parse_midi_grouped",
-                |path: rhai::ImmutableString, bpm: f64| match parse_midi(
-                    path.as_str(),
-                    bpm,
-                    midi_to_beats_grouped,
-                ) {
-                    Ok(result) => Ok(result),
-                    Err(err) => Err(err.to_string().into()),
-                },
-            );
-
-        // MarkedBeat
-        engine
-            .register_type::<MarkedBeat>()
-            .register_fn("offset_tuple", |offset: f64, beats: Vec<MarkedBeat>| {
-                MarkedBeat::offset(&beats, Beats(offset))
-            })
-            .register_fn(
-                "offset_tuple_grouped",
-                |offset: f64, beat_groups: Vec<Vec<MarkedBeat>>| {
-                    beat_groups
-                        .iter()
-                        .map(|beats| MarkedBeat::offset(beats, Beats(offset)))
-                        .collect::<Vec<Vec<MarkedBeat>>>()
-                },
-            )
-            .register_fn("len", |x: Vec<MarkedBeat>| x.len() as i64)
-            .register_fn("normalize_pitch", |x: Vec<MarkedBeat>| {
-                MarkedBeat::normalize_pitch(&x)
-            })
-            .register_fn("get_beat", |x: MarkedBeat| x.beat.0)
-            .register_fn("get_percent", |x: MarkedBeat| x.percent)
-            .register_fn("get_pitch", |x: MarkedBeat| x.pitch);
-
-        engine
-            .register_iterator::<Vec<MarkedBeat>>()
-            .register_iterator::<Vec<Vec<MarkedBeat>>>();
-
-        // BeatSplitter
-        engine
-            .register_type::<BeatSplitter>()
-            .register_iterator::<BeatSplitter>()
-            .register_fn("beat_splitter", |start: f64, frequency: f64| BeatSplitter {
-                start,
-                frequency,
-                ..Default::default()
-            })
-            .register_fn("with_start", BeatSplitter::with_start)
-            .register_fn("with_freq", BeatSplitter::with_freq)
-            .register_fn("with_offset", BeatSplitter::with_offset)
-            .register_fn("with_delay", BeatSplitter::with_delay)
-            .register_fn("with_duration", BeatSplitter::with_duration);
-
-        // Various LiveWorldPos functions.
-        engine
-            .register_type::<LiveWorldPos>()
-            .register_fn("pos", |x: f64, y: f64| LiveWorldPos::from((x, y)))
-            .register_fn("origin", || LiveWorldPos::from((0.0, 0.0)))
-            .register_fn("player", || LiveWorldPos::PlayerPos)
-            .register_fn("offset_player", |pos| {
-                LiveWorldPos::OffsetPlayer(Box::new(pos))
-            })
-            .register_result_fn(
-                "lerp_pos",
-                |a: LiveWorldPos, b: LiveWorldPos, t: f64| match (a, b) {
-                    (LiveWorldPos::Constant(a), LiveWorldPos::Constant(b)) => {
-                        Ok(LiveWorldPos::Constant(WorldPos::lerp(a, b, t)))
-                    }
-                    (LiveWorldPos::PlayerPos, LiveWorldPos::PlayerPos) => {
-                        Ok(LiveWorldPos::PlayerPos)
-                    }
-                    (a, b) => Err(format!(
-                        "Expected constant LiveWorldPos. Got {:?} and {:?}",
-                        a, b
-                    )
-                    .into()),
-                },
-            );
-
-        // Splitting LiveWorldPoses
-        engine
-            .register_type::<LiveWorldPos>()
-            .register_get_result("x", |pos: &mut LiveWorldPos| match pos {
-                LiveWorldPos::Constant(pos) => Ok(pos.x),
-                _ => Err("Position is a symbolic player position".into()),
-            })
-            .register_get_result("y", |pos: &mut LiveWorldPos| match pos {
-                LiveWorldPos::Constant(pos) => Ok(pos.y),
-                _ => Err("Position is a symbolic player position".into()),
-            });
-
-        // LiveWorldPos helpers
-        engine.register_fn("lerp", |start: f64, end: f64, t: f64| t.lerp(start, end));
-
-        engine.register_fn(
-            "circle",
-            |center_x: f64, center_y: f64, radius: f64, angle: f64| {
-                let angle = angle.to_radians();
-                LiveWorldPos::from((
-                    angle.cos() * radius + center_x,
-                    angle.sin() * radius + center_y,
-                ))
-            },
-        );
-
-        engine.register_fn("grid", || {
-            LiveWorldPos::from(util::random_grid((-50.0, 50.0), (-50.0, 50.0), 20))
-        });
-
-        engine.register_result_fn("random", |min: f64, max: f64| {
-            if min < max {
-                Ok(rand::thread_rng().gen_range(min..max))
-            } else {
-                Err(format!("min: {} must be smaller than max: {}", min, max).into())
-            }
-        });
-
-        // Colors
-        engine
-            .register_type::<Color>()
-            .register_fn("color", |r: f64, g: f64, b: f64, a: f64| {
-                Color::new(r as f32, g as f32, b as f32, a as f32)
-            });
-
-        fn try_into_usize(x: i64) -> Result<usize, Box<rhai::EvalAltResult>> {
-            std::convert::TryInto::<usize>::try_into(x)
-                .map_err(|x| Box::new(rhai::EvalAltResult::from(x.to_string())))
-        }
-
-        engine.register_result_fn("usize", try_into_usize);
-
-        engine.register_type::<BeatAction>().register_fn(
-            "beat_action",
-            |start_time: f64, group_number: usize, action: SpawnCmd| {
-                BeatAction::new(Beats(start_time), group_number, action)
-            },
-        );
-
-        // EnemyDurations
-        engine
-            .register_type::<EnemyDurations>()
-            .register_fn("durations", |warmup: f64, active: f64, cooldown: f64| {
-                EnemyDurations {
-                    warmup: Beats(warmup),
-                    active: Beats(active),
-                    cooldown: Beats(cooldown),
-                }
-            })
-            .register_fn("default_laser_duration", || {
-                EnemyDurations::default_laser(Beats(1.0))
-            });
-
-        // All the SpawnCmds
-        engine
-            .register_type::<SpawnCmd>()
-            .register_fn("bullet", |start, end| SpawnCmd::Bullet { start, end })
-            .register_fn("bullet_angle_start", |angle, length, start| {
-                SpawnCmd::BulletAngleStart {
-                    angle,
-                    length,
-                    start,
-                }
-            })
-            .register_fn("bullet_angle_end", |angle, length, end| {
-                SpawnCmd::BulletAngleEnd { angle, length, end }
-            })
-            .register_fn("laser", |a, b, durations| SpawnCmd::LaserThruPoints {
-                a,
-                b,
-                durations,
-            })
-            .register_fn("laser_angle", |position, angle: f64, durations| {
-                SpawnCmd::Laser {
-                    position,
-                    angle: angle.to_radians(),
-                    durations,
-                }
-            })
-            .register_fn("bomb", |pos| SpawnCmd::CircleBomb { pos })
-            .register_fn("set_fadeout_on", |color: Color, duration: f64| {
-                SpawnCmd::SetFadeOut(Some((color, Beats(duration))))
-            })
-            .register_fn("set_fadeout_off", || SpawnCmd::SetFadeOut(None))
-            .register_fn(
-                "set_rotation_on",
-                |start_angle: f64, end_angle: f64, duration, rot_point| {
-                    SpawnCmd::SetGroupRotation(Some((
-                        start_angle.to_radians(),
-                        end_angle.to_radians(),
-                        Beats(duration),
-                        rot_point,
-                    )))
-                },
-            )
-            .register_fn("set_rotation_off", || SpawnCmd::SetGroupRotation(None))
-            .register_fn("set_use_hitbox", |use_hitbox: bool| {
-                SpawnCmd::SetHitbox(use_hitbox)
-            })
-            .register_fn("set_render_warmup", SpawnCmd::ShowWarmup)
-            .register_fn("set_render", SpawnCmd::SetRender)
-            .register_fn("clear_enemies", || SpawnCmd::ClearEnemies);
-
-        static CURR_GROUP: AtomicUsize = AtomicUsize::new(0);
-        engine
-            .register_result_fn("set_curr_group", move |group: i64| {
-                CURR_GROUP.store(try_into_usize(group)?, std::sync::atomic::Ordering::Relaxed);
-                Ok(())
-            })
-            .register_fn("get_curr_group", move || {
-                CURR_GROUP.load(std::sync::atomic::Ordering::Relaxed)
-            });
-
-        engine.eval::<SongMap>(script)
-    }
-
     fn set_bpm(&mut self, bpm: f64) {
         self.bpm = bpm;
     }
@@ -333,10 +69,6 @@ impl SongMap {
 
     fn add_action(&mut self, action: BeatAction) {
         self.actions.push(action);
-    }
-
-    fn add_actions(&mut self, actions: impl IntoIterator<Item = BeatAction>) {
-        self.actions.extend(actions)
     }
 }
 
@@ -388,7 +120,7 @@ impl BeatAction {
 impl SpawnCmd {
     fn from_table<'lua>(
         spawn_cmd: rlua::Table<'lua>,
-        lua: rlua::Context<'lua>,
+        _lua: rlua::Context<'lua>,
     ) -> rlua::Result<Self> {
         match get_key::<String>(&spawn_cmd, "spawn_cmd")?.as_str() {
             "bullet" => {
@@ -580,65 +312,6 @@ pub struct MarkedBeat {
     // a triple describing the midigroup_id, the ith note into the midigroup, and
     // total length of the midigroup
     pub midigroup: Option<(usize, usize, usize)>,
-}
-
-impl MarkedBeat {
-    /// The slice is assumed to be in sorted order and the last beat is assumed
-    /// to be the duration of the whole slice.
-    pub fn mark_beats(beats: &[(Beats, f64)]) -> Vec<MarkedBeat> {
-        if beats.is_empty() {
-            return vec![];
-        }
-        let mut marked_beats = vec![];
-        let duration = beats.last().unwrap().0;
-        for &(beat, pitch) in beats {
-            let marked_beat = MarkedBeat {
-                beat,
-                percent: beat.0 / duration.0,
-                pitch: Some(pitch),
-                midigroup: None,
-            };
-            marked_beats.push(marked_beat)
-        }
-        marked_beats
-    }
-
-    pub fn normalize_pitch(beats: &[MarkedBeat]) -> Vec<MarkedBeat> {
-        if beats.is_empty() {
-            return vec![];
-        }
-        let min = beats
-            .iter()
-            .map(|beat| beat.pitch.unwrap_or(0.0))
-            .reduce(f64::min)
-            .unwrap();
-        let max = beats
-            .iter()
-            .map(|beat| beat.pitch.unwrap_or(0.0))
-            .reduce(f64::max)
-            .unwrap();
-
-        beats
-            .iter()
-            .map(|beat| {
-                let mut new_beat = *beat;
-                new_beat.pitch = Some((beat.pitch.unwrap_or(0.0) - min) / (max - min));
-                new_beat
-            })
-            .collect()
-    }
-
-    fn offset(beats: &[MarkedBeat], offset: Beats) -> Vec<MarkedBeat> {
-        beats
-            .iter()
-            .map(|old| MarkedBeat {
-                beat: old.beat + offset,
-                percent: old.percent,
-                pitch: old.pitch,
-                midigroup: old.midigroup,
-            })
-            .collect()
-    }
 }
 
 impl<'lua> rlua::ToLua<'lua> for MarkedBeat {

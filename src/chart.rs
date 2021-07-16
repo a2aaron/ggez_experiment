@@ -103,56 +103,6 @@ impl BeatSplitter {
         }
         beats
     }
-
-    pub fn with_start(self, start: f64) -> Self {
-        BeatSplitter {
-            start,
-            duration: self.duration,
-            frequency: self.frequency,
-            offset: self.offset,
-            delay: self.delay,
-        }
-    }
-
-    pub fn with_freq(self, frequency: f64) -> Self {
-        BeatSplitter {
-            start: self.start,
-            duration: self.duration,
-            frequency,
-            offset: self.offset,
-            delay: self.delay,
-        }
-    }
-
-    pub fn with_offset(self, offset: f64) -> Self {
-        BeatSplitter {
-            start: self.start,
-            duration: self.duration,
-            frequency: self.frequency,
-            offset,
-            delay: self.delay,
-        }
-    }
-
-    pub fn with_delay(self, delay: f64) -> Self {
-        BeatSplitter {
-            start: self.start,
-            duration: self.duration,
-            frequency: self.frequency,
-            offset: self.offset,
-            delay,
-        }
-    }
-
-    pub fn with_duration(self, duration: f64) -> Self {
-        BeatSplitter {
-            start: self.start,
-            duration,
-            frequency: self.frequency,
-            offset: self.offset,
-            delay: self.delay,
-        }
-    }
 }
 
 /// A wrapper struct of a Beat and a Boxed Action. The beat has reversed ordering
