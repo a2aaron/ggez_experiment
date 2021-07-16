@@ -132,12 +132,23 @@ function make_actions(marked_beats, spawner)
    end
 end
 
-function bullet_lerp(start1, end1, start2, end2)
-   return function(beat, t)
-      local start_pos = lerp_pos(start1, start2, t)
-      local end_pos = lerp_pos(end1, end2, t)
-      return bullet(start_pos, end_pos)
-   end
+-- Disable the hitboxes + fades the objects of the given group. After fade_duration,
+-- reenable the hitbox and disable the fade and clears the group. Note that the 
+-- clear command can clear objects added during the fade_duration, so if objects
+-- seem to disappear, this is why.
+function fadeout_clear(time, group, fade_duration)   
+   local fadeout_on = {spawn_cmd = "set_fadeout_on", color = "transparent", duration = fade_duration }
+   local fadeout_off = {spawn_cmd = "set_fadeout_off"}
+   local hitbox_off = {spawn_cmd = "set_hitbox", value = false}
+   local hitbox_on = {spawn_cmd = "set_hitbox", value = true}
+   local clear_enemies = {spawn_cmd = "clear_enemies"} 
+
+   add_action(time, group, fadeout_on)
+   add_action(time, group, hitbox_off)
+
+   add_action(time + fade_duration, group, fadeout_off)
+   add_action(time + fade_duration, group, hitbox_on)
+   add_action(time + fade_duration, group, clear_enemies)
 end
 
 
@@ -149,15 +160,19 @@ TOPRIGHT = pos(50.0, 50.0)
 BOTRIGHT = pos(50.0, -50.0)
 
 
--- Set up BPM, amount of song to skip, etc
-table.insert(SONGMAP, {bpm = 150.0})
-table.insert(SONGMAP, {skip = 0.0 * 4.0})
 
 -- Midi files
 buildup1main1 = add_offset(read_midi("./resources/buildup1main1.mid", 150.0), 12.0 * 4.0);
 buildup1main2 = add_offset(read_midi("./resources/buildup1main2.mid", 150.0), 16.0 * 4.0);
 
 -- Custom attacks
+function bullet_lerp(start1, end1, start2, end2)
+   return function(beat, t)
+      local start_pos = lerp_pos(start1, start2, t)
+      local end_pos = lerp_pos(end1, end2, t)
+      return bullet(start_pos, end_pos)
+   end
+end
 
 function bullet_player()
    return function(beat, percent, i)
@@ -171,6 +186,11 @@ function bullet_player()
    end
 end
 -- Song data
+
+
+-- Set up BPM, amount of song to skip, etc
+table.insert(SONGMAP, {bpm = 150.0})
+table.insert(SONGMAP, {skip = 20.0 * 4.0})
 
 -- Measures 4 - 7 (beats 16)
 
@@ -191,7 +211,8 @@ make_actions(every2offset, bullet_lerp(BOTLEFT, BOTRIGHT, TOPLEFT, TOPRIGHT))
 -- Measures 16 - 19 (beat 64)
 make_actions(buildup1main2, bullet_player());
 
-
+-- [DROP]
+fadeout_clear(20.0 * 4.0, 0.0, 1.0)
 
 
 

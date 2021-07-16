@@ -432,9 +432,13 @@ impl SpawnCmd {
             }
             "set_rotation_off" => Ok(SpawnCmd::SetGroupRotation(None)),
             "set_fadeout_on" => {
-                let color = get_key::<rlua::Value>(&spawn_cmd, "color")?;
-                let color =
-                    from_lua_color(color).unwrap_or_else(|_| Color::new(1.0, 1.0, 1.0, 0.0));
+                let color = if spawn_cmd.contains_key("color")? {
+                    let color = get_key::<rlua::Value>(&spawn_cmd, "color")?;
+                    from_lua_color(color)?
+                } else {
+                    println!("asdf");
+                    Color::new(1.0, 1.0, 1.0, 0.0)
+                };
                 let duration = get_key::<f64>(&spawn_cmd, "duration")?;
                 Ok(SpawnCmd::SetFadeOut(Some((color, Beats(duration)))))
             }
@@ -521,7 +525,7 @@ fn dump_value(value: &rlua::Value) {
 
 // This is the ggez Color struct, so I can't implement rlua::FromLua on it, but
 // I can just make a function.
-fn from_lua_color<'lua>(lua_value: rlua::Value<'lua>) -> rlua::Result<Color> {
+fn from_lua_color(lua_value: rlua::Value) -> rlua::Result<Color> {
     match lua_value {
         rlua::Value::String(color_name) => match color_name.to_str()? {
             "red" => Ok(Color::new(1.0, 0.0, 0.0, 1.0)),
