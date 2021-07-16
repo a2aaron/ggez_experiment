@@ -115,8 +115,9 @@ end
 --                    percent - a float of the percent over the duration
 --                    pitch - (optional) the absolute normalized pitch value of
 --                            the note. If not present, this will default to 0.0.
--- @param spawner - A function returning spawn_cmd tables. This function is expected to
---                  beat, percent, i, and pitch in that order. It is not required to use all/any of these arguments
+-- @param spawner - A function returning spawn_cmd tables. This function is
+--                  expected to take a marked_beat table. It is expected to return
+--                  a spawn_cmd or an array of spawn_cmds
 -- Note that the enemygroup will be CURR_GROUP and the start time will be the
 -- beattime given by marked_beats
 
@@ -124,9 +125,8 @@ function make_actions(marked_beats, spawner)
    local i = 1
    for i, marked_beat in ipairs(marked_beats) do
       local beat = marked_beat.beat
-      local percent = marked_beat.percent
-      local pitch = marked_beat.pitch or 0.0
-      local spawn_cmd = spawner(beat, percent, i, pitch)
+      marked_beat["i"] = i
+      local spawn_cmd = spawner(marked_beat)
       add_action(beat, CURR_GROUP, spawn_cmd)
       i = i + 1
    end
@@ -192,7 +192,8 @@ breaktinesolo = add_offset(read_midi("./resources/break1tinesolo.mid", 150.0), 5
 -- Custom attacks
 -- note that argument order should be: beat, percent, i, pitch
 function bullet_lerp(start1, end1, start2, end2)
-   return function(_, t)
+   return function(marked_beat)
+      local t = marked_beat.percent
       local start_pos = lerp_pos(start1, start2, t)
       local end_pos = lerp_pos(end1, end2, t)
       return bullet(start_pos, end_pos)
@@ -200,7 +201,8 @@ function bullet_lerp(start1, end1, start2, end2)
 end
 
 function bullet_player()
-   return function(_, _, i)
+   return function(marked_beat)
+      local i = marked_beat.i
       local the_pos;
       if i % 2 == 0 then
          the_pos = pos(-50.0, 50.0)
@@ -219,8 +221,9 @@ function bomb_grid()
 end
 
 function laser_circle(center, start_angle, end_angle)
-   return function(_, percent)
-      local angle = lerp(start_angle, end_angle, percent)
+   return function(marked_beat)
+      local t = marked_beat.percent
+      local angle = lerp(start_angle, end_angle, t)
       return {spawn_cmd = "laser", angle = angle, position = center}
    end
 end
