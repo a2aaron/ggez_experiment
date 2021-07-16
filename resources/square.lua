@@ -127,12 +127,24 @@ table.insert(SONGMAP, {skip = 0.0 * 4.0})
 
 -- Song data
 
--- Measures 4 - 7 (beats 0 - 16)
+-- Measures 4 - 7 (beats 16)
 
 
 make_actions(every4(4.0 * 4.0), bullet_lerp(BOTLEFT, ORIGIN, BOTRIGHT, ORIGIN))
+make_actions(every4(4.0 * 4.0), bullet_lerp(TOPRIGHT, ORIGIN, TOPLEFT, ORIGIN))
 
 
+-- Measures 8 - 11 (beat 32)
+make_actions(every2(8.0 * 4.0), bullet_lerp(TOPLEFT, ORIGIN, BOTLEFT,  ORIGIN))
+make_actions(every2(8.0 * 4.0), bullet_lerp(BOTRIGHT, ORIGIN, TOPRIGHT, ORIGIN))
+
+-- Measures 12 - 15 (beat 48)
+every2offset = beat_splitter(12.0 * 4.0, 16.0, 2.0, 1.0, 0.0)
+make_actions(every2(12.0 * 4.0), bullet_lerp(TOPRIGHT, TOPLEFT, BOTRIGHT, BOTLEFT))
+make_actions(every2offset, bullet_lerp(BOTLEFT, BOTRIGHT, TOPLEFT, TOPRIGHT))
+
+-- Measures 16 - 19 (beat 64)
+-- make_actions(buildup1main2, bullet_player());
 
 
 
