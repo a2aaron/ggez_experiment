@@ -16,6 +16,32 @@ function dump(o)
    end
 end
 
+-- "deep copy" function from http://lua-users.org/wiki/CopyTable
+function deepcopy(orig)
+    local orig_type = type(orig)
+    local copy
+    if orig_type == 'table' then
+        copy = {}
+        for orig_key, orig_value in next, orig, nil do
+            copy[deepcopy(orig_key)] = deepcopy(orig_value)
+        end
+        setmetatable(copy, deepcopy(getmetatable(orig)))
+    else -- number, string, boolean, etc
+        copy = orig
+    end
+    return copy
+end
+
+-- Creates a copy of the marked_beats table and offsets each beat by `offset`
+-- Note that this will deepcopy marked_beats!
+function add_offset(marked_beats, offset)
+   local marked_beats = deepcopy(marked_beats)
+   for index, marked_beat in ipairs(marked_beats) do
+      marked_beat.beat = marked_beat.beat + offset
+   end
+   return marked_beats
+end
+
 function add_action(beat, group, action)
    action["beat"] = beat
    action["enemygroup"] = group
@@ -39,10 +65,10 @@ function lerp_pos(a, b, t)
    return {x = lerp(a.x, b.x, t), y = lerp(a.y, b.y, t)}
 end
 
---- Beat splitter iterator
--- Create a "beat splitter" which returns the following things:
--- 1. beat - the beattime, as a float, that the beat occurs on
--- 2. percent - the percent over the total duration
+--- Beat splitter
+-- Creates an array of marked beats with the following fields:
+-- beat - the beattime, as a float, that the beat occurs on
+-- percent - the percent over the total duration
 -- @param start The time to start at. 
 -- @param duration The length of time that beats will be yielded between.
 -- @param frequency The length of time between each beat.
@@ -56,16 +82,17 @@ function beat_splitter(start, duration, frequency, offset, delay)
    local offset = offset or 0.0
    local delay = delay or 0.0
    local this_beat = start
-   return function ()
-      if duration > this_beat - start then
-         local beat = this_beat + delay + offset
-         local percent = (this_beat + offset - start) / duration
-         this_beat = this_beat + frequency
-         return {beat = beat, percent = percent}
-      else
-         return nil
-      end
+   local marked_beats = {}
+   local i = 1
+   while duration > this_beat - start do
+      local beat = this_beat + delay + offset
+      local percent = (this_beat + offset - start) / duration
+      marked_beats[i] = {beat = beat, percent = percent}
+
+      this_beat = this_beat + frequency
+      i = i + 1
    end
+   return marked_beats
 end
 
 -- convience function for beat splitters
@@ -82,23 +109,26 @@ function every1(start)
 end
 
 --- Adds beat actions to SONGMAP using the given beat iterator and spawner.
--- @param beat_iter - A beat iterator. This is expected to return a table with 
---                    the following fields:
+-- @param marked_beats - A table of marked_beat. This is expected be an array of
+--                    tables each with the following fields:
 --                    beat - a float of the beattime
 --                    percent - a float of the percent over the duration
 --                    pitch - (optional) the absolute normalized pitch value of
 --                            the note. If not present, this will default to 0.0.
 -- @param spawner - A function returning spawn_cmd tables. This function is expected to
---                  beat, percent, and pitch in that order.
+--                  beat, percent, i, and pitch in that order. It is not required to use all/any of these arguments
 -- Note that the enemygroup will be CURR_GROUP and the start time will be the
--- beattime given by beat_iter
-function make_actions(beat_iter, spawner)
-   for marked_beat in beat_iter do
+-- beattime given by marked_beats
+
+function make_actions(marked_beats, spawner)
+   local i = 1
+   for i, marked_beat in ipairs(marked_beats) do
       local beat = marked_beat.beat
       local percent = marked_beat.percent
       local pitch = marked_beat.pitch or 0.0
-      local spawn_cmd = spawner(beat, percent, pitch)
+      local spawn_cmd = spawner(beat, percent, i, pitch)
       add_action(beat, CURR_GROUP, spawn_cmd)
+      i = i + 1
    end
 end
 
@@ -123,8 +153,23 @@ BOTRIGHT = pos(50.0, -50.0)
 table.insert(SONGMAP, {bpm = 150.0})
 table.insert(SONGMAP, {skip = 0.0 * 4.0})
 
+-- Midi files
+buildup1main1 = add_offset(read_midi("./resources/buildup1main1.mid", 150.0), 12.0 * 4.0);
+buildup1main2 = add_offset(read_midi("./resources/buildup1main2.mid", 150.0), 16.0 * 4.0);
 
+-- Custom attacks
 
+function bullet_player()
+   return function(beat, percent, i)
+      local the_pos;
+      if i % 2 == 0 then
+         the_pos = pos(-50.0, 50.0)
+      else
+         the_pos = pos(50.0, 50.0)
+      end
+      return bullet(the_pos, "player")
+   end
+end
 -- Song data
 
 -- Measures 4 - 7 (beats 16)
@@ -144,7 +189,7 @@ make_actions(every2(12.0 * 4.0), bullet_lerp(TOPRIGHT, TOPLEFT, BOTRIGHT, BOTLEF
 make_actions(every2offset, bullet_lerp(BOTLEFT, BOTRIGHT, TOPLEFT, TOPRIGHT))
 
 -- Measures 16 - 19 (beat 64)
--- make_actions(buildup1main2, bullet_player());
+make_actions(buildup1main2, bullet_player());
 
 
 
