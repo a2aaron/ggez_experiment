@@ -5,16 +5,18 @@ CURR_GROUP = 0
 -- "dump table" function from https://stackoverflow.com/a/27028488
 -- modified slightly to add linebreaks
 function dump(o)
-   if type(o) == 'table' then
-      local s = '{'
-      for k,v in pairs(o) do
-         if type(k) ~= 'number' then k = '"'..k..'"' end
-         s = s .. '['..k..'] = ' .. dump(v) .. ','
-      end
-      return s .. '}\n'
-   else
-      return tostring(o)
-   end
+    if type(o) == 'table' then
+        local s = '{'
+        for k, v in pairs(o) do
+            if type(k) ~= 'number' then
+                k = '"' .. k .. '"'
+            end
+            s = s .. '[' .. k .. '] = ' .. dump(v) .. ','
+        end
+        return s .. '}\n'
+    else
+        return tostring(o)
+    end
 end
 
 -- "deep copy" function from http://lua-users.org/wiki/CopyTable
@@ -36,34 +38,43 @@ end
 -- Creates a copy of the marked_beats table and offsets each beat by `offset`
 -- Note that this will deepcopy marked_beats!
 function add_offset(marked_beats, offset)
-   local marked_beats = deepcopy(marked_beats)
-   for index, marked_beat in ipairs(marked_beats) do
-      marked_beat.beat = marked_beat.beat + offset
-   end
-   return marked_beats
+    local marked_beats = deepcopy(marked_beats)
+    for index, marked_beat in ipairs(marked_beats) do
+        marked_beat.beat = marked_beat.beat + offset
+    end
+    return marked_beats
 end
 
 function add_action(beat, group, action)
-   action["beat"] = beat
-   action["enemygroup"] = group
-   table.insert(SONGMAP, action)
+    action["beat"] = beat
+    action["enemygroup"] = group
+    table.insert(SONGMAP, action)
 end
 
 function bullet(start_pos, end_pos)
-   return {spawn_cmd = "bullet", start_pos = start_pos, end_pos = end_pos}
+    return {
+        spawn_cmd = "bullet",
+        start_pos = start_pos,
+        end_pos = end_pos
+    }
 end
 
 function pos(x, y)
-   return {x = x, y = y}
+    return {
+        x = x,
+        y = y
+    }
 end
 
-
 function lerp(a, b, t)
-   return a * (1.0 - t) + b * t
+    return a * (1.0 - t) + b * t
 end
 
 function lerp_pos(a, b, t)
-   return {x = lerp(a.x, b.x, t), y = lerp(a.y, b.y, t)}
+    return {
+        x = lerp(a.x, b.x, t),
+        y = lerp(a.y, b.y, t)
+    }
 end
 
 --- Beat splitter
@@ -80,33 +91,36 @@ end
 -- Note that if offset or delay are non-zero, then the first returned beat might
 -- not occur at `start`.
 function beat_splitter(start, duration, frequency, offset, delay)
-   local offset = offset or 0.0
-   local delay = delay or 0.0
-   local this_beat = start
-   local marked_beats = {}
-   local i = 1
-   while duration > this_beat - start do
-      local beat = this_beat + delay + offset
-      local percent = (this_beat + offset - start) / duration
-      marked_beats[i] = {beat = beat, percent = percent}
+    local offset = offset or 0.0
+    local delay = delay or 0.0
+    local this_beat = start
+    local marked_beats = {}
+    local i = 1
+    while duration > this_beat - start do
+        local beat = this_beat + delay + offset
+        local percent = (this_beat + offset - start) / duration
+        marked_beats[i] = {
+            beat = beat,
+            percent = percent
+        }
 
-      this_beat = this_beat + frequency
-      i = i + 1
-   end
-   return marked_beats
+        this_beat = this_beat + frequency
+        i = i + 1
+    end
+    return marked_beats
 end
 
 -- convience function for beat splitters
 function every4(start)
-   return beat_splitter(start, 16.0, 4.0, 0.0, 0.0)
+    return beat_splitter(start, 16.0, 4.0, 0.0, 0.0)
 end
 
 function every2(start)
-   return beat_splitter(start, 16.0, 2.0, 0.0, 0.0)
+    return beat_splitter(start, 16.0, 2.0, 0.0, 0.0)
 end
 
 function every1(start)
-   return beat_splitter(start, 16.0, 1.0, 0.0, 0.0)
+    return beat_splitter(start, 16.0, 1.0, 0.0, 0.0)
 end
 
 --- Adds beat actions to SONGMAP using the given beat iterator and spawner.
@@ -124,43 +138,56 @@ end
 -- beattime given by marked_beats
 
 function make_actions(marked_beats, spawner)
-   local i = 1
-   for i, marked_beat in ipairs(marked_beats) do
-      local beat = marked_beat.beat
-      marked_beat["i"] = i
-      local spawn_cmd = spawner(marked_beat)
-      -- Single spawn_cmd
-      if not spawn_cmd[1] then
-         add_action(beat, CURR_GROUP, spawn_cmd)
-      else
-      -- Array of spawn_cmds
-         for _, cmd in ipairs(spawn_cmd) do
-            add_action(beat, CURR_GROUP, cmd)
-         end
-      end
-      i = i + 1
-   end
+    local i = 1
+    for i, marked_beat in ipairs(marked_beats) do
+        local beat = marked_beat.beat
+        marked_beat["i"] = i
+        local spawn_cmd = spawner(marked_beat)
+        -- Single spawn_cmd
+        if not spawn_cmd[1] then
+            add_action(beat, CURR_GROUP, spawn_cmd)
+        else
+            -- Array of spawn_cmds
+            for _, cmd in ipairs(spawn_cmd) do
+                add_action(beat, CURR_GROUP, cmd)
+            end
+        end
+        i = i + 1
+    end
 end
 
 -- Disable the hitboxes + fades the objects of the given group. After fade_duration,
 -- reenable the hitbox and disable the fade and clears the group. Note that the 
 -- clear command can clear objects added during the fade_duration, so if objects
 -- seem to disappear, this is why.
-function fadeout_clear(time, group, fade_duration)   
-   local fadeout_on = {spawn_cmd = "set_fadeout_on", color = "transparent", duration = fade_duration }
-   local fadeout_off = {spawn_cmd = "set_fadeout_off"}
-   local hitbox_off = {spawn_cmd = "set_hitbox", value = false}
-   local hitbox_on = {spawn_cmd = "set_hitbox", value = true}
-   local clear_enemies = {spawn_cmd = "clear_enemies"} 
+function fadeout_clear(time, group, fade_duration)
+    local fadeout_on = {
+        spawn_cmd = "set_fadeout_on",
+        color = "transparent",
+        duration = fade_duration
+    }
+    local fadeout_off = {
+        spawn_cmd = "set_fadeout_off"
+    }
+    local hitbox_off = {
+        spawn_cmd = "set_hitbox",
+        value = false
+    }
+    local hitbox_on = {
+        spawn_cmd = "set_hitbox",
+        value = true
+    }
+    local clear_enemies = {
+        spawn_cmd = "clear_enemies"
+    }
 
-   add_action(time, group, fadeout_on)
-   add_action(time, group, hitbox_off)
+    add_action(time, group, fadeout_on)
+    add_action(time, group, hitbox_off)
 
-   add_action(time + fade_duration, group, fadeout_off)
-   add_action(time + fade_duration, group, hitbox_on)
-   add_action(time + fade_duration, group, clear_enemies)
+    add_action(time + fade_duration, group, fadeout_off)
+    add_action(time + fade_duration, group, hitbox_on)
+    add_action(time + fade_duration, group, clear_enemies)
 end
-
 
 -- Position constants
 ORIGIN = pos(0.0, 0.0)
@@ -169,12 +196,9 @@ BOTLEFT = pos(-50.0, -50.0)
 TOPRIGHT = pos(50.0, 50.0)
 BOTRIGHT = pos(50.0, -50.0)
 
-
-
 -- Midi files
 buildup1main1 = add_offset(read_midi("./resources/buildup1main1.mid", 150.0), 12.0 * 4.0);
 buildup1main2 = add_offset(read_midi("./resources/buildup1main2.mid", 150.0), 16.0 * 4.0);
-
 
 drop1kick1 = add_offset(read_midi("./resources/drop1kick1.mid", 150.0), 20.0 * 4.0);
 drop1kick2 = add_offset(read_midi("./resources/drop1kick2.mid", 150.0), 26.0 * 4.0);
@@ -198,75 +222,95 @@ breaktine2 = add_offset(read_midi("./resources/break1tine2.mid", 150.0), 48.0 * 
 breaktine3 = add_offset(read_midi("./resources/break1tine3.mid", 150.0), 52.0 * 4.0);
 breaktinesolo = add_offset(read_midi("./resources/break1tinesolo.mid", 150.0), 55.0 * 4.0);
 
-
 -- Custom attacks
 -- note that argument order should be: beat, percent, i, pitch
 function bullet_lerp(start1, end1, start2, end2)
-   return function(marked_beat)
-      local t = marked_beat.percent
-      local start_pos = lerp_pos(start1, start2, t)
-      local end_pos = lerp_pos(end1, end2, t)
-      return bullet(start_pos, end_pos)
-   end
+    return function(marked_beat)
+        local t = marked_beat.percent
+        local start_pos = lerp_pos(start1, start2, t)
+        local end_pos = lerp_pos(end1, end2, t)
+        return bullet(start_pos, end_pos)
+    end
 end
 
 function bullet_player()
-   return function(marked_beat)
-      local i = marked_beat.i
-      local the_pos;
-      if i % 2 == 0 then
-         the_pos = pos(-50.0, 50.0)
-      else
-         the_pos = pos(50.0, 50.0)
-      end
-      return bullet(the_pos, "player")
-   end
+    return function(marked_beat)
+        local i = marked_beat.i
+        local the_pos;
+        if i % 2 == 0 then
+            the_pos = pos(-50.0, 50.0)
+        else
+            the_pos = pos(50.0, 50.0)
+        end
+        return bullet(the_pos, "player")
+    end
 end
 
 function bomb_grid()
-   return function() 
-      local grid = {x = math.random(-50, 50), y = math.random(-50, 50)}
-      return {spawn_cmd = "bomb", pos = grid}
-   end
+    return function()
+        local grid = {
+            x = math.random(-50, 50),
+            y = math.random(-50, 50)
+        }
+        return {
+            spawn_cmd = "bomb",
+            pos = grid
+        }
+    end
 end
 
 function laser_circle(center, start_angle, end_angle)
-   return function(marked_beat)
-      local t = marked_beat.percent
-      local angle = lerp(start_angle, end_angle, t)
-      return {spawn_cmd = "laser", angle = angle, position = center}
-   end
+    return function(marked_beat)
+        local t = marked_beat.percent
+        local angle = lerp(start_angle, end_angle, t)
+        return {
+            spawn_cmd = "laser",
+            angle = angle,
+            position = center
+        }
+    end
 end
 
 function laser_solo()
-   return function(marked_beat)
-      local side;
-      if marked_beat.i % 2 == 0 then
-         side = 1.0
-      else
-         side = -1.0
-      end
-      return {{spawn_cmd = "laser", position = pos(50.0 * side, 0.0), angle = 90.0},
-              {spawn_cmd = "laser", position = pos(40.0 * side, 0.0), angle = 90.0},
-              {spawn_cmd = "laser", position = pos(30.0 * side, 0.0), angle = 90.0},}
-   end
+    return function(marked_beat)
+        local side;
+        if marked_beat.i % 2 == 0 then
+            side = 1.0
+        else
+            side = -1.0
+        end
+        return {{
+            spawn_cmd = "laser",
+            position = pos(50.0 * side, 0.0),
+            angle = 90.0
+        }, {
+            spawn_cmd = "laser",
+            position = pos(40.0 * side, 0.0),
+            angle = 90.0
+        }, {
+            spawn_cmd = "laser",
+            position = pos(30.0 * side, 0.0),
+            angle = 90.0
+        }}
+    end
 end
 -- Song data
 
-
 -- Set up BPM, amount of song to skip, etc
-table.insert(SONGMAP, {bpm = 150.0})
-table.insert(SONGMAP, {skip = 20.0 * 4.0})
+table.insert(SONGMAP, {
+    bpm = 150.0
+})
+table.insert(SONGMAP, {
+    skip = 20.0 * 4.0
+})
 
 -- Measures 4 - 7 (beats 16)
-
 
 make_actions(every4(4.0 * 4.0), bullet_lerp(BOTLEFT, ORIGIN, BOTRIGHT, ORIGIN))
 make_actions(every4(4.0 * 4.0), bullet_lerp(TOPRIGHT, ORIGIN, TOPLEFT, ORIGIN))
 
-
 -- Measures 8 - 11 (beat 32)
-make_actions(every2(8.0 * 4.0), bullet_lerp(TOPLEFT, ORIGIN, BOTLEFT,  ORIGIN))
+make_actions(every2(8.0 * 4.0), bullet_lerp(TOPLEFT, ORIGIN, BOTLEFT, ORIGIN))
 make_actions(every2(8.0 * 4.0), bullet_lerp(BOTRIGHT, ORIGIN, TOPRIGHT, ORIGIN))
 
 -- Measures 12 - 15 (beat 48)
@@ -287,17 +331,20 @@ make_actions(drop1kick1, laser_circle(ORIGIN, 0.0, -360.0 * 1.1));
 
 -- Instant triple laser (beat 103)
 
-add_action(103.0, CURR_GROUP, {spawn_cmd = "set_render", value = false})
+add_action(103.0, CURR_GROUP, {
+    spawn_cmd = "set_render",
+    value = false
+})
 
 CURR_GROUP = 0
 make_actions(kick1solo, laser_solo());
 CURR_GROUP = 1
 
-add_action(104.0, CURR_GROUP, {spawn_cmd = "set_render", value = true})
+add_action(104.0, CURR_GROUP, {
+    spawn_cmd = "set_render",
+    value = true
+})
 
 make_actions(drop1kick2, laser_circle(ORIGIN, 0.0, 360.0 * 0.6));
-
-
-
 
 return SONGMAP
