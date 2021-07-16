@@ -2177,6 +2177,7 @@ dependencies = [
  "rlua",
  "rodio 0.14.0",
  "simple_logger",
+ "spin_sleep",
 ]
 
 [[package]]
@@ -2426,6 +2427,16 @@ dependencies = [
  "wayland-client",
  "wayland-cursor",
  "wayland-protocols",
+]
+
+[[package]]
+name = "spin_sleep"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a98101bdc3833e192713c2af0b0dd2614f50d1cf1f7a97c5221b7aac052acc7"
+dependencies = [
+ "once_cell",
+ "winapi 0.3.9",
 ]
 
 [[package]]

@@ -160,6 +160,14 @@ function lerp_pos(a, b, t)
     }
 end
 
+function durations(warmup, active, cooldown)
+    return {
+        warmup = warmup,
+        active = active,
+        cooldown = cooldown
+    }
+end
+
 -- Return a position about some circle. Angle is in degrees
 function circle(center, radius, angle)
     local angle = math.rad(angle)
@@ -511,6 +519,20 @@ function tine_attack(pitch_axis, start_coord, end_coord)
     end
 end
 
+function laser_tine_attack(firing_time)
+    return function(marked_beat)
+        local pitch_pos = (marked_beat.pitch - 0.5) * 100.0
+        local start_pos = pos(pitch_pos, 50.0)
+        local end_pos = pos(-pitch_pos, -50.0)
+        local laser = laser_points(start_pos, end_pos)
+
+        local warmup = firing_time - marked_beat.beat
+
+        laser["durations"] = durations(warmup, 1.0, 1.0)
+        laser["beat"] = firing_time
+        return laser
+    end
+end
 -- Song data
 
 -- Set up BPM, amount of song to skip, etc
@@ -518,7 +540,7 @@ table.insert(SONGMAP, {
     bpm = 150.0
 })
 table.insert(SONGMAP, {
-    skip = 35.0 * 4.0
+    skip = 40.0 * 4.0
 })
 
 -- Measures 4 - 7 (beats 16)
@@ -577,16 +599,25 @@ add_action(28.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, 90.0, 16.0, ORIGIN))
 add_action(32.0 * 4.0, CURR_GROUP, set_rotation_on(90.0, 0.0, 16.0, ORIGIN))
 add_action(36.0 * 4.0, CURR_GROUP, set_rotation_off())
 
--- Measure 36 - 39
+-- Measure 36 - 43
 fadeout_clear(36.0 * 4.0, 2, 1.0)
 fadeout_clear(36.0 * 4.0, 3, 1.0)
 CURR_GROUP = 0
 
 make_actions(breakkick1, circle_sector_player_attack())
 
--- Measure 40 - 43
+-- Measure 44 - 47
 make_actions(normalize_pitch(breaktine1), tine_attack("y", -50.0, 50.0))
+
+-- Measure 48 - 51
 make_actions(normalize_pitch(breaktine2), tine_attack("y", 50.0, -50.0))
+
+-- Measure 52 - 54
 make_actions(normalize_pitch(breaktine3), tine_attack("x", 50.0, -50.0))
+
+fadeout_clear(55.0 * 4.0, CURR_GROUP, 1.0)
+-- Measure 55
+CURR_GROUP = 1
+make_actions(normalize_pitch(breaktinesolo), laser_tine_attack(224.0))
 
 return SONGMAP

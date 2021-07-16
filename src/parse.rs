@@ -124,13 +124,37 @@ impl SpawnCmd {
     ) -> rlua::Result<Self> {
         match get_key::<String>(&spawn_cmd, "spawn_cmd")?.as_str() {
             "bullet" => {
-                let start = get_key::<LiveWorldPos>(&spawn_cmd, "start_pos")?;
-                let end = get_key::<LiveWorldPos>(&spawn_cmd, "end_pos")?;
-                Ok(SpawnCmd::Bullet { start, end })
+                if spawn_cmd.contains_key("angle")? {
+                    let angle = get_key::<f64>(&spawn_cmd, "angle")?;
+                    let length = get_key::<f64>(&spawn_cmd, "length")?;
+                    if spawn_cmd.contains_key("start_pos")? {
+                        let start = get_key::<LiveWorldPos>(&spawn_cmd, "start_pos")?;
+                        Ok(SpawnCmd::BulletAngleStart {
+                            angle: angle.to_radians(),
+                            length,
+                            start,
+                        })
+                    } else {
+                        let end = get_key::<LiveWorldPos>(&spawn_cmd, "end_pos")?;
+                        Ok(SpawnCmd::BulletAngleEnd {
+                            angle: angle.to_radians(),
+                            length,
+                            end,
+                        })
+                    }
+                } else {
+                    let start = get_key::<LiveWorldPos>(&spawn_cmd, "start_pos")?;
+                    let end = get_key::<LiveWorldPos>(&spawn_cmd, "end_pos")?;
+
+                    Ok(SpawnCmd::Bullet { start, end })
+                }
             }
             "laser" => {
-                let durations = get_key::<EnemyDurations>(&spawn_cmd, "durations")
-                    .unwrap_or_else(|_| EnemyDurations::default_laser(Beats(1.0)));
+                let durations = if spawn_cmd.contains_key("durations")? {
+                    get_key::<EnemyDurations>(&spawn_cmd, "durations")?
+                } else {
+                    EnemyDurations::default_laser(Beats(1.0))
+                };
                 if spawn_cmd.contains_key("a")? {
                     let a = get_key::<LiveWorldPos>(&spawn_cmd, "a")?;
                     let b = get_key::<LiveWorldPos>(&spawn_cmd, "b")?;
@@ -175,6 +199,10 @@ impl SpawnCmd {
                 Ok(SpawnCmd::SetFadeOut(Some((color, Beats(duration)))))
             }
             "set_fadeout_off" => Ok(SpawnCmd::SetFadeOut(None)),
+            "set_render_warmup" => {
+                let value = get_key::<bool>(&spawn_cmd, "value")?;
+                Ok(SpawnCmd::SetRenderWarmup(value))
+            }
             "set_render" => {
                 let value = get_key::<bool>(&spawn_cmd, "value")?;
                 Ok(SpawnCmd::SetRender(value))
@@ -238,6 +266,7 @@ impl<'lua> rlua::FromLua<'lua> for EnemyDurations {
     }
 }
 
+#[allow(dead_code)]
 fn dump_value(value: &rlua::Value) {
     match value.clone() {
         rlua::Value::Table(table) => {

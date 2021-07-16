@@ -4,6 +4,7 @@
 
 use std::env;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use ease::{BeatEasing, Lerp};
 use ggez::audio::{SoundSource, Source};
@@ -219,13 +220,14 @@ impl MainState {
         self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
         self.world = WorldState::new();
         self.scheduler = Scheduler::new(ctx, &self.map);
+
         self.assets.music.set_skip_amount(skip_amount.as_duration());
         self.assets.music.set_volume(0.5);
 
         // Simulate all events up to this point. We do this before the level
         // starts in order to reduce the amount of BeatActions the scheduler needs
         // to perform immediately, which could be a lot if there were many events.
-        // self.update_with_time(0.0, self.map.skip_amount);
+        self.update_scheduler(self.map.skip_amount);
 
         self.time = Time::new(self.map.bpm, skip_amount);
     }
@@ -247,9 +249,7 @@ impl MainState {
             self.world.player.pos.as_screen_coords().y,
             delta
         );
-        if delta > std::time::Duration::from_millis(16) {
-            // log::warn!("Slow frame! {:?}", delta);
-        }
+
         let fragment = TextFragment {
             text,
             color: Some(color::DEBUG_RED),
@@ -356,7 +356,7 @@ impl event::EventHandler for MainState {
         // Lock the framerate at 60 FPS
         while timer::check_update_time(ctx, TARGET_FPS) {
             if !self.started {
-                return Ok(());
+                continue;
             }
             let physics_delta_time = 1.0 / f64::from(TARGET_FPS);
 
@@ -378,7 +378,6 @@ impl event::EventHandler for MainState {
 
             ggez::graphics::window(ctx).set_title(&format!("{}", ggez::timer::fps(ctx)));
         }
-        ggez::timer::sleep(ggez::timer::remaining_update_time(ctx));
 
         Ok(())
     }
@@ -432,8 +431,18 @@ impl event::EventHandler for MainState {
         self.draw_debug_world_lines(ctx)?;
         self.draw_debug_hitbox(ctx)?;
         graphics::present(ctx)?;
-        // We are done with this frame, sleep till the next frame
-        ggez::timer::yield_now();
+
+        // if timer::ticks(ctx) % 1000 == 0 {
+        //     log::warn!("remaining update: {:?}", timer::remaining_update_time(ctx));
+        // }
+
+        // let delta = ggez::timer::delta(ctx);
+        // if delta > std::time::Duration::from_millis(16) {
+        //     log::warn!("Slow frame! {:?}", delta);
+        // }
+
+        let sleep_duration = ggez::timer::remaining_update_time(ctx);
+        spin_sleep::sleep(sleep_duration);
         Ok(())
     }
 }
