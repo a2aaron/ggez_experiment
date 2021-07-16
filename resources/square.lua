@@ -44,12 +44,40 @@ function ternary(cond, a, b)
     end
 end
 
--- Creates a copy of the marked_beats table and offsets each beat by `offset`
--- Note that this will deepcopy marked_beats!
+-- Creates a deepcopy of the marked_beats array and offsets each beat by `offset`
 function add_offset(marked_beats, offset)
     local marked_beats = deepcopy(marked_beats)
     for index, marked_beat in ipairs(marked_beats) do
         marked_beat.beat = marked_beat.beat + offset
+    end
+    return marked_beats
+end
+
+-- Creates a deepcopy of the marked_beats array and normalizes the pitches of each
+-- beat. Entries without a "pitch" field are skipped.
+function normalize_pitch(marked_beats)
+    local marked_beats = deepcopy(marked_beats)
+    local min = 999.0
+    local max = -999.0
+    for _, beat in ipairs(marked_beats) do
+        if beat.pitch then
+            if beat.pitch > max then
+                max = beat.pitch
+            end
+            if beat.pitch < min then
+                min = beat.pitch
+            end
+        end
+    end
+
+    if (not min) or (not max) or (min == max) then
+        return marked_beats
+    end
+
+    for _, beat in ipairs(marked_beats) do
+        if beat.pitch then
+            beat.pitch = (beat.pitch - min) / (max - min)
+        end
     end
     return marked_beats
 end
@@ -465,6 +493,24 @@ function circle_sector_player_attack()
     end
 end
 
+function tine_attack(pitch_axis, start_coord, end_coord)
+    return function(marked_beat)
+        local pitch = marked_beat.pitch
+        local pitch_pos = (pitch - 0.5) * 100.0
+        local start_pos
+        local end_pos
+        if pitch_axis == "x" then
+            start_pos = pos(pitch_pos, start_coord);
+            end_pos = pos(pitch_pos, end_coord);
+        else
+            start_pos = pos(start_coord, pitch_pos);
+            end_pos = pos(end_coord, pitch_pos);
+        end
+
+        return bullet(start_pos, end_pos)
+    end
+end
+
 -- Song data
 
 -- Set up BPM, amount of song to skip, etc
@@ -537,5 +583,10 @@ fadeout_clear(36.0 * 4.0, 3, 1.0)
 CURR_GROUP = 0
 
 make_actions(breakkick1, circle_sector_player_attack())
+
+-- Measure 40 - 43
+make_actions(normalize_pitch(breaktine1), tine_attack("y", -50.0, 50.0))
+make_actions(normalize_pitch(breaktine2), tine_attack("y", 50.0, -50.0))
+make_actions(normalize_pitch(breaktine3), tine_attack("x", 50.0, -50.0))
 
 return SONGMAP
