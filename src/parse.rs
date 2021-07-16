@@ -1,12 +1,13 @@
 use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 use ggez::graphics::Color;
 use ggez::Context;
 use midly::{Header, Smf, TrackEvent};
 use rand::Rng;
-use rlua::{FromLua, Lua, Table};
+use rlua::{Lua, Table, ToLua};
 
 use crate::chart::{BeatAction, BeatSplitter, LiveWorldPos, SpawnCmd};
 use crate::ease::Lerp;
@@ -38,11 +39,29 @@ impl SongMap {
 
     pub fn run_lua(source: &[u8]) -> Result<SongMap, rlua::Error> {
         let lua = Lua::new();
-        let result = lua.context(|ctx| {
+        lua.context(|ctx| {
             let source = ctx.load(source);
+
+            let read_midi =
+                ctx.create_function(|_, (path, bpm): (String, f64)| {
+                    match parse_midi(path.as_str(), bpm, midi_to_beats_ungrouped) {
+                        Ok(beats) => Ok(beats),
+                        Err(err) => Err(rlua::Error::external(err)),
+                    }
+                })?;
+            ctx.globals().set("read_midi", read_midi)?;
+
+            let read_midi =
+                ctx.create_function(|_, (path, bpm): (String, f64)| {
+                    match parse_midi(path.as_str(), bpm, midi_to_beats_grouped) {
+                        Ok(beats) => Ok(beats),
+                        Err(err) => Err(rlua::Error::external(err)),
+                    }
+                })?;
+            ctx.globals().set("read_midi_grouped", read_midi)?;
+
             source.eval::<SongMap>()
-        });
-        result
+        })
     }
 
     pub fn run_rhai(script: &str) -> Result<SongMap, Box<rhai::EvalAltResult>> {
@@ -339,16 +358,147 @@ impl<'lua> rlua::FromLua<'lua> for SongMap {
         for entry in table.sequence_values() {
             let entry = Table::from_lua(entry?, lua)?;
 
-            if let Ok(bpm) = entry.get::<&str, f64>("bpm") {
+            if let Ok(bpm) = get_key::<f64>(&entry, "bpm") {
                 songmap.set_bpm(bpm);
-            } else if let Ok(skip) = entry.get::<&str, f64>("skip") {
+            } else if let Ok(skip) = get_key::<f64>(&entry, "skip") {
                 songmap.set_skip_amount(skip);
             } else {
-                println!("Skipped entry: {:?}", entry);
+                let action = BeatAction::from_table(entry, lua)?;
+                songmap.add_action(action)
             }
         }
 
         Ok(songmap)
+    }
+}
+
+impl BeatAction {
+    fn from_table<'lua>(
+        beat_action: rlua::Table<'lua>,
+        lua: rlua::Context<'lua>,
+    ) -> rlua::Result<Self> {
+        let start_time = get_key::<f64>(&beat_action, "beat")?;
+        let group_number = get_key::<usize>(&beat_action, "enemygroup")?;
+        let action = SpawnCmd::from_table(beat_action, lua)?;
+
+        Ok(BeatAction::new(Beats(start_time), group_number, action))
+    }
+}
+
+impl SpawnCmd {
+    fn from_table<'lua>(
+        spawn_cmd: rlua::Table<'lua>,
+        lua: rlua::Context<'lua>,
+    ) -> rlua::Result<Self> {
+        match get_key::<String>(&spawn_cmd, "spawn_cmd")?.as_str() {
+            "bullet" => {
+                let start = get_key::<LiveWorldPos>(&spawn_cmd, "start_pos")?;
+                let end = get_key::<LiveWorldPos>(&spawn_cmd, "end_pos")?;
+                Ok(SpawnCmd::Bullet { start, end })
+            }
+            "laser" => {
+                let durations = get_key::<EnemyDurations>(&spawn_cmd, "durations")
+                    .unwrap_or_else(|_| EnemyDurations::default_laser(Beats(1.0)));
+                if spawn_cmd.contains_key("a")? {
+                    let a = get_key::<LiveWorldPos>(&spawn_cmd, "a")?;
+                    let b = get_key::<LiveWorldPos>(&spawn_cmd, "b")?;
+                    Ok(SpawnCmd::LaserThruPoints { a, b, durations })
+                } else {
+                    let position = get_key::<LiveWorldPos>(&spawn_cmd, "position")?;
+                    let angle = get_key::<f64>(&spawn_cmd, "angle")?;
+                    Ok(SpawnCmd::Laser {
+                        position,
+                        angle,
+                        durations,
+                    })
+                }
+            }
+            "bomb" => {
+                let pos = get_key::<LiveWorldPos>(&spawn_cmd, "pos")?;
+                Ok(SpawnCmd::CircleBomb { pos })
+            }
+            "set_rotation_on" => {
+                let start_angle = get_key::<f64>(&spawn_cmd, "start")?;
+                let end_angle = get_key::<f64>(&spawn_cmd, "end")?;
+                let duration = get_key::<f64>(&spawn_cmd, "duration")?;
+                let rot_point = get_key::<LiveWorldPos>(&spawn_cmd, "rot_point")?;
+
+                Ok(SpawnCmd::SetGroupRotation(Some((
+                    start_angle.to_radians(),
+                    end_angle.to_radians(),
+                    Beats(duration),
+                    rot_point,
+                ))))
+            }
+            "set_rotation_off" => Ok(SpawnCmd::SetGroupRotation(None)),
+            "set_fadeout_on" => {
+                let color = get_key::<rlua::Value>(&spawn_cmd, "color")?;
+                let color =
+                    from_lua_color(color).unwrap_or_else(|_| Color::new(1.0, 1.0, 1.0, 0.0));
+                let duration = get_key::<f64>(&spawn_cmd, "duration")?;
+                Ok(SpawnCmd::SetFadeOut(Some((color, Beats(duration)))))
+            }
+            "set_fadeout_off" => Ok(SpawnCmd::SetFadeOut(None)),
+            "set_render" => {
+                let value = get_key::<bool>(&spawn_cmd, "value")?;
+                Ok(SpawnCmd::SetRender(value))
+            }
+            "set_hitbox" => {
+                let value = get_key::<bool>(&spawn_cmd, "value")?;
+                Ok(SpawnCmd::SetHitbox(value))
+            }
+            "clear_enemies" => Ok(SpawnCmd::ClearEnemies),
+            x => Err(rlua::Error::FromLuaConversionError {
+                from: "table",
+                to: "SpawnCmd",
+                message: Some(format!("Unknown spawn_cmd: {}", x)),
+            }),
+        }
+    }
+}
+
+impl<'lua> rlua::FromLua<'lua> for LiveWorldPos {
+    fn from_lua(lua_value: rlua::Value<'lua>, _lua: rlua::Context<'lua>) -> rlua::Result<Self> {
+        match lua_value {
+            rlua::Value::String(string) => match string.to_str()? {
+                "player" => Ok(LiveWorldPos::PlayerPos),
+                x => Err(rlua::Error::FromLuaConversionError {
+                    from: "string",
+                    to: "LiveWorldPos",
+                    message: Some(format!("Invalid LiveWorldPos type: {:?}", x)),
+                }),
+            },
+            rlua::Value::Table(table) => {
+                if let Ok(offset) = get_key::<LiveWorldPos>(&table, "offset_from") {
+                    Ok(LiveWorldPos::OffsetPlayer(Box::new(offset)))
+                } else {
+                    let x = get_key::<f64>(&table, "x")?;
+                    let y = get_key::<f64>(&table, "y")?;
+                    Ok(LiveWorldPos::from((x, y)))
+                }
+            }
+            x => Err(rlua::Error::FromLuaConversionError {
+                from: "lua value",
+                to: "LiveWorldPos",
+                message: Some(format!("Expected a String or Table. Got: {:?}", x)),
+            }),
+        }
+    }
+}
+
+impl<'lua> rlua::FromLua<'lua> for EnemyDurations {
+    fn from_lua(lua_value: rlua::Value<'lua>, lua: rlua::Context<'lua>) -> rlua::Result<Self> {
+        let table = Table::from_lua(lua_value, lua)?;
+
+        let warmup = get_key::<f64>(&table, "warmup")?;
+        let active = get_key::<f64>(&table, "active")?;
+        let cooldown = get_key::<f64>(&table, "cooldown")?;
+
+        Ok(EnemyDurations {
+            warmup: Beats(warmup),
+            active: Beats(active),
+            cooldown: Beats(cooldown),
+        })
     }
 }
 
@@ -366,6 +516,55 @@ fn dump_value(value: &rlua::Value) {
             }
         }
         value => println!("{:?}", value),
+    }
+}
+
+// This is the ggez Color struct, so I can't implement rlua::FromLua on it, but
+// I can just make a function.
+fn from_lua_color<'lua>(lua_value: rlua::Value<'lua>) -> rlua::Result<Color> {
+    match lua_value {
+        rlua::Value::String(color_name) => match color_name.to_str()? {
+            "red" => Ok(Color::new(1.0, 0.0, 0.0, 1.0)),
+            "green" => Ok(Color::new(0.0, 1.0, 0.0, 1.0)),
+            "blue" => Ok(Color::new(0.0, 0.0, 1.0, 1.0)),
+            "black" => Ok(Color::new(0.0, 0.0, 0.0, 1.0)),
+            "white" => Ok(Color::new(1.0, 1.0, 1.0, 1.0)),
+            "transparent" => Ok(Color::new(1.0, 1.0, 1.0, 0.0)),
+            "transparent_black" => Ok(Color::new(0.0, 0.0, 0.0, 0.0)),
+            _ => Err(rlua::Error::FromLuaConversionError {
+                from: "string",
+                to: "Color",
+                message: Some(format!("Unknown color: {:?}", color_name)),
+            }),
+        },
+        rlua::Value::Table(table) => {
+            let r = get_key::<f32>(&table, "r")?;
+            let g = get_key::<f32>(&table, "g")?;
+            let b = get_key::<f32>(&table, "b")?;
+            let a = get_key::<f32>(&table, "a").unwrap_or(1.0);
+            Ok(Color::new(r, g, b, a))
+        }
+        x => Err(rlua::Error::FromLuaConversionError {
+            from: "lua value",
+            to: "Color",
+            message: Some(format!("Expected a String or Table. Got: {:?}", x)),
+        }),
+    }
+}
+
+fn get_key<'lua, T: rlua::FromLua<'lua>>(table: &Table<'lua>, key: &'lua str) -> rlua::Result<T> {
+    match table.get::<&str, T>(key) {
+        Ok(ok) => Ok(ok),
+        Err(err) => match err {
+            rlua::Error::FromLuaConversionError { from, to, message } => {
+                let message = match message {
+                    None => Some(format!("[No message]. Key was: {:?}", key)),
+                    Some(msg) => Some(format!("{}. Key was: {:?}", msg, key)),
+                };
+                Err(rlua::Error::FromLuaConversionError { from, to, message })
+            }
+            x => Err(x),
+        },
     }
 }
 
@@ -430,6 +629,16 @@ impl MarkedBeat {
                 pitch: old.pitch,
             })
             .collect()
+    }
+}
+
+impl<'lua> rlua::ToLua<'lua> for MarkedBeat {
+    fn to_lua(self, lua: rlua::Context<'lua>) -> rlua::Result<rlua::Value<'lua>> {
+        let table = lua.create_table()?;
+        table.set("beat", self.beat.0)?;
+        table.set("percent", self.percent)?;
+        table.set("pitch", self.pitch)?;
+        Ok(rlua::Value::Table(table))
     }
 }
 
@@ -499,7 +708,7 @@ pub fn parse_midi<P: AsRef<Path>, T>(
     path: P,
     bpm: f64,
     func: impl Fn(&[TrackEvent], f64) -> T,
-) -> Result<T, Box<dyn std::error::Error>> {
+) -> anyhow::Result<T> {
     let buffer = std::fs::read(path)?;
     let smf = Smf::parse(&buffer)?;
     let ticks_per_beat = get_ticks_per_beat(&smf.header, bpm);

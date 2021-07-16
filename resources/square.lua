@@ -22,15 +22,19 @@ function add_action(beat, group, action)
 end
 
 function bullet(start_pos, end_pos)
-    return {spawncmd = "bullet", start_pos = start_pos, end_pos = end_pos}
+    return {spawn_cmd = "bullet", start_pos = start_pos, end_pos = end_pos}
+end
+
+function pos(x, y)
+   return {x = x, y = y}
 end
 
 table.insert(SONGMAP, {bpm = 150.0})
 table.insert(SONGMAP, {skip = 0.0 * 4.0})
 
-add_action(1.0, 0, bullet(0.0, 0.0))
+add_action(1.0, 0, bullet(pos(50.0, 0.0), "player"))
 
 
-print(dump(SONGMAP))
+-- print(dump(SONGMAP))
 
 return SONGMAP
