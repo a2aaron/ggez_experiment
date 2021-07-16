@@ -59,6 +59,38 @@ function bullet(start_pos, end_pos)
     }
 end
 
+function laser_angle(position, angle)
+    return {
+        spawn_cmd = "laser",
+        position = position,
+        angle = angle
+    }
+end
+
+function laser_points(a, b)
+    return {
+        spawn_cmd = "laser",
+        a = a,
+        b = b
+    }
+end
+
+function set_rotation_on(start_angle, end_angle, duration, rotation_point)
+    return {
+        spawn_cmd = "set_rotation_on",
+        start_angle = start_angle,
+        end_angle = end_angle,
+        duration = duration,
+        rot_point = rotation_point
+    }
+end
+
+function set_rotation_off()
+    return {
+        spawn_cmd = "set_rotation_off"
+    }
+end
+
 function pos(x, y)
     return {
         x = x,
@@ -75,6 +107,14 @@ function lerp_pos(a, b, t)
         x = lerp(a.x, b.x, t),
         y = lerp(a.y, b.y, t)
     }
+end
+
+-- Return a position about some circle. Angle is in degrees
+function circle(center, radius, angle)
+    local angle = math.rad(angle)
+    local x = center.x + math.cos(angle) * radius
+    local y = center.y + math.sin(angle) * radius
+    return pos(x, y)
 end
 
 --- Beat splitter
@@ -294,6 +334,34 @@ function laser_solo()
         }}
     end
 end
+
+function bullet_circle_in(center, radius, start_angle, end_angle)
+    return function(marked_beat)
+        local t = marked_beat.percent
+        local angle = lerp(start_angle, end_angle, t)
+        local start_pos = circle(center, radius, angle)
+        local end_pos = center
+        return bullet(start_pos, end_pos)
+    end
+end
+
+function laser_diamond(clockwise)
+    return function(marked_beat)
+        local i = marked_beat.i
+        local positions = {pos(-60.0, 0.0), pos(0.0, 60.0), pos(60.0, 0.0), pos(0.0, -60.0)}
+        local step
+        if clockwise then
+            step = 1
+        else
+            step = -1
+        end
+        -- the weird +1 at the end is because Lua arrays are 1-indexed
+        local a = positions[((step * i) % 4) + 1]
+        local b = positions[((step * (i + 1)) % 4) + 1]
+        return laser_points(a, b)
+    end
+end
+
 -- Song data
 
 -- Set up BPM, amount of song to skip, etc
@@ -301,7 +369,7 @@ table.insert(SONGMAP, {
     bpm = 150.0
 })
 table.insert(SONGMAP, {
-    skip = 20.0 * 4.0
+    skip = 28.0 * 4.0
 })
 
 -- Measures 4 - 7 (beats 16)
@@ -319,15 +387,16 @@ make_actions(every2(12.0 * 4.0), bullet_lerp(TOPRIGHT, TOPLEFT, BOTRIGHT, BOTLEF
 make_actions(every2offset, bullet_lerp(BOTLEFT, BOTRIGHT, TOPLEFT, TOPRIGHT))
 
 -- Measures 16 - 19 (beat 64)
-make_actions(buildup1main2, bullet_player());
+make_actions(buildup1main2, bullet_player())
 
 -- [DROP]
 fadeout_clear(20.0 * 4.0, 0.0, 1.0)
 CURR_GROUP = 1
 
 -- Measure 24 - 27
-make_actions(kick1bomb, bomb_grid());
-make_actions(drop1kick1, laser_circle(ORIGIN, 0.0, -360.0 * 1.1));
+make_actions(kick1bomb, bomb_grid())
+make_actions(drop1kick1, laser_circle(ORIGIN, 0.0, -360.0 * 1.1))
+make_actions(drop1kick2, laser_circle(ORIGIN, 0.0, 360.0 * 0.6))
 
 -- Instant triple laser (beat 103)
 
@@ -336,15 +405,27 @@ add_action(103.0, CURR_GROUP, {
     value = false
 })
 
-CURR_GROUP = 0
-make_actions(kick1solo, laser_solo());
-CURR_GROUP = 1
-
 add_action(104.0, CURR_GROUP, {
     spawn_cmd = "set_render",
     value = true
 })
 
-make_actions(drop1kick2, laser_circle(ORIGIN, 0.0, 360.0 * 0.6));
+CURR_GROUP = 0
+make_actions(kick1solo, laser_solo());
+
+-- Measure 28 - 35
+fadeout_clear(28.0 * 4.0, 1, 1.0)
+
+CURR_GROUP = 2
+make_actions(main1, bullet_circle_in(ORIGIN, 60.0, 0.0, -360.0 * 3.1))
+make_actions(main2, bullet_circle_in(ORIGIN, 60.0, 60.0, 360.0 * 3.1))
+
+CURR_GROUP = 3
+make_actions(drop1kick3, laser_diamond(true))
+make_actions(drop1kick4, laser_diamond(false))
+
+add_action(28.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, 90.0, 16.0, ORIGIN))
+add_action(32.0 * 4.0, CURR_GROUP, set_rotation_on(90.0, 0.0, 16.0, ORIGIN))
+add_action(36.0 * 4.0, CURR_GROUP, set_rotation_off())
 
 return SONGMAP

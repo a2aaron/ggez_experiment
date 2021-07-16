@@ -418,8 +418,8 @@ impl SpawnCmd {
                 Ok(SpawnCmd::CircleBomb { pos })
             }
             "set_rotation_on" => {
-                let start_angle = get_key::<f64>(&spawn_cmd, "start")?;
-                let end_angle = get_key::<f64>(&spawn_cmd, "end")?;
+                let start_angle = get_key::<f64>(&spawn_cmd, "start_angle")?;
+                let end_angle = get_key::<f64>(&spawn_cmd, "end_angle")?;
                 let duration = get_key::<f64>(&spawn_cmd, "duration")?;
                 let rot_point = get_key::<LiveWorldPos>(&spawn_cmd, "rot_point")?;
 
