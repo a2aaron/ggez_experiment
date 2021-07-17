@@ -4,10 +4,11 @@ use std::path::Path;
 use ggez::graphics::Color;
 use ggez::Context;
 use midly::{Header, Smf, TrackEvent};
-use rlua::{Lua, Table};
+use rlua::{FromLua, Lua, Table};
 
 use crate::chart::{BeatAction, LiveWorldPos, SpawnCmd};
-use crate::enemy::EnemyDurations;
+use crate::ease::{Easing, EasingKind};
+use crate::enemy::{EnemyDurations, Laser};
 use crate::time;
 use crate::time::Beats;
 
@@ -82,7 +83,7 @@ impl Default for SongMap {
     }
 }
 
-impl<'lua> rlua::FromLua<'lua> for SongMap {
+impl<'lua> FromLua<'lua> for SongMap {
     fn from_lua(lua_value: rlua::Value<'lua>, lua: rlua::Context<'lua>) -> rlua::Result<Self> {
         let mut songmap = SongMap::default();
         // dump_value(&lua_value);
@@ -120,7 +121,7 @@ impl BeatAction {
 impl SpawnCmd {
     fn from_table<'lua>(
         spawn_cmd: rlua::Table<'lua>,
-        _lua: rlua::Context<'lua>,
+        lua: rlua::Context<'lua>,
     ) -> rlua::Result<Self> {
         match get_key::<String>(&spawn_cmd, "spawn_cmd")?.as_str() {
             "bullet" => {
@@ -150,15 +151,40 @@ impl SpawnCmd {
                 }
             }
             "laser" => {
-                let durations = if spawn_cmd.contains_key("durations")? {
-                    get_key::<EnemyDurations>(&spawn_cmd, "durations")?
+                let durations = get_key_or(
+                    &spawn_cmd,
+                    "durations",
+                    EnemyDurations::default_laser(Beats(1.0)),
+                )?;
+
+                let outline_colors = if spawn_cmd.contains_key("outline_colors")? {
+                    let outline_colors: [rlua::Value; 4] = get_key(&spawn_cmd, "outline_colors")?;
+                    [
+                        Easing::<Color>::from_lua(outline_colors[0].clone(), lua)?,
+                        Easing::<Color>::from_lua(outline_colors[1].clone(), lua)?,
+                        Easing::<Color>::from_lua(outline_colors[2].clone(), lua)?,
+                        Easing::<Color>::from_lua(outline_colors[3].clone(), lua)?,
+                    ]
                 } else {
-                    EnemyDurations::default_laser(Beats(1.0))
+                    Laser::default_outline_color()
                 };
+
+                let outline_keyframes = get_key_or(
+                    &spawn_cmd,
+                    "outline_keyframes",
+                    Laser::default_outline_keyframes(),
+                )?;
+
                 if spawn_cmd.contains_key("a")? {
                     let a = get_key::<LiveWorldPos>(&spawn_cmd, "a")?;
                     let b = get_key::<LiveWorldPos>(&spawn_cmd, "b")?;
-                    Ok(SpawnCmd::LaserThruPoints { a, b, durations })
+                    Ok(SpawnCmd::LaserThruPoints {
+                        a,
+                        b,
+                        durations,
+                        outline_colors,
+                        outline_keyframes,
+                    })
                 } else {
                     let position = get_key::<LiveWorldPos>(&spawn_cmd, "position")?;
                     let angle = get_key::<f64>(&spawn_cmd, "angle")?;
@@ -166,6 +192,8 @@ impl SpawnCmd {
                         position,
                         angle: angle.to_radians(),
                         durations,
+                        outline_colors,
+                        outline_keyframes,
                     })
                 }
             }
@@ -221,7 +249,7 @@ impl SpawnCmd {
     }
 }
 
-impl<'lua> rlua::FromLua<'lua> for LiveWorldPos {
+impl<'lua> FromLua<'lua> for LiveWorldPos {
     fn from_lua(lua_value: rlua::Value<'lua>, _lua: rlua::Context<'lua>) -> rlua::Result<Self> {
         match lua_value {
             rlua::Value::String(string) => match string.to_str()? {
@@ -250,7 +278,7 @@ impl<'lua> rlua::FromLua<'lua> for LiveWorldPos {
     }
 }
 
-impl<'lua> rlua::FromLua<'lua> for EnemyDurations {
+impl<'lua> FromLua<'lua> for EnemyDurations {
     fn from_lua(lua_value: rlua::Value<'lua>, lua: rlua::Context<'lua>) -> rlua::Result<Self> {
         let table = Table::from_lua(lua_value, lua)?;
 
@@ -263,6 +291,62 @@ impl<'lua> rlua::FromLua<'lua> for EnemyDurations {
             active: Beats(active),
             cooldown: Beats(cooldown),
         })
+    }
+}
+
+impl<'lua, T: FromLua<'lua>> FromLua<'lua> for Easing<T> {
+    fn from_lua(lua_value: rlua::Value<'lua>, lua: rlua::Context<'lua>) -> rlua::Result<Self> {
+        let table = rlua::Table::from_lua(lua_value, lua)?;
+
+        let start = get_key(&table, "start_val")?;
+        let end = get_key(&table, "end_val")?;
+        let kind = get_key_or(&table, "ease_kind", EasingKind::Linear)?;
+        Ok(Easing { start, end, kind })
+    }
+}
+
+impl<'lua> Easing<Color> {
+    fn from_lua(lua_value: rlua::Value<'lua>, lua: rlua::Context<'lua>) -> rlua::Result<Self> {
+        let table = rlua::Table::from_lua(lua_value, lua)?;
+
+        let start = get_key_color(&table, "start_val")?;
+        let end = get_key_color(&table, "end_val")?;
+        let kind = get_key_or(&table, "ease_kind", EasingKind::Linear)?;
+        Ok(Easing { start, end, kind })
+    }
+}
+
+impl<'lua> FromLua<'lua> for EasingKind {
+    fn from_lua(lua_value: rlua::Value<'lua>, _lua: rlua::Context<'lua>) -> rlua::Result<Self> {
+        match lua_value {
+            rlua::Value::String(string) => match string.to_str()? {
+                "constant" => Ok(EasingKind::Constant),
+                "linear" => Ok(EasingKind::Linear),
+                "exponential" => Ok(EasingKind::Exponential),
+                x => Err(rlua::Error::FromLuaConversionError {
+                    from: "string",
+                    to: "EasingKind",
+                    message: Some(format!("Invalid EasingKind: {:?}", x)),
+                }),
+            },
+            rlua::Value::Table(table) => {
+                if table.contains_key("mid_val")? {
+                    Ok(EasingKind::SplitLinear {
+                        mid_val: get_key(&table, "mid_val")?,
+                        mid_t: get_key(&table, "mid_t")?,
+                    })
+                } else {
+                    Ok(EasingKind::EaseOut {
+                        easing: Box::new(get_key(&table, "easing")?),
+                    })
+                }
+            }
+            x => Err(rlua::Error::FromLuaConversionError {
+                from: "lua value",
+                to: "EasingKind",
+                message: Some(format!("Expected a String or Table. Got: {:?}", x)),
+            }),
+        }
     }
 }
 
@@ -284,7 +368,7 @@ fn dump_value(value: &rlua::Value) {
     }
 }
 
-// This is the ggez Color struct, so I can't implement rlua::FromLua on it, but
+// This is the ggez Color struct, so I can't implement FromLua on it, but
 // I can just make a function.
 fn from_lua_color(lua_value: rlua::Value) -> rlua::Result<Color> {
     match lua_value {
@@ -317,7 +401,7 @@ fn from_lua_color(lua_value: rlua::Value) -> rlua::Result<Color> {
     }
 }
 
-fn get_key<'lua, T: rlua::FromLua<'lua>>(table: &Table<'lua>, key: &'lua str) -> rlua::Result<T> {
+fn get_key<'lua, T: FromLua<'lua>>(table: &Table<'lua>, key: &'lua str) -> rlua::Result<T> {
     match table.get::<&str, T>(key) {
         Ok(ok) => Ok(ok),
         Err(err) => match err {
@@ -331,6 +415,23 @@ fn get_key<'lua, T: rlua::FromLua<'lua>>(table: &Table<'lua>, key: &'lua str) ->
             x => Err(x),
         },
     }
+}
+
+fn get_key_or<'lua, T: FromLua<'lua>>(
+    table: &Table<'lua>,
+    key: &'lua str,
+    default: T,
+) -> rlua::Result<T> {
+    if table.contains_key(key)? {
+        get_key(table, key)
+    } else {
+        Ok(default)
+    }
+}
+
+fn get_key_color<'lua>(table: &Table<'lua>, key: &'lua str) -> rlua::Result<Color> {
+    let value: rlua::Value = get_key(table, key)?;
+    from_lua_color(value)
 }
 
 #[derive(Debug, Clone, Copy)]

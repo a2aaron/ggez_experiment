@@ -4,21 +4,21 @@
 
 use std::env;
 use std::path::PathBuf;
-use std::time::Duration;
 
+use color::{RED, WHITE};
 use ease::{BeatEasing, Lerp};
 use ggez::audio::{SoundSource, Source};
 use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::mint::Point2;
 use ggez::graphics::{
-    Color, DrawMode, DrawParam, Drawable, Font, Mesh, PxScale, Text, TextFragment,
+    Color, DrawMode, DrawParam, Drawable, Font, Mesh, PxScale, Rect, Text, TextFragment,
 };
 use ggez::{audio, conf, event, graphics, timer, Context, ContextBuilder, GameError, GameResult};
 
 use cgmath as cg;
 
 use chart::Scheduler;
-use enemy::{Enemy, EnemyDurations, EnemyLifetime};
+use enemy::{Enemy, EnemyDurations, EnemyLifetime, Laser};
 use keyboard::KeyboardState;
 use player::Player;
 use time::{to_secs, Beats, Time};
@@ -216,18 +216,19 @@ impl MainState {
             Ok(map) => self.map = map,
             Err(err) => println!("{:?}", err),
         }
-        let skip_amount = to_secs(self.map.skip_amount, self.map.bpm);
-        self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
-        self.world = WorldState::new();
-        self.scheduler = Scheduler::new(ctx, &self.map);
 
-        self.assets.music.set_skip_amount(skip_amount.as_duration());
-        self.assets.music.set_volume(0.5);
+        self.world = WorldState::new();
 
         // Simulate all events up to this point. We do this before the level
         // starts in order to reduce the amount of BeatActions the scheduler needs
         // to perform immediately, which could be a lot if there were many events.
+        self.scheduler = Scheduler::new(ctx, &self.map);
         self.update_scheduler(self.map.skip_amount);
+
+        let skip_amount = to_secs(self.map.skip_amount, self.map.bpm);
+        self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
+        self.assets.music.set_skip_amount(skip_amount.as_duration());
+        self.assets.music.set_volume(0.5);
 
         self.time = Time::new(self.map.bpm, skip_amount);
     }
@@ -349,6 +350,27 @@ impl MainState {
 
         Ok(())
     }
+
+    fn draw_debug_metronome(&self, ctx: &mut Context) -> Result<(), GameError> {
+        if ggez::input::keyboard::is_key_pressed(ctx, KeyCode::C) {
+            let curr_time = self.time.get_beats();
+            let percent = curr_time.0 % 1.0;
+            let beat = (curr_time.0 as usize) % 4;
+
+            let point = [
+                (100.0, 100.0),
+                (200.0, 100.0),
+                (200.0, 200.0),
+                (100.0, 200.0),
+            ][beat];
+
+            let rect = Rect::new(point.0, point.1, 100.0, 100.0);
+            let color = Color::lerp(RED, WHITE, percent);
+            Mesh::new_rectangle(ctx, DrawMode::fill(), rect, color)?
+                .draw(ctx, DrawParam::default())?;
+        }
+        Ok(())
+    }
 }
 
 impl event::EventHandler for MainState {
@@ -399,9 +421,9 @@ impl event::EventHandler for MainState {
             } else {
                 // Start the game. Also play the music.
                 println!("Started");
-                self.started = true;
                 self.reset(ctx);
                 drop(self.assets.music.play(ctx));
+                self.started = true;
             }
         }
 
@@ -411,6 +433,8 @@ impl event::EventHandler for MainState {
                 WorldPos::origin(),
                 self.time.get_beats(),
                 EnemyDurations::default_laser(Beats(16.0)),
+                &Laser::default_outline_color(),
+                &Laser::default_outline_keyframes(),
             )));
         }
 
@@ -429,7 +453,7 @@ impl event::EventHandler for MainState {
 
         self.draw_debug_time(ctx)?;
         self.draw_debug_world_lines(ctx)?;
-        self.draw_debug_hitbox(ctx)?;
+        self.draw_debug_metronome(ctx)?;
         graphics::present(ctx)?;
 
         // if timer::ticks(ctx) % 1000 == 0 {

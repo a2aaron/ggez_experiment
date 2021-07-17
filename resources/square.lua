@@ -142,6 +142,24 @@ function set_rotation_off()
     }
 end
 
+function easing(start_val, end_val, ease_kind)
+    return {
+        start_val = start_val,
+        end_val = end_val,
+        ease_kind = ease_kind
+    }
+end
+
+function color(r, g, b, a)
+    local a = a or 1.0
+    return {
+        r = r,
+        g = g,
+        b = b,
+        a = a
+    }
+end
+
 function pos(x, y)
     return {
         x = x,
@@ -521,15 +539,22 @@ end
 
 function laser_tine_attack(firing_time)
     return function(marked_beat)
-        local pitch_pos = (marked_beat.pitch - 0.5) * 100.0
-        local start_pos = pos(pitch_pos, 50.0)
-        local end_pos = pos(-pitch_pos, -50.0)
+        local t_pos = (marked_beat.percent * 3.0 / 2.0 - 0.5) * 100.0
+        local start_pos = pos(t_pos, 50.0)
+        local end_pos = pos(-t_pos, -50.0)
         local laser = laser_points(start_pos, end_pos)
 
         local warmup = firing_time - marked_beat.beat
 
         laser["durations"] = durations(warmup, 1.0, 1.0)
         laser["beat"] = firing_time
+
+        local red1 = color(0.5, 0.1, 0.1, 0.3)
+        local red2 = color(0.5, 0.1, 0.1, 0.3)
+        local laser_red = color(1.0, 0.1, 0.1, 1.0)
+        laser["outline_colors"] = {easing(red1, red2, "linear"), easing(red2, red2, "constant"),
+                                   easing("red", "transparent", "linear"),
+                                   easing("transparent", "transparent", "constant")}
         return laser
     end
 end
@@ -538,9 +563,6 @@ end
 -- Set up BPM, amount of song to skip, etc
 table.insert(SONGMAP, {
     bpm = 150.0
-})
-table.insert(SONGMAP, {
-    skip = 40.0 * 4.0
 })
 
 -- Measures 4 - 7 (beats 16)
@@ -618,6 +640,10 @@ make_actions(normalize_pitch(breaktine3), tine_attack("x", 50.0, -50.0))
 fadeout_clear(55.0 * 4.0, CURR_GROUP, 1.0)
 -- Measure 55
 CURR_GROUP = 1
-make_actions(normalize_pitch(breaktinesolo), laser_tine_attack(224.0))
+make_actions(normalize_pitch(breaktinesolo), laser_tine_attack(56.0 * 4.0))
+
+table.insert(SONGMAP, {
+    skip = 0.0 * 4.0
+})
 
 return SONGMAP

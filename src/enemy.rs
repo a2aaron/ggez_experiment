@@ -335,7 +335,7 @@ pub struct Laser {
     // appear on screen (ie: when the Predelay phase occurs)
     start_time: Beats,
     durations: EnemyDurations,
-    outline_color: Color,
+    outline_colors: [Easing<Color>; 4],
     // The outline thickness to animate, in WorldLen units
     outline_keyframes: [Easing<f64>; 3],
     // The hitbox thickness to animate to and from while in active state.
@@ -356,12 +356,21 @@ impl Laser {
         b: WorldPos,
         start_time: Beats,
         durations: EnemyDurations,
+        outline_colors: &[Easing<Color>; 4],
+        outline_keyframes: &[Easing<f64>; 3],
     ) -> Laser {
         let dx = a.x - b.x;
         let dy = a.y - b.y;
         let angle = (dy / dx).atan();
         let angle = if !angle.is_finite() { 0.0 } else { angle };
-        Laser::new_through_point(a, angle, start_time, durations)
+        Laser::new_through_point(
+            a,
+            angle,
+            start_time,
+            durations,
+            outline_colors,
+            outline_keyframes,
+        )
     }
 
     pub fn new_through_point(
@@ -369,15 +378,14 @@ impl Laser {
         angle: f64,
         start_time: Beats,
         durations: EnemyDurations,
+        outline_colors: &[Easing<Color>; 4],
+        outline_keyframes: &[Easing<f64>; 3],
     ) -> Laser {
         Laser {
             start_time,
             durations,
-            outline_keyframes: [
-                Easing::linear(1.0, 3.0),
-                Easing::split_linear(6.0, 2.0, 0.6, 1.0),
-                Easing::linear(1.0, 0.0),
-            ],
+            outline_colors: outline_colors.clone(),
+            outline_keyframes: outline_keyframes.clone(),
             hitbox_keyframes: [
                 Easing::linear(0.0, 0.0),
                 Easing {
@@ -394,8 +402,44 @@ impl Laser {
             width: WorldLen(300.0),
             outline_thickness: WorldLen(0.0),
             hitbox_thickness: WorldLen(0.0),
-            outline_color: TRANSPARENT,
         }
+    }
+
+    pub fn outline_color(&self, curr_time: Beats) -> Color {
+        let delta_time = self.delta_time(curr_time);
+        let (index, percent) = match self.lifetime_state(curr_time) {
+            EnemyLifetime::Warmup => {
+                let percent = self.durations.percent_over_warmup(delta_time);
+                if percent < 0.25 {
+                    (0, percent * 4.0)
+                } else {
+                    (1, (percent - 0.25) / 0.75)
+                }
+            }
+            EnemyLifetime::Active => (2, self.durations.percent_over_active(delta_time)),
+            EnemyLifetime::Cooldown => (3, self.durations.percent_over_cooldown(delta_time)),
+            _ => unreachable!(),
+        };
+        self.outline_colors[index].ease(percent)
+    }
+
+    pub fn default_outline_color() -> [Easing<Color>; 4] {
+        let red1 = Color::new(0.3, 0.1, 0.1, 0.3);
+        let red2 = Color::new(0.5, 0.1, 0.1, 0.3);
+        [
+            Easing::linear(TRANSPARENT, red1),
+            Easing::constant(red2),
+            Easing::linear(LASER_RED, TRANSPARENT),
+            Easing::constant(TRANSPARENT),
+        ]
+    }
+
+    pub fn default_outline_keyframes() -> [Easing<f64>; 3] {
+        [
+            Easing::linear(1.0, 3.0),
+            Easing::split_linear(6.0, 2.0, 0.6, 1.0),
+            Easing::linear(1.0, 0.0),
+        ]
     }
 }
 
@@ -413,34 +457,9 @@ impl EnemyImpl for Laser {
 
         self.outline_thickness = WorldLen(self.outline_keyframes[index].ease(percent));
         self.hitbox_thickness = WorldLen(self.hitbox_keyframes[index].ease(percent));
-
-        self.outline_color = match state {
-            EnemyLifetime::Warmup => {
-                let red1 = Color {
-                    r: 0.3,
-                    g: 0.1,
-                    b: 0.1,
-                    a: 0.3,
-                };
-                let red2 = Color {
-                    r: 0.5,
-                    g: 0.1,
-                    b: 0.1,
-                    a: 0.3,
-                };
-                if percent < 0.25 {
-                    Color::lerp(TRANSPARENT, red1, percent)
-                } else {
-                    Color::lerp(red1, red2, (percent - 0.25) / 0.75)
-                }
-            }
-            EnemyLifetime::Active => Color::lerp(LASER_RED, TRANSPARENT, percent),
-            EnemyLifetime::Cooldown => Color::lerp(TRANSPARENT, TRANSPARENT, percent),
-            _ => unreachable!(),
-        };
     }
 
-    fn get_mesh(&self, ctx: &mut Context, _curr_time: Beats) -> GameResult<Mesh> {
+    fn get_mesh(&self, ctx: &mut Context, curr_time: Beats) -> GameResult<Mesh> {
         let length = self.width.0 as f32;
         let hitbox_thickness = self.hitbox_thickness.0 as f32;
         let outline_thickness = self.outline_thickness.0 as f32;
@@ -458,7 +477,12 @@ impl EnemyImpl for Laser {
         }
         let mut mesh = MeshBuilder::new();
         // outline
-        draw_laser_rect(&mut mesh, length, outline_thickness, self.outline_color)?;
+        draw_laser_rect(
+            &mut mesh,
+            length,
+            outline_thickness,
+            self.outline_color(curr_time),
+        )?;
         // hitbox
         draw_laser_rect(&mut mesh, length, hitbox_thickness, WHITE)?;
 

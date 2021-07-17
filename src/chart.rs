@@ -8,7 +8,7 @@ use ggez::graphics::Color;
 use ggez::Context;
 
 use crate::ease::{BeatEasing, Easing};
-use crate::enemy::{Bullet, CircleBomb, EnemyDurations, Laser, BOMB_WARMUP, LASER_WARMUP};
+use crate::enemy::{Bullet, CircleBomb, EnemyDurations, Laser, BOMB_WARMUP};
 use crate::parse::{MarkedBeat, SongMap};
 use crate::time::Beats;
 use crate::world::WorldPos;
@@ -135,8 +135,8 @@ impl BeatAction {
             // all assume the passed time is for the active phase, if we want
             // a laser to _fire_ on beat 20, it needs to be spawned in, at latest
             // beat 16, so that it works correctly.
-            SpawnCmd::Laser { .. } => start_time - LASER_WARMUP,
-            SpawnCmd::LaserThruPoints { .. } => start_time - LASER_WARMUP,
+            SpawnCmd::Laser { durations, .. } => start_time - durations.warmup,
+            SpawnCmd::LaserThruPoints { durations, .. } => start_time - durations.warmup,
             SpawnCmd::CircleBomb { .. } => start_time - BOMB_WARMUP,
             _ => start_time,
         };
@@ -223,11 +223,15 @@ pub enum SpawnCmd {
         position: LiveWorldPos,
         angle: f64,
         durations: EnemyDurations,
+        outline_colors: [Easing<Color>; 4],
+        outline_keyframes: [Easing<f64>; 3],
     },
     LaserThruPoints {
         a: LiveWorldPos,
         b: LiveWorldPos,
         durations: EnemyDurations,
+        outline_colors: [Easing<Color>; 4],
+        outline_keyframes: [Easing<f64>; 3],
     },
     CircleBomb {
         pos: LiveWorldPos,
@@ -287,21 +291,33 @@ impl SpawnCmd {
                 position,
                 angle,
                 durations,
+                outline_colors,
+                outline_keyframes,
             } => {
                 let laser = Laser::new_through_point(
                     position.world_pos(player_pos),
                     *angle,
                     start_time,
                     *durations,
+                    outline_colors,
+                    outline_keyframes,
                 );
                 group.enemies.push(Box::new(laser));
             }
-            SpawnCmd::LaserThruPoints { a, b, durations } => {
+            SpawnCmd::LaserThruPoints {
+                a,
+                b,
+                durations,
+                outline_colors,
+                outline_keyframes,
+            } => {
                 let laser = Laser::new_through_points(
                     a.world_pos(player_pos),
                     b.world_pos(player_pos),
                     start_time,
                     *durations,
+                    outline_colors,
+                    outline_keyframes,
                 );
                 group.enemies.push(Box::new(laser));
             }
