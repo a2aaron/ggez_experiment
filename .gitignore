@@ -2,5 +2,6 @@
 **/*.rs.bk
 # local repos
 ggez
+rlua
 # the ableton file
 resources/square dance COPY/

@@ -2125,9 +2125,8 @@ dependencies = [
 
 [[package]]
 name = "rlua"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25fa5b2c667bae0b6218361e96d365e414fe4a0fa80f476b9631aa2dea2c6881"
+version = "0.17.1-alpha.0"
+source = "git+https://github.com/a2aaron/rlua?rev=3eae5b613bc91a2e02f6e38895de75baae495856#3eae5b613bc91a2e02f6e38895de75baae495856"
 dependencies = [
  "bitflags",
  "bstr",

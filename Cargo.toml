@@ -16,6 +16,9 @@ midly = "0.5.2"
 rhai = "0.20.3"
 simple_logger = "1.11.0"
 log = "0.4.14"
-rlua = "0.17.0"
+
+# This is branched off of version 0.17.0 of rlua, with an addition for FromLua/ToLua for arrays
+rlua = { git = "https://github.com/a2aaron/rlua", rev = "3eae5b613bc91a2e02f6e38895de75baae495856" } # { path = "rlua" }
+
 anyhow = "1.0.42"
 spin_sleep = "1.0.0"
