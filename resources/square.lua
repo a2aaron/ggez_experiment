@@ -640,7 +640,7 @@ make_actions(normalize_pitch(breaktine3), tine_attack("x", 50.0, -50.0))
 fadeout_clear(55.0 * 4.0, CURR_GROUP, 1.0)
 -- Measure 55
 CURR_GROUP = 1
-make_actions(normalize_pitch(breaktinesolo), laser_tine_attack(56.0 * 4.0))
+make_actions(normalize_pitch(breaktinesolo), laser_tine_attack(56.0 * 4.0 - 0.75))
 
 table.insert(SONGMAP, {
     skip = 0.0 * 4.0

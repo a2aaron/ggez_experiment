@@ -8,7 +8,7 @@ use crate::color::{self, LASER_RED, RED, TRANSPARENT, WHITE};
 use crate::ease::{Easing, EasingKind, Lerp};
 use crate::time::Beats;
 use crate::util;
-use crate::world::{WorldLen, WorldPos};
+use crate::world::{WorldLen, WorldPos, WORLD_SCALE_FACTOR};
 
 pub const LASER_WARMUP: Beats = Beats(4.0);
 
@@ -115,7 +115,7 @@ impl<T: EnemyImpl> Enemy for T {
                 let param = DrawParam::default()
                     .dest(pos.as_screen_coords())
                     .rotation(-angle as f32)
-                    .scale([4.0, -4.0]);
+                    .scale([WORLD_SCALE_FACTOR, -WORLD_SCALE_FACTOR]);
                 Ok(Some((mesh, param)))
             }
         }

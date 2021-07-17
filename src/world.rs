@@ -12,9 +12,9 @@ use crate::ease::Lerp;
 use crate::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 /// How many pixels that a unit distance in WorldPosition translates to. Here,
-/// this means that if two things are 1.0 WorldLen units apart, they are 4 pixels
+/// this means that if two things are 1.0 WorldLen units apart, they are 6 pixels
 /// apart in screen space.
-pub const WORLD_SCALE_FACTOR: f32 = 4.0;
+pub const WORLD_SCALE_FACTOR: f32 = 6.0;
 
 /// A position in "world space". This is defined as a square whose origin is at
 /// the center of the world, and may range from positive to negative along both

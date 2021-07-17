@@ -46,8 +46,8 @@ const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
 // Files manually read by me (usually maps)
 const MAP_PATH: &str = "/square.lua";
 
-pub const WINDOW_WIDTH: f32 = 640.0;
-pub const WINDOW_HEIGHT: f32 = 480.0;
+pub const WINDOW_WIDTH: f32 = 1.5 * 640.0;
+pub const WINDOW_HEIGHT: f32 = 1.5 * 480.0;
 
 /// Stores assets like fonts, music, sprite images, etc
 /// TODO: Add music stuff here.
@@ -304,6 +304,7 @@ impl MainState {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn draw_debug_hitbox(&self, ctx: &mut Context) -> Result<(), GameError> {
         let curr_time = self.time.get_beats();
         let rotated_about = if ggez::input::keyboard::is_key_pressed(ctx, KeyCode::V) {
@@ -373,7 +374,7 @@ impl MainState {
     }
 }
 
-impl event::EventHandler for MainState {
+impl event::EventHandler<GameError> for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult<()> {
         // Lock the framerate at 60 FPS
         while timer::check_update_time(ctx, TARGET_FPS) {

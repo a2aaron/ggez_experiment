@@ -5,8 +5,8 @@ authors = ["Aaron Kofsky <a2aarontothe2@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-# This is branched off of version 0.6.0-rc1 of ggez, with some additions.
-ggez = { git = "https://github.com/a2aaron/ggez", rev = "da1fda511ad3d3a918c9de67d68d1ea4c7f7bf48" } # { path = "ggez" }    # "0.5.1"
+# This is branched off of version 0.6.0-rc2 of ggez, with some additions.
+ggez = { git = "https://github.com/a2aaron/ggez", rev = "f95653080067cfbe79fc85e9ed806d656ad4aa55" } # { path = "ggez" }    # "0.5.1"
 
 rand = "0.8.0"
 derive_more = "0.99.14"
