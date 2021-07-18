@@ -21,3 +21,4 @@ rlua = { git = "https://github.com/a2aaron/rlua", rev = "3eae5b613bc91a2e02f6e38
 
 anyhow = "1.0.42"
 spin_sleep = "1.0.0"
+kira = "0.5.3"

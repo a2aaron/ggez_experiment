@@ -7,19 +7,24 @@ use std::path::PathBuf;
 
 use color::{RED, WHITE};
 use ease::{BeatEasing, Lerp};
-use ggez::audio::{SoundSource, Source};
 use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::mint::Point2;
 use ggez::graphics::{
     Color, DrawMode, DrawParam, Drawable, Font, Mesh, PxScale, Rect, Text, TextFragment,
 };
-use ggez::{audio, conf, event, graphics, timer, Context, ContextBuilder, GameError, GameResult};
+use ggez::{conf, event, graphics, timer, Context, ContextBuilder, GameError, GameResult};
+
+use kira::instance::handle::InstanceHandle;
+use kira::instance::{InstanceSettings, StopInstanceSettings};
+use kira::manager::{AudioManager, AudioManagerSettings};
 
 use cgmath as cg;
 
 use chart::Scheduler;
 use enemy::{Enemy, EnemyDurations, EnemyLifetime, Laser};
 use keyboard::KeyboardState;
+use kira::sound::handle::SoundHandle;
+use kira::sound::{Sound, SoundSettings};
 use player::Player;
 use time::{to_secs, Beats, Time};
 use world::{WorldLen, WorldPos};
@@ -53,14 +58,21 @@ pub const WINDOW_HEIGHT: f32 = 1.5 * 480.0;
 /// TODO: Add music stuff here.
 struct Assets {
     debug_font: Font,
-    music: Source,
+    audio_manager: AudioManager,
+    song_handle: SoundHandle,
 }
 
 impl Assets {
-    fn new(ctx: &mut Context) -> GameResult<Assets> {
+    fn new(ctx: &mut Context) -> anyhow::Result<Assets> {
+        let music_file = ggez::filesystem::open(ctx, MUSIC_PATH)?;
+
+        let mut audio_manager = AudioManager::new(AudioManagerSettings::default())?;
+        let sound = Sound::from_mp3_reader(music_file, SoundSettings::default())?;
+        let song_handle = audio_manager.add_sound(sound)?;
         Ok(Assets {
             debug_font: Font::new(ctx, FIRACODE_PATH)?,
-            music: audio::Source::new(ctx, MUSIC_PATH)?,
+            audio_manager,
+            song_handle,
         })
     }
 }
@@ -193,10 +205,11 @@ struct MainState {
     world: WorldState,
     debug: Option<Box<dyn Enemy>>,
     map: SongMap,
+    instance_handle: Option<InstanceHandle>,
 }
 
 impl MainState {
-    fn new(ctx: &mut Context) -> GameResult<MainState> {
+    fn new(ctx: &mut Context) -> anyhow::Result<MainState> {
         let map = SongMap::read_map(ctx, MAP_PATH).unwrap_or_default();
         let s = MainState {
             keyboard: KeyboardState::default(),
@@ -206,6 +219,7 @@ impl MainState {
             world: WorldState::new(),
             scheduler: Scheduler::new(ctx, &map),
             debug: None,
+            instance_handle: None,
             map,
         };
         Ok(s)
@@ -224,13 +238,6 @@ impl MainState {
         // to perform immediately, which could be a lot if there were many events.
         self.scheduler = Scheduler::new(ctx, &self.map);
         self.update_scheduler(self.map.skip_amount);
-
-        let skip_amount = to_secs(self.map.skip_amount, self.map.bpm);
-        self.assets.music = audio::Source::new(ctx, MUSIC_PATH).unwrap();
-        self.assets.music.set_skip_amount(skip_amount.as_duration());
-        self.assets.music.set_volume(0.5);
-
-        self.time = Time::new(self.map.bpm, skip_amount);
     }
 
     fn update_scheduler(&mut self, time: Beats) {
@@ -417,13 +424,31 @@ impl event::EventHandler<GameError> for MainState {
                 // Stop the game, pausing the music, fetching a new Source instance, and
                 // rebuild the scheduler work queue.
                 self.started = false;
-                drop(self.assets.music.stop(ctx));
+                if let Some(handle) = &mut self.instance_handle {
+                    match handle.stop(StopInstanceSettings::new()) {
+                        Ok(()) => self.instance_handle = None,
+                        Err(err) => log::error!("Error stopping music: {}", err),
+                    }
+                }
                 println!("Stopped");
             } else {
                 // Start the game. Also play the music.
                 println!("Started");
                 self.reset(ctx);
-                drop(self.assets.music.play(ctx));
+
+                let skip_amount = to_secs(self.map.skip_amount, self.map.bpm);
+
+                match self.assets.song_handle.play(
+                    InstanceSettings::new()
+                        .volume(0.5)
+                        .start_position(skip_amount.0),
+                ) {
+                    Ok(handle) => self.instance_handle = Some(handle),
+                    Err(err) => log::error!("Error starting music: {}", err),
+                }
+
+                self.time = Time::new(self.map.bpm, skip_amount);
+
                 self.started = true;
             }
         }

@@ -643,7 +643,7 @@ CURR_GROUP = 1
 make_actions(normalize_pitch(breaktinesolo), laser_tine_attack(56.0 * 4.0 - 0.75))
 
 table.insert(SONGMAP, {
-    skip = 0.0 * 4.0
+    skip = 54.0 * 4.0
 })
 
 return SONGMAP
