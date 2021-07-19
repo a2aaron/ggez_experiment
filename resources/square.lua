@@ -44,6 +44,16 @@ function ternary(cond, a, b)
     end
 end
 
+function clamp(lo, hi, val)
+    if val < lo then
+        return lo
+    elseif val > hi then
+        return hi
+    else
+        return val
+    end
+end
+
 -- Creates a deepcopy of the marked_beats array and offsets each beat by `offset`
 function add_offset(marked_beats, offset)
     local marked_beats = deepcopy(marked_beats)
@@ -306,6 +316,33 @@ function fadeout_clear(time, group, fade_duration)
     add_action(time + fade_duration, group, clear_enemies)
 end
 
+function instant_hide(time, group, hide_duration)
+    local fadeout_on = {
+        spawn_cmd = "set_fadeout_on",
+        color = "transparent",
+        duration = 0.0
+    }
+    local fadeout_off = {
+        spawn_cmd = "set_fadeout_off"
+    }
+    local hitbox_off = {
+        spawn_cmd = "set_hitbox",
+        value = false
+    }
+    local hitbox_on = {
+        spawn_cmd = "set_hitbox",
+        value = true
+    }
+
+    add_action(time, group, fadeout_on)
+    add_action(time, group, hitbox_off)
+
+    add_action(time + hide_duration, group, fadeout_off)
+    add_action(time + hide_duration, group, hitbox_on)
+end
+
+
+
 -- Return an array of angles representing sectors of a circle.
 -- num_sectors - the number of sectors to make
 -- num_per_sector - the number of angles per sector
@@ -347,9 +384,10 @@ kick1solo = add_offset(read_midi("./resources/kick1solo.mid", 150.0), 20.0 * 4.0
 
 kick2 = add_offset(read_midi("./resources/kick2.mid", 150.0), 28.0 * 4.0);
 
-main_melo = read_midi("./resources/mainsimpleadd.mid", 150.0);
-main1 = add_offset(main_melo, 28.0 * 4.0);
-main2 = add_offset(main_melo, 32.0 * 4.0);
+main_melo = read_midi("./resources/mainsimple.mid", 150.0);
+main_melo_add = read_midi("./resources/mainsimpleadd.mid", 150.0);
+main1 = add_offset(main_melo_add, 28.0 * 4.0);
+main2 = add_offset(main_melo_add, 32.0 * 4.0);
 
 breakkick = read_midi_grouped("./resources/break1kickgrouped.mid", 150.0);
 breakkick1 = add_offset(breakkick, 36.0 * 4.0);
@@ -357,6 +395,15 @@ breaktine1 = add_offset(read_midi("./resources/break1tine1.mid", 150.0), 44.0 * 
 breaktine2 = add_offset(read_midi("./resources/break1tine2.mid", 150.0), 48.0 * 4.0);
 breaktine3 = add_offset(read_midi("./resources/break1tine3.mid", 150.0), 52.0 * 4.0);
 breaktinesolo = add_offset(read_midi("./resources/break1tinesolo.mid", 150.0), 55.0 * 4.0);
+
+buildup2 = read_midi("./resources/buildup2main1.mid", 150.0);
+buildupclap = read_midi("./resources/buildup1main2.mid", 150.0);
+
+drop2kick1 = add_offset(read_midi("./resources/drop2kick1.mid", 150.0), 64.0 * 4.0);
+drop2kick2 = add_offset(read_midi("./resources/drop2kick2.mid", 150.0), 68.0 * 4.0);
+drop2kick3 = add_offset(read_midi("./resources/drop2kick3.mid", 150.0), 72.0 * 4.0);
+drop2kick4 = add_offset(read_midi("./resources/drop2kick4.mid", 150.0), 76.0 * 4.0);
+drop2kicksolo = read_midi("./resources/drop2kicksolo.mid", 150.0);
 
 -- Custom attacks
 -- note that argument order should be: beat, percent, i, pitch
@@ -558,6 +605,47 @@ function laser_tine_attack(firing_time)
         return laser
     end
 end
+
+function bullet_pitch_scaled(pitch_axis, pitch_min, pitch_max, start_coord, end_coord)
+    return function(marked_beat)
+        local pitch_pos = lerp(pitch_min, pitch_max, marked_beat.pitch)
+        local start_pos
+        local end_pos
+        if pitch_axis == "x" then
+            start_pos = pos(pitch_pos, start_coord);
+            end_pos = pos(pitch_pos, end_coord);
+        else
+            start_pos = pos(start_coord, pitch_pos);
+            end_pos = pos(end_coord, pitch_pos);
+        end
+        return bullet(start_pos, end_pos)
+    end
+end
+
+function laser_origin()
+    return function()
+        return laser_angle(ORIGIN, 0.0)
+    end
+end
+
+function laser_cross()
+    return function(marked_beat)
+        local angle = ternary(marked_beat.i % 2 == 0, 0.0, 90.0)
+        return laser_angle(ORIGIN, angle)
+    end
+end
+
+function laser_edge_kill()
+    return function(marked_beat)
+        local i = marked_beat.i
+        local positions = {pos(50.0, 50.0), pos(50.0, -50.0), pos(-50.0, -50.0), pos(-50.0, 50.0)}
+        local a = positions[(i % 4) + 1]
+        local b = positions[((i + 1) % 4) + 1]
+        return laser_points(a, b)
+    end
+end
+
+
 -- Song data
 
 -- Set up BPM, amount of song to skip, etc
@@ -642,8 +730,76 @@ fadeout_clear(55.0 * 4.0, CURR_GROUP, 1.0)
 CURR_GROUP = 1
 make_actions(normalize_pitch(breaktinesolo), laser_tine_attack(56.0 * 4.0 - 0.75))
 
+-- [BUILDUP 2]
+CURR_GROUP = 0
+buildup2main1 = add_offset(buildup2, 56.0 * 4.0)
+buildup2main2 = add_offset(buildup2, 60.0 * 4.0)
+buildup2clap = add_offset(buildupclap, 60.0 * 4.0)
+
+-- Measure 56 - 59
+make_actions(normalize_pitch(buildup2main1), bullet_pitch_scaled("x", -50.0, 50.0, 50.0, -50.0))
+
+-- Measure 60 - 63
+
+make_actions(normalize_pitch(buildup2main2), bullet_pitch_scaled("x", 50.0, -50.0, 50.0, -50.0))
+make_actions(normalize_pitch(buildup2main2), bullet_pitch_scaled("x", -50.0, 50.0, -50.0, 50.0))
+
+-- [DROP 2]
+fadeout_clear(64.0 * 4.0, CURR_GROUP, 1.0)
+drop2main1 = add_offset(main_melo, 64.0 * 4.0)
+drop2main2 = add_offset(main_melo_add, 68.0 * 4.0)
+
+CURR_GROUP = 1
+add_action(64.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, 2.0 * 360.0, 2.0 * 16.0, ORIGIN))
+make_actions(drop2kick1, laser_origin())
+make_actions(drop2kick2, laser_origin())
+add_action(72.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, -1.0 * 360.0, 2.0 * 16.0, ORIGIN))
+make_actions(drop2kick3, laser_cross())
+make_actions(drop2kick4, laser_cross())
+
+-- Measure 64 - 71
+CURR_GROUP = 2
+add_action(64.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, -1.0 * 360.0, 16.0, ORIGIN))
+add_action(68.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, 1.0 * 360.0, 16.0, ORIGIN))
+
+make_actions(drop2main1, bullet_circle_in(ORIGIN, 75.0, 0.0, 2.0 * 360.0))
+make_actions(drop2main1, bullet_circle_in(ORIGIN, 75.0, 180.0 + 0.0, 180.0 + 2.0 * 360.0))
+
+make_actions(drop2main2, bullet_circle_in(ORIGIN, 75.0, 0.0, -2.0 * 360.0))
+make_actions(drop2main2, bullet_circle_in(ORIGIN, 75.0, 180.0 + 0.0, 180.0 + -2.0 * 360.0))
+
+
+-- Instant 249
+instant_hide(279.0, 1, 1.0)
+instant_hide(279.0, 2, 1.0)
+CURR_GROUP = 3
+make_actions(add_offset(drop2kicksolo, 279.0), laser_edge_kill())
+
+
+-- Measure 72 - 79
+drop2main3 = add_offset(main_melo, 72.0 * 4.0)
+drop2main4 = add_offset(main_melo_add, 76.0 * 4.0)
+
+add_action(72.0 * 4.0, CURR_GROUP, set_rotation_on(0.0,  0.5 * 360.0, 16.0, ORIGIN))
+add_action(76.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, -0.5 * 360.0, 16.0, ORIGIN))
+
+
+make_actions(drop2main3, bullet_circle_in(ORIGIN, 80.0, 0.0, 2.0 * 360.0))
+-- make_actions(drop2main3, bullet_circle_in(ORIGIN, 80.0, 90.0 + 0.0, 90.0 + 2.0 * 360.0))
+make_actions(drop2main3, bullet_circle_in(ORIGIN, 80.0, 180.0 + 0.0, 180.0 + 2.0 * 360.0))
+-- make_actions(drop2main3, bullet_circle_in(ORIGIN, 80.0, 270.0 + 0.0, 270.0 + 2.0 * 360.0))
+
+make_actions(drop2main4, bullet_circle_in(ORIGIN, 80.0, 0.0, -2.0 * 360.0))
+-- make_actions(drop2main4, bullet_circle_in(ORIGIN, 80.0, 90.0 + 0.0, 90.0 + -2.0 * 360.0))
+make_actions(drop2main4, bullet_circle_in(ORIGIN, 80.0, 180.0 + 0.0, 180.0 + -2.0 * 360.0))
+-- make_actions(drop2main4, bullet_circle_in(ORIGIN, 80.0, 270.0 + 0.0, 270.0 + -2.0 * 360.0))
+
+
+-- END
+fadeout_clear(80.0 * 4.0, CURR_GROUP, 1.0)
+
 table.insert(SONGMAP, {
-    skip = 54.0 * 4.0
+    skip = 64.0 * 4.0
 })
 
 return SONGMAP
