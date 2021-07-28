@@ -9,8 +9,10 @@ use rlua::{FromLua, Lua, Table};
 use crate::chart::{BeatAction, LiveWorldPos, SpawnCmd};
 use crate::ease::{Easing, EasingKind};
 use crate::enemy::{EnemyDurations, Laser};
-use crate::time;
+use crate::player::Player;
 use crate::time::Beats;
+use crate::world::WorldLen;
+use crate::{time, EnemyGroup, WorldState};
 
 /// This struct essentially acts as an interpreter for a song's file. All parsing
 /// occurs before the actual level is played, with the file format being line
@@ -20,9 +22,21 @@ pub struct SongMap {
     pub skip_amount: Beats,
     pub bpm: f64,
     pub actions: Vec<BeatAction>,
+    pub player: Player,
 }
 
 impl SongMap {
+    pub fn new_world(&self) -> WorldState {
+        WorldState {
+            player: self.player,
+            groups: {
+                let mut vec = Vec::with_capacity(8);
+                vec.resize_with(8, EnemyGroup::new);
+                vec
+            },
+        }
+    }
+
     pub fn read_map<P: AsRef<Path>>(
         ctx: &mut Context,
         path: P,
@@ -76,6 +90,7 @@ impl SongMap {
 impl Default for SongMap {
     fn default() -> Self {
         SongMap {
+            player: Player::default(),
             skip_amount: Beats(0.0),
             bpm: 150.0,
             actions: vec![],
@@ -95,6 +110,8 @@ impl<'lua> FromLua<'lua> for SongMap {
                 songmap.set_bpm(bpm);
             } else if let Ok(skip) = get_key::<f64>(&entry, "skip") {
                 songmap.set_skip_amount(skip);
+            } else if let Ok(player) = get_key::<Player>(&entry, "player") {
+                songmap.player = player;
             } else {
                 let action = BeatAction::from_table(entry, lua)?;
                 songmap.add_action(action)
@@ -125,15 +142,20 @@ impl SpawnCmd {
     ) -> rlua::Result<Self> {
         match get_key::<String>(&spawn_cmd, "spawn_cmd")?.as_str() {
             "bullet" => {
+                let size = get_key_or(&spawn_cmd, "size", 3.0)?;
+                let size = WorldLen(size);
+
                 if spawn_cmd.contains_key("angle")? {
                     let angle = get_key::<f64>(&spawn_cmd, "angle")?;
                     let length = get_key::<f64>(&spawn_cmd, "length")?;
+
                     if spawn_cmd.contains_key("start_pos")? {
                         let start = get_key::<LiveWorldPos>(&spawn_cmd, "start_pos")?;
                         Ok(SpawnCmd::BulletAngleStart {
                             angle: angle.to_radians(),
                             length,
                             start,
+                            size,
                         })
                     } else {
                         let end = get_key::<LiveWorldPos>(&spawn_cmd, "end_pos")?;
@@ -141,13 +163,14 @@ impl SpawnCmd {
                             angle: angle.to_radians(),
                             length,
                             end,
+                            size,
                         })
                     }
                 } else {
                     let start = get_key::<LiveWorldPos>(&spawn_cmd, "start_pos")?;
                     let end = get_key::<LiveWorldPos>(&spawn_cmd, "end_pos")?;
 
-                    Ok(SpawnCmd::Bullet { start, end })
+                    Ok(SpawnCmd::Bullet { start, end, size })
                 }
             }
             "laser" => {
@@ -240,11 +263,11 @@ impl SpawnCmd {
                 Ok(SpawnCmd::SetHitbox(value))
             }
             "clear_enemies" => Ok(SpawnCmd::ClearEnemies),
-            x => Err(rlua::Error::FromLuaConversionError {
-                from: "table",
-                to: "SpawnCmd",
-                message: Some(format!("Unknown spawn_cmd: {}", x)),
-            }),
+            _ => Err(invalid_value(
+                "spawn_cmd (lua table)",
+                "SpawnCmd",
+                spawn_cmd,
+            )),
         }
     }
 }
@@ -254,11 +277,7 @@ impl<'lua> FromLua<'lua> for LiveWorldPos {
         match lua_value {
             rlua::Value::String(string) => match string.to_str()? {
                 "player" => Ok(LiveWorldPos::PlayerPos),
-                x => Err(rlua::Error::FromLuaConversionError {
-                    from: "string",
-                    to: "LiveWorldPos",
-                    message: Some(format!("Invalid LiveWorldPos type: {:?}", x)),
-                }),
+                x => Err(invalid_value("lua string", "LiveWorldPos", x)),
             },
             rlua::Value::Table(table) => {
                 if let Ok(offset) = get_key::<LiveWorldPos>(&table, "offset_from") {
@@ -269,11 +288,7 @@ impl<'lua> FromLua<'lua> for LiveWorldPos {
                     Ok(LiveWorldPos::from((x, y)))
                 }
             }
-            x => Err(rlua::Error::FromLuaConversionError {
-                from: "lua value",
-                to: "LiveWorldPos",
-                message: Some(format!("Expected a String or Table. Got: {:?}", x)),
-            }),
+            x => Err(expected_string_or_table("LiveWorldPos", x)),
         }
     }
 }
@@ -323,11 +338,7 @@ impl<'lua> FromLua<'lua> for EasingKind {
                 "constant" => Ok(EasingKind::Constant),
                 "linear" => Ok(EasingKind::Linear),
                 "exponential" => Ok(EasingKind::Exponential),
-                x => Err(rlua::Error::FromLuaConversionError {
-                    from: "string",
-                    to: "EasingKind",
-                    message: Some(format!("Invalid EasingKind: {:?}", x)),
-                }),
+                x => Err(invalid_value("lua string", "EasingKind", x)),
             },
             rlua::Value::Table(table) => {
                 if table.contains_key("mid_val")? {
@@ -341,12 +352,19 @@ impl<'lua> FromLua<'lua> for EasingKind {
                     })
                 }
             }
-            x => Err(rlua::Error::FromLuaConversionError {
-                from: "lua value",
-                to: "EasingKind",
-                message: Some(format!("Expected a String or Table. Got: {:?}", x)),
-            }),
+            x => Err(expected_string_or_table("EasingKind", x)),
         }
+    }
+}
+
+impl<'lua> FromLua<'lua> for Player {
+    fn from_lua(lua_value: rlua::Value<'lua>, lua: rlua::Context<'lua>) -> rlua::Result<Self> {
+        let table = rlua::Table::from_lua(lua_value, lua)?;
+
+        let size = get_key_or(&table, "size", 2.0)?;
+        let speed = get_key_or(&table, "speed", 100.0)?;
+
+        Ok(Player::new(speed, WorldLen(size)))
     }
 }
 
@@ -432,6 +450,29 @@ fn get_key_or<'lua, T: FromLua<'lua>>(
 fn get_key_color<'lua>(table: &Table<'lua>, key: &'lua str) -> rlua::Result<Color> {
     let value: rlua::Value = get_key(table, key)?;
     from_lua_color(value)
+}
+
+fn invalid_value<T: std::fmt::Debug>(
+    from_type: &'static str,
+    to_type: &'static str,
+    value: T,
+) -> rlua::Error {
+    rlua::Error::FromLuaConversionError {
+        from: from_type,
+        to: to_type,
+        message: Some(format!("Invalid value for {}: {:?}", to_type, value)),
+    }
+}
+
+fn expected_string_or_table(to_type: &'static str, value: rlua::Value) -> rlua::Error {
+    rlua::Error::FromLuaConversionError {
+        from: "lua value",
+        to: to_type,
+        message: Some(format!(
+            "Expected a lua string or lua table. Got: {:?}",
+            value
+        )),
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -217,10 +217,6 @@ pub struct Bullet {
     start_time: Beats,
     // Time over which this bullet lives, in beats.
     duration: Beats,
-    // Size of glowy bit
-    glow_size: WorldLen,
-    // Transparency of glowy bit.
-    glow_trans: f32,
     // The radius of this bullet, in World space
     size: WorldLen,
 }
@@ -231,15 +227,14 @@ impl Bullet {
         end_pos: WorldPos,
         start_time: Beats,
         duration: Beats,
+        size: WorldLen,
     ) -> Bullet {
         Bullet {
             start_pos,
             end_pos,
             start_time,
             duration,
-            glow_size: WorldLen(0.0),
-            glow_trans: 0.0,
-            size: WorldLen(3.0),
+            size,
         }
     }
 
@@ -251,13 +246,7 @@ impl Bullet {
 }
 
 impl EnemyImpl for Bullet {
-    // TODO: Make this use some sort of percent over duration.
-    /// Move bullet towards end position. Also do the cool glow thing.
-    fn update(&mut self, curr_time: Beats) {
-        let percent = curr_time.0 % 1.0;
-        self.glow_size = self.size + WorldLen(5.0 * crate::util::rev_quartic(percent));
-        self.glow_trans = 0.5 * (1.0 - percent as f32).powi(4);
-    }
+    fn update(&mut self, _curr_time: Beats) {}
 
     fn sdf(&self, pos: WorldPos, curr_time: Beats) -> WorldLen {
         WorldPos::distance(pos, self.pos(curr_time)) - self.size
@@ -297,11 +286,12 @@ impl EnemyImpl for Bullet {
         mesh.circle(DrawMode::fill(), origin, self.size.0 as f32, TOLERANCE, RED)?;
 
         // transparent glow
-        let glow_color = Color::new(1.0, 0.0, 0.0, self.glow_trans);
+        let (glow_size, glow_trans) = self.glow(curr_time);
+        let glow_color = Color::new(1.0, 0.0, 0.0, glow_trans);
         mesh.circle(
             DrawMode::fill(),
             origin,
-            self.glow_size.0 as f32,
+            glow_size.0 as f32,
             TOLERANCE,
             glow_color,
         )?;
@@ -323,6 +313,15 @@ impl EnemyImpl for Bullet {
 
     fn position_info(&self, curr_time: Beats) -> (WorldPos, f64) {
         (self.pos(curr_time), 0.0)
+    }
+}
+
+impl Bullet {
+    fn glow(&self, curr_time: Beats) -> (WorldLen, f32) {
+        let percent = curr_time.0 % 1.0;
+        let glow_size = self.size + WorldLen(5.0 * crate::util::rev_quartic(percent));
+        let glow_trans = 0.5 * (1.0 - percent as f32).powi(4);
+        (glow_size, glow_trans)
     }
 }
 

@@ -150,21 +150,9 @@ impl EnemyGroup {
 pub struct WorldState {
     pub player: Player,
     pub groups: Vec<EnemyGroup>,
-    pub show_warmup: bool,
 }
 
 impl WorldState {
-    fn new() -> WorldState {
-        WorldState {
-            player: Player::new(),
-            groups: {
-                let mut vec = Vec::with_capacity(8);
-                vec.resize_with(8, EnemyGroup::new);
-                vec
-            },
-            show_warmup: true,
-        }
-    }
     fn update(
         &mut self,
         _ctx: &mut Context,
@@ -216,7 +204,7 @@ impl MainState {
             time: Time::new(map.bpm, time::Seconds(0.0)),
             started: false,
             assets: Assets::new(ctx)?,
-            world: WorldState::new(),
+            world: map.new_world(),
             scheduler: Scheduler::new(ctx, &map),
             debug: None,
             instance_handle: None,
@@ -231,7 +219,7 @@ impl MainState {
             Err(err) => println!("{:?}", err),
         }
 
-        self.world = WorldState::new();
+        self.world = self.map.new_world();
 
         // Simulate all events up to this point. We do this before the level
         // starts in order to reduce the amount of BeatActions the scheduler needs

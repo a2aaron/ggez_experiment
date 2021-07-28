@@ -1,29 +1,42 @@
 use ggez::graphics::{Color, DrawMode, Mesh};
 use ggez::{Context, GameResult};
 
-use crate::color::{RED, WHITE};
+use crate::color::{self, RED, WHITE};
 use crate::ease::Lerp;
 use crate::keyboard::KeyboardState;
 use crate::world::{WorldLen, WorldPos};
 
-const HIT_TIME_LENGTH: f64 = 3.0; // How many seconds the hit timer should be
+const HIT_TIME_LENGTH: f64 = 1.5; // How many seconds the hit timer should be
 
+#[derive(Debug, Clone, Copy)]
 pub struct Player {
     pub pos: WorldPos, // The current position of the Player
     speed: f64,        // In WorldLen units per second
     pub size: WorldLen,
-    color: Color,
     hit_timer: f64,
 }
 
 impl Player {
-    pub fn new() -> Player {
+    pub fn new(speed: f64, size: WorldLen) -> Player {
         Player {
             pos: WorldPos { x: 0.0, y: 0.0 },
-            speed: 100.0,
-            size: WorldLen(2.0),
-            color: crate::color::WHITE,
+            speed,
+            size,
             hit_timer: 0.0,
+        }
+    }
+
+    pub fn color(&self) -> Color {
+        if self.hit_timer <= 0.0 {
+            color::WHITE
+        } else {
+            let percent = (self.hit_timer as f64) / HIT_TIME_LENGTH as f64;
+            let percent = if (percent % 0.05) > (0.05 / 2.0) {
+                1.0 - (1.0 - percent).powi(3)
+            } else {
+                0.0
+            };
+            Color::lerp(WHITE, RED, percent)
         }
     }
 
@@ -58,7 +71,6 @@ impl Player {
         }
 
         self.hit_timer -= dt;
-        self.color = Color::lerp(WHITE, RED, (self.hit_timer as f64) / HIT_TIME_LENGTH as f64);
     }
 
     pub fn get_mesh(&self, ctx: &mut Context) -> GameResult<Mesh> {
@@ -68,13 +80,18 @@ impl Player {
             [0.0, 0.0],
             self.size.as_screen_length(),
             0.1,
-            self.color,
+            self.color(),
         )
     }
 }
 
 impl Default for Player {
     fn default() -> Self {
-        Self::new()
+        Player {
+            pos: WorldPos { x: 0.0, y: 0.0 },
+            speed: 100.0,
+            size: WorldLen(2.0),
+            hit_timer: 0.0,
+        }
     }
 }

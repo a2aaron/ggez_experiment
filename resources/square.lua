@@ -540,6 +540,7 @@ function circle_sector_player_attack()
                     }
                     local bullet = bullet(pos, "player")
                     bullet["enemygroup"] = enemygroup
+                    bullet["size"] = 5.0
                     table.insert(actions, bullet)
                 end
 
@@ -566,7 +567,7 @@ function circle_sector_player_attack()
     end
 end
 
-function tine_attack(pitch_axis, start_coord, end_coord)
+function tine_attack(pitch_axis, start_coord, end_coord, size_start, size_end)
     return function(marked_beat)
         local pitch = marked_beat.pitch
         local pitch_pos = (pitch - 0.5) * 100.0
@@ -579,8 +580,9 @@ function tine_attack(pitch_axis, start_coord, end_coord)
             start_pos = pos(start_coord, pitch_pos);
             end_pos = pos(end_coord, pitch_pos);
         end
-
-        return bullet(start_pos, end_pos)
+        local bullet = bullet(start_pos, end_pos)
+        bullet["size"] = lerp(size_start, size_end, marked_beat.percent)
+        return bullet
     end
 end
 
@@ -642,6 +644,15 @@ function laser_edge_kill()
         local a = positions[(i % 4) + 1]
         local b = positions[((i + 1) % 4) + 1]
         return laser_points(a, b)
+    end
+end
+
+function drop2_bullets(center, radius, start_angle, end_angle)
+    return function(marked_beat)
+        local spawner = bullet_circle_in(center, radius, start_angle, end_angle)
+        local bullet = spawner(marked_beat)
+        bullet["size"] = 2.5
+        return bullet
     end
 end
 
@@ -717,13 +728,13 @@ CURR_GROUP = 0
 make_actions(breakkick1, circle_sector_player_attack())
 
 -- Measure 44 - 47
-make_actions(normalize_pitch(breaktine1), tine_attack("y", -50.0, 50.0))
+make_actions(normalize_pitch(breaktine1), tine_attack("y", -50.0, 50.0, 2.0, 2.5))
 
 -- Measure 48 - 51
-make_actions(normalize_pitch(breaktine2), tine_attack("y", 50.0, -50.0))
+make_actions(normalize_pitch(breaktine2), tine_attack("y", 50.0, -50.0, 2.5, 3.0))
 
 -- Measure 52 - 54
-make_actions(normalize_pitch(breaktine3), tine_attack("x", 50.0, -50.0))
+make_actions(normalize_pitch(breaktine3), tine_attack("x", 50.0, -50.0, 3.0, 4.0))
 
 fadeout_clear(55.0 * 4.0, CURR_GROUP, 1.0)
 -- Measure 55
@@ -750,28 +761,37 @@ drop2main1 = add_offset(main_melo, 64.0 * 4.0)
 drop2main2 = add_offset(main_melo_add, 68.0 * 4.0)
 
 CURR_GROUP = 1
-add_action(64.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, 2.0 * 360.0, 2.0 * 16.0, ORIGIN))
+laser_rotation_speed = 1.0
+bullet_rotation_speed = 0.5
+bullet_circle_speed = -2.0
+
+bullet_rotation_speed2 = 0.5
+bullet_circle_speed2 = 2.0
+
+
+add_action(64.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, laser_rotation_speed * 360.0, 2.0 * 16.0, ORIGIN))
 make_actions(drop2kick1, laser_origin())
 make_actions(drop2kick2, laser_origin())
-add_action(72.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, -1.0 * 360.0, 2.0 * 16.0, ORIGIN))
+add_action(72.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, -laser_rotation_speed * 360.0, 2.0 * 16.0, ORIGIN))
 make_actions(drop2kick3, laser_cross())
 make_actions(drop2kick4, laser_cross())
 
 -- Measure 64 - 71
 CURR_GROUP = 2
-add_action(64.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, -1.0 * 360.0, 16.0, ORIGIN))
-add_action(68.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, 1.0 * 360.0, 16.0, ORIGIN))
 
-make_actions(drop2main1, bullet_circle_in(ORIGIN, 75.0, 0.0, 2.0 * 360.0))
-make_actions(drop2main1, bullet_circle_in(ORIGIN, 75.0, 180.0 + 0.0, 180.0 + 2.0 * 360.0))
+add_action(64.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, -bullet_rotation_speed * 360.0, 16.0, ORIGIN))
+add_action(68.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, -bullet_rotation_speed * 360.0, 16.0, ORIGIN))
 
-make_actions(drop2main2, bullet_circle_in(ORIGIN, 75.0, 0.0, -2.0 * 360.0))
-make_actions(drop2main2, bullet_circle_in(ORIGIN, 75.0, 180.0 + 0.0, 180.0 + -2.0 * 360.0))
+make_actions(drop2main1, drop2_bullets(ORIGIN, 75.0, 0.0, bullet_circle_speed * 360.0))
+make_actions(drop2main1, drop2_bullets(ORIGIN, 75.0, 180.0 + 0.0, 180.0 + bullet_circle_speed * 360.0))
+
+make_actions(drop2main2, drop2_bullets(ORIGIN, 75.0, 0.0, -bullet_circle_speed * 360.0))
+make_actions(drop2main2, drop2_bullets(ORIGIN, 75.0, 180.0 + 0.0, 180.0 + -bullet_circle_speed * 360.0))
 
 
 -- Instant 249
 instant_hide(279.0, 1, 1.0)
-instant_hide(279.0, 2, 1.0)
+fadeout_clear(279.0, 2, 0.001)
 CURR_GROUP = 3
 make_actions(add_offset(drop2kicksolo, 279.0), laser_edge_kill())
 
@@ -780,19 +800,15 @@ make_actions(add_offset(drop2kicksolo, 279.0), laser_edge_kill())
 drop2main3 = add_offset(main_melo, 72.0 * 4.0)
 drop2main4 = add_offset(main_melo_add, 76.0 * 4.0)
 
-add_action(72.0 * 4.0, CURR_GROUP, set_rotation_on(0.0,  0.5 * 360.0, 16.0, ORIGIN))
-add_action(76.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, -0.5 * 360.0, 16.0, ORIGIN))
+add_action(72.0 * 4.0, CURR_GROUP, set_rotation_on(0.0,  bullet_rotation_speed2 * 360.0, 16.0, ORIGIN))
+add_action(76.0 * 4.0, CURR_GROUP, set_rotation_on(0.0, -bullet_rotation_speed2 * 360.0, 16.0, ORIGIN))
 
 
-make_actions(drop2main3, bullet_circle_in(ORIGIN, 80.0, 0.0, 2.0 * 360.0))
--- make_actions(drop2main3, bullet_circle_in(ORIGIN, 80.0, 90.0 + 0.0, 90.0 + 2.0 * 360.0))
-make_actions(drop2main3, bullet_circle_in(ORIGIN, 80.0, 180.0 + 0.0, 180.0 + 2.0 * 360.0))
--- make_actions(drop2main3, bullet_circle_in(ORIGIN, 80.0, 270.0 + 0.0, 270.0 + 2.0 * 360.0))
+make_actions(drop2main3, drop2_bullets(ORIGIN, 80.0, 0.0, bullet_circle_speed2 * 360.0))
+make_actions(drop2main3, drop2_bullets(ORIGIN, 80.0, 180.0 + 0.0, 180.0 + bullet_circle_speed2 * 360.0))
 
-make_actions(drop2main4, bullet_circle_in(ORIGIN, 80.0, 0.0, -2.0 * 360.0))
--- make_actions(drop2main4, bullet_circle_in(ORIGIN, 80.0, 90.0 + 0.0, 90.0 + -2.0 * 360.0))
-make_actions(drop2main4, bullet_circle_in(ORIGIN, 80.0, 180.0 + 0.0, 180.0 + -2.0 * 360.0))
--- make_actions(drop2main4, bullet_circle_in(ORIGIN, 80.0, 270.0 + 0.0, 270.0 + -2.0 * 360.0))
+make_actions(drop2main4, drop2_bullets(ORIGIN, 80.0, 0.0, -bullet_circle_speed2 * 360.0))
+make_actions(drop2main4, drop2_bullets(ORIGIN, 80.0, 180.0 + 0.0, 180.0 + -bullet_circle_speed2 * 360.0))
 
 
 -- END
@@ -801,5 +817,7 @@ fadeout_clear(80.0 * 4.0, CURR_GROUP, 1.0)
 table.insert(SONGMAP, {
     skip = 64.0 * 4.0
 })
+
+-- table.insert(SONGMAP, {player = {size = 2.0, speed = 100.0}})
 
 return SONGMAP

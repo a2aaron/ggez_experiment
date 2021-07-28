@@ -11,7 +11,7 @@ use crate::ease::{BeatEasing, Easing};
 use crate::enemy::{Bullet, CircleBomb, EnemyDurations, Laser, BOMB_WARMUP};
 use crate::parse::{MarkedBeat, SongMap};
 use crate::time::Beats;
-use crate::world::WorldPos;
+use crate::world::{WorldLen, WorldPos};
 use crate::{EnemyGroup, WorldState};
 
 /// This struct contains all the events that occur during a song. It will perform
@@ -208,16 +208,19 @@ pub enum SpawnCmd {
     Bullet {
         start: LiveWorldPos,
         end: LiveWorldPos,
+        size: WorldLen,
     },
     BulletAngleStart {
         angle: f64,
         length: f64,
         start: LiveWorldPos,
+        size: WorldLen,
     },
     BulletAngleEnd {
         angle: f64,
         length: f64,
         end: LiveWorldPos,
+        size: WorldLen,
     },
     Laser {
         position: LiveWorldPos,
@@ -253,12 +256,13 @@ impl SpawnCmd {
         }
         let group = &mut world.groups[group_number];
         match self {
-            SpawnCmd::Bullet { start, end } => {
+            SpawnCmd::Bullet { start, end, size } => {
                 let bullet = Bullet::new(
                     start.world_pos(player_pos),
                     end.world_pos(player_pos),
                     start_time,
                     Beats(4.0),
+                    *size,
                 );
                 group.enemies.push(Box::new(bullet));
             }
@@ -266,6 +270,7 @@ impl SpawnCmd {
                 angle,
                 length,
                 start,
+                size,
             } => {
                 let (unit_x, unit_y) = (angle.cos(), angle.sin());
                 let start_pos = start.world_pos(player_pos);
@@ -273,10 +278,15 @@ impl SpawnCmd {
                     x: start_pos.x + unit_x * length,
                     y: start_pos.y + unit_y * length,
                 };
-                let bullet = Bullet::new(start_pos, end_pos, start_time, Beats(4.0));
+                let bullet = Bullet::new(start_pos, end_pos, start_time, Beats(4.0), *size);
                 group.enemies.push(Box::new(bullet));
             }
-            SpawnCmd::BulletAngleEnd { angle, length, end } => {
+            SpawnCmd::BulletAngleEnd {
+                angle,
+                length,
+                end,
+                size,
+            } => {
                 let (unit_x, unit_y) = (angle.cos(), angle.sin());
                 let end_pos = end.world_pos(player_pos);
                 let start_pos = WorldPos {
@@ -284,7 +294,7 @@ impl SpawnCmd {
                     y: end_pos.y - unit_y * length,
                 };
 
-                let bullet = Bullet::new(start_pos, end_pos, start_time, Beats(4.0));
+                let bullet = Bullet::new(start_pos, end_pos, start_time, Beats(4.0), *size);
                 group.enemies.push(Box::new(bullet));
             }
             SpawnCmd::Laser {
