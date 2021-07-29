@@ -5,8 +5,6 @@
 use std::env;
 use std::path::PathBuf;
 
-use color::{RED, WHITE};
-use ease::{BeatEasing, Lerp};
 use ggez::event::{KeyCode, KeyMods};
 use ggez::graphics::mint::Point2;
 use ggez::graphics::{
@@ -16,20 +14,20 @@ use ggez::{conf, event, graphics, timer, Context, ContextBuilder, GameError, Gam
 
 use kira::instance::handle::InstanceHandle;
 use kira::instance::{InstanceSettings, StopInstanceSettings};
-use kira::manager::{AudioManager, AudioManagerSettings};
+use kira::manager::AudioManager;
+use kira::sound::handle::SoundHandle;
 
 use cgmath as cg;
 
 use chart::Scheduler;
+use color::{RED, WHITE};
+use ease::{BeatEasing, Lerp};
 use enemy::{Enemy, EnemyDurations, EnemyLifetime, Laser};
 use keyboard::KeyboardState;
-use kira::sound::handle::SoundHandle;
-use kira::sound::{Sound, SoundSettings};
+use parse::SongMap;
 use player::Player;
 use time::{to_secs, Beats, Time};
 use world::{WorldLen, WorldPos};
-
-use crate::parse::SongMap;
 
 mod chart;
 mod color;
@@ -45,11 +43,9 @@ mod world;
 const TARGET_FPS: u32 = 60;
 
 // Files read via ggez (usually music/font/images)
-const MUSIC_PATH: &str = "/supersquare.mp3"; //"/metronome120.ogg"; // "/bbkkbkk.ogg";
-                                             // const ARIAL_PATH: &str = "/Arial.ttf";
+// const ARIAL_PATH: &str = "/Arial.ttf";
 const FIRACODE_PATH: &str = "/FiraCode-Regular.ttf";
-// Files manually read by me (usually maps)
-const MAP_PATH: &str = "/square.lua";
+const MAP_PATH: &str = "Super Square Dance [Cubed Version]";
 
 pub const WINDOW_WIDTH: f32 = 1.5 * 640.0;
 pub const WINDOW_HEIGHT: f32 = 1.5 * 480.0;
@@ -58,22 +54,13 @@ pub const WINDOW_HEIGHT: f32 = 1.5 * 480.0;
 /// TODO: Add music stuff here.
 struct Assets {
     debug_font: Font,
-    audio_manager: AudioManager,
-    song_handle: SoundHandle,
 }
 
 impl Assets {
-    fn new(ctx: &mut Context) -> anyhow::Result<Assets> {
-        let music_file = ggez::filesystem::open(ctx, MUSIC_PATH)?;
-
-        let mut audio_manager = AudioManager::new(AudioManagerSettings::default())?;
-        let sound = Sound::from_mp3_reader(music_file, SoundSettings::default())?;
-        let song_handle = audio_manager.add_sound(sound)?;
-        Ok(Assets {
-            debug_font: Font::new(ctx, FIRACODE_PATH)?,
-            audio_manager,
-            song_handle,
-        })
+    fn new(ctx: &mut Context) -> Assets {
+        Assets {
+            debug_font: Font::new(ctx, FIRACODE_PATH).unwrap(),
+        }
     }
 }
 
@@ -150,6 +137,8 @@ impl EnemyGroup {
 pub struct WorldState {
     pub player: Player,
     pub groups: Vec<EnemyGroup>,
+    music: Option<SoundHandle>,
+    audio_manager: AudioManager,
 }
 
 impl WorldState {
@@ -194,32 +183,45 @@ struct MainState {
     debug: Option<Box<dyn Enemy>>,
     map: SongMap,
     instance_handle: Option<InstanceHandle>,
+    resource_path: PathBuf,
 }
 
 impl MainState {
-    fn new(ctx: &mut Context) -> anyhow::Result<MainState> {
-        let map = SongMap::read_map(ctx, MAP_PATH).unwrap_or_default();
-        let s = MainState {
+    fn new(ctx: &mut Context) -> MainState {
+        // TODO: this is a stupid way to do this, use an actual virtual file system
+        let resource_path = match env::var("CARGO_MANIFEST_DIR") {
+            Ok(manifest_dir) => {
+                let mut path = PathBuf::from(manifest_dir);
+                path.push("resources");
+                path
+            }
+            Err(err) => panic!("{}", err),
+        };
+        let base_folder = resource_path.join(MAP_PATH);
+        let map = SongMap::read_map(&base_folder).unwrap_or_default();
+        MainState {
             keyboard: KeyboardState::default(),
             time: Time::new(map.bpm, time::Seconds(0.0)),
             started: false,
-            assets: Assets::new(ctx)?,
-            world: map.new_world(),
+            assets: Assets::new(ctx),
+            world: map.new_world(&base_folder),
             scheduler: Scheduler::new(ctx, &map),
             debug: None,
             instance_handle: None,
             map,
-        };
-        Ok(s)
+            resource_path,
+        }
     }
 
     fn reset(&mut self, ctx: &mut Context) {
-        match SongMap::read_map(ctx, MAP_PATH) {
+        let path = self.resource_path.join(MAP_PATH);
+
+        match SongMap::read_map(&path) {
             Ok(map) => self.map = map,
-            Err(err) => println!("{:?}", err),
+            Err(err) => log::warn!("Couldn't load map from path {:?}! {:?}", path, err),
         }
 
-        self.world = self.map.new_world();
+        self.world = self.map.new_world(&path);
 
         // Simulate all events up to this point. We do this before the level
         // starts in order to reduce the amount of BeatActions the scheduler needs
@@ -418,21 +420,28 @@ impl event::EventHandler<GameError> for MainState {
                         Err(err) => log::error!("Error stopping music: {}", err),
                     }
                 }
-                println!("Stopped");
+                println!("-- Stopped --");
             } else {
                 // Start the game. Also play the music.
-                println!("Started");
+                println!("++ Started ++");
                 self.reset(ctx);
 
                 let skip_amount = to_secs(self.map.skip_amount, self.map.bpm);
 
-                match self.assets.song_handle.play(
-                    InstanceSettings::new()
-                        .volume(0.5)
-                        .start_position(skip_amount.0),
-                ) {
-                    Ok(handle) => self.instance_handle = Some(handle),
-                    Err(err) => log::error!("Error starting music: {}", err),
+                if let Some(music) = &mut self.world.music {
+                    match music.play(
+                        InstanceSettings::new()
+                            .volume(0.5)
+                            .start_position(skip_amount.0),
+                    ) {
+                        Ok(handle) => {
+                            println!("played music!");
+                            self.instance_handle = Some(handle)
+                        }
+                        Err(err) => log::error!("Error starting music: {}", err),
+                    }
+                } else {
+                    log::warn!("No music loaded!")
                 }
 
                 self.time = Time::new(self.map.bpm, skip_amount);
@@ -513,6 +522,6 @@ pub fn main() {
         .unwrap();
 
     let (mut ctx, events_loop) = cb.build().unwrap();
-    let state = MainState::new(&mut ctx).unwrap();
+    let state = MainState::new(&mut ctx);
     ggez::event::run(ctx, events_loop, state);
 }

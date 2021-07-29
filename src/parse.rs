@@ -1,8 +1,10 @@
-use std::io::Read;
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 use ggez::graphics::Color;
-use ggez::Context;
+use kira::manager::{AudioManager, AudioManagerSettings};
+use kira::sound::handle::SoundHandle;
+use kira::sound::{Sound, SoundSettings};
 use midly::{Header, Smf, TrackEvent};
 use rlua::{FromLua, Lua, Table};
 
@@ -23,10 +25,35 @@ pub struct SongMap {
     pub bpm: f64,
     pub actions: Vec<BeatAction>,
     pub player: Player,
+    pub music_path: Option<PathBuf>,
 }
 
 impl SongMap {
-    pub fn new_world(&self) -> WorldState {
+    pub fn new_world<P: AsRef<Path>>(&self, base_folder: P) -> WorldState {
+        let mut audio_manager = AudioManager::new(AudioManagerSettings::default()).unwrap();
+
+        fn try_read(
+            audio_manager: &mut AudioManager,
+            path: impl AsRef<Path>,
+        ) -> anyhow::Result<SoundHandle> {
+            let music_file = std::fs::read(path)?;
+            let sound = Sound::from_mp3_reader(music_file.as_slice(), SoundSettings::default())?;
+            let song_handle = audio_manager.add_sound(sound)?;
+            Ok(song_handle)
+        }
+
+        let music = if let Some(path) = &self.music_path {
+            let path = base_folder.as_ref().join(path);
+            match try_read(&mut audio_manager, &path) {
+                Ok(handle) => Some(handle),
+                Err(err) => {
+                    log::warn!("Couldn't read music file from path {:?}: {}", path, err);
+                    None
+                }
+            }
+        } else {
+            None
+        };
         WorldState {
             player: self.player,
             groups: {
@@ -34,40 +61,41 @@ impl SongMap {
                 vec.resize_with(8, EnemyGroup::new);
                 vec
             },
+            music,
+            audio_manager,
         }
     }
 
-    pub fn read_map<P: AsRef<Path>>(
-        ctx: &mut Context,
-        path: P,
-    ) -> Result<SongMap, Box<dyn std::error::Error>> {
-        let mut file = ggez::filesystem::open(ctx, path)?;
-        let mut source = Vec::new();
-        file.read_to_end(&mut source)?;
-        Ok(SongMap::run_lua(&source)?)
+    pub fn read_map<P: AsRef<Path>>(base_folder: P) -> anyhow::Result<SongMap> {
+        let base_folder = base_folder.as_ref();
+        let source = std::fs::read(base_folder.join("main.lua"))?;
+        let songmap = SongMap::run_lua(base_folder, &source)?;
+        Ok(songmap)
     }
 
-    pub fn run_lua(source: &[u8]) -> Result<SongMap, rlua::Error> {
+    pub fn run_lua<P: AsRef<Path>>(base_folder: P, source: &[u8]) -> Result<SongMap, rlua::Error> {
         let lua = Lua::new();
+        let base_folder = base_folder.as_ref().to_owned();
+        let base_folder2 = base_folder.clone();
         lua.context(|ctx| {
             let source = ctx.load(source);
 
-            let read_midi =
-                ctx.create_function(|_, (path, bpm): (String, f64)| {
-                    match parse_midi(path.as_str(), bpm, midi_to_beats_ungrouped) {
-                        Ok(beats) => Ok(beats),
-                        Err(err) => Err(rlua::Error::external(err)),
-                    }
-                })?;
+            let read_midi = ctx.create_function(move |_, (path, bpm): (String, f64)| {
+                let path = base_folder.join(path);
+                match parse_midi(path, bpm, midi_to_beats_ungrouped) {
+                    Ok(beats) => Ok(beats),
+                    Err(err) => Err(rlua::Error::external(err)),
+                }
+            })?;
             ctx.globals().set("read_midi", read_midi)?;
 
-            let read_midi =
-                ctx.create_function(|_, (path, bpm): (String, f64)| {
-                    match parse_midi(path.as_str(), bpm, midi_to_beats_grouped) {
-                        Ok(beats) => Ok(beats),
-                        Err(err) => Err(rlua::Error::external(err)),
-                    }
-                })?;
+            let read_midi = ctx.create_function(move |_, (path, bpm): (String, f64)| {
+                let path = base_folder2.join(path);
+                match parse_midi(path, bpm, midi_to_beats_grouped) {
+                    Ok(beats) => Ok(beats),
+                    Err(err) => Err(rlua::Error::external(err)),
+                }
+            })?;
             ctx.globals().set("read_midi_grouped", read_midi)?;
 
             source.eval::<SongMap>()
@@ -94,6 +122,7 @@ impl Default for SongMap {
             skip_amount: Beats(0.0),
             bpm: 150.0,
             actions: vec![],
+            music_path: None,
         }
     }
 }
@@ -112,9 +141,21 @@ impl<'lua> FromLua<'lua> for SongMap {
                 songmap.set_skip_amount(skip);
             } else if let Ok(player) = get_key::<Player>(&entry, "player") {
                 songmap.player = player;
+            } else if let Ok(path) = get_key::<String>(&entry, "music") {
+                songmap.music_path = Some(path.into());
             } else {
-                let action = BeatAction::from_table(entry, lua)?;
-                songmap.add_action(action)
+                let action = BeatAction::from_table(&entry, lua);
+                match action {
+                    Ok(action) => songmap.add_action(action),
+                    Err(err) => {
+                        log::warn!(
+                            "Couldn't convert {} to spawn_cmd!: {:?}",
+                            dump_value(&rlua::Value::Table(entry)),
+                            err
+                        );
+                        return Err(err);
+                    }
+                }
             }
         }
 
@@ -124,11 +165,11 @@ impl<'lua> FromLua<'lua> for SongMap {
 
 impl BeatAction {
     fn from_table<'lua>(
-        beat_action: rlua::Table<'lua>,
+        beat_action: &rlua::Table<'lua>,
         lua: rlua::Context<'lua>,
     ) -> rlua::Result<Self> {
-        let start_time = get_key::<f64>(&beat_action, "beat")?;
-        let group_number = get_key::<usize>(&beat_action, "enemygroup")?;
+        let start_time = get_key::<f64>(beat_action, "beat")?;
+        let group_number = get_key::<usize>(beat_action, "enemygroup")?;
         let action = SpawnCmd::from_table(beat_action, lua)?;
 
         Ok(BeatAction::new(Beats(start_time), group_number, action))
@@ -137,20 +178,20 @@ impl BeatAction {
 
 impl SpawnCmd {
     fn from_table<'lua>(
-        spawn_cmd: rlua::Table<'lua>,
+        spawn_cmd: &rlua::Table<'lua>,
         lua: rlua::Context<'lua>,
     ) -> rlua::Result<Self> {
-        match get_key::<String>(&spawn_cmd, "spawn_cmd")?.as_str() {
+        match get_key::<String>(spawn_cmd, "spawn_cmd")?.as_str() {
             "bullet" => {
-                let size = get_key_or(&spawn_cmd, "size", 3.0)?;
+                let size = get_key_or(spawn_cmd, "size", 3.0)?;
                 let size = WorldLen(size);
 
                 if spawn_cmd.contains_key("angle")? {
-                    let angle = get_key::<f64>(&spawn_cmd, "angle")?;
-                    let length = get_key::<f64>(&spawn_cmd, "length")?;
+                    let angle = get_key::<f64>(spawn_cmd, "angle")?;
+                    let length = get_key::<f64>(spawn_cmd, "length")?;
 
                     if spawn_cmd.contains_key("start_pos")? {
-                        let start = get_key::<LiveWorldPos>(&spawn_cmd, "start_pos")?;
+                        let start = get_key::<LiveWorldPos>(spawn_cmd, "start_pos")?;
                         Ok(SpawnCmd::BulletAngleStart {
                             angle: angle.to_radians(),
                             length,
@@ -158,7 +199,7 @@ impl SpawnCmd {
                             size,
                         })
                     } else {
-                        let end = get_key::<LiveWorldPos>(&spawn_cmd, "end_pos")?;
+                        let end = get_key::<LiveWorldPos>(spawn_cmd, "end_pos")?;
                         Ok(SpawnCmd::BulletAngleEnd {
                             angle: angle.to_radians(),
                             length,
@@ -167,21 +208,21 @@ impl SpawnCmd {
                         })
                     }
                 } else {
-                    let start = get_key::<LiveWorldPos>(&spawn_cmd, "start_pos")?;
-                    let end = get_key::<LiveWorldPos>(&spawn_cmd, "end_pos")?;
+                    let start = get_key::<LiveWorldPos>(spawn_cmd, "start_pos")?;
+                    let end = get_key::<LiveWorldPos>(spawn_cmd, "end_pos")?;
 
                     Ok(SpawnCmd::Bullet { start, end, size })
                 }
             }
             "laser" => {
                 let durations = get_key_or(
-                    &spawn_cmd,
+                    spawn_cmd,
                     "durations",
                     EnemyDurations::default_laser(Beats(1.0)),
                 )?;
 
                 let outline_colors = if spawn_cmd.contains_key("outline_colors")? {
-                    let outline_colors: [rlua::Value; 4] = get_key(&spawn_cmd, "outline_colors")?;
+                    let outline_colors: [rlua::Value; 4] = get_key(spawn_cmd, "outline_colors")?;
                     [
                         Easing::<Color>::from_lua(outline_colors[0].clone(), lua)?,
                         Easing::<Color>::from_lua(outline_colors[1].clone(), lua)?,
@@ -193,14 +234,14 @@ impl SpawnCmd {
                 };
 
                 let outline_keyframes = get_key_or(
-                    &spawn_cmd,
+                    spawn_cmd,
                     "outline_keyframes",
                     Laser::default_outline_keyframes(),
                 )?;
 
                 if spawn_cmd.contains_key("a")? {
-                    let a = get_key::<LiveWorldPos>(&spawn_cmd, "a")?;
-                    let b = get_key::<LiveWorldPos>(&spawn_cmd, "b")?;
+                    let a = get_key::<LiveWorldPos>(spawn_cmd, "a")?;
+                    let b = get_key::<LiveWorldPos>(spawn_cmd, "b")?;
                     Ok(SpawnCmd::LaserThruPoints {
                         a,
                         b,
@@ -209,8 +250,8 @@ impl SpawnCmd {
                         outline_keyframes,
                     })
                 } else {
-                    let position = get_key::<LiveWorldPos>(&spawn_cmd, "position")?;
-                    let angle = get_key::<f64>(&spawn_cmd, "angle")?;
+                    let position = get_key::<LiveWorldPos>(spawn_cmd, "position")?;
+                    let angle = get_key::<f64>(spawn_cmd, "angle")?;
                     Ok(SpawnCmd::Laser {
                         position,
                         angle: angle.to_radians(),
@@ -221,14 +262,14 @@ impl SpawnCmd {
                 }
             }
             "bomb" => {
-                let pos = get_key::<LiveWorldPos>(&spawn_cmd, "pos")?;
+                let pos = get_key::<LiveWorldPos>(spawn_cmd, "pos")?;
                 Ok(SpawnCmd::CircleBomb { pos })
             }
             "set_rotation_on" => {
-                let start_angle = get_key::<f64>(&spawn_cmd, "start_angle")?;
-                let end_angle = get_key::<f64>(&spawn_cmd, "end_angle")?;
-                let duration = get_key::<f64>(&spawn_cmd, "duration")?;
-                let rot_point = get_key::<LiveWorldPos>(&spawn_cmd, "rot_point")?;
+                let start_angle = get_key::<f64>(spawn_cmd, "start_angle")?;
+                let end_angle = get_key::<f64>(spawn_cmd, "end_angle")?;
+                let duration = get_key::<f64>(spawn_cmd, "duration")?;
+                let rot_point = get_key::<LiveWorldPos>(spawn_cmd, "rot_point")?;
 
                 Ok(SpawnCmd::SetGroupRotation(Some((
                     start_angle.to_radians(),
@@ -240,26 +281,26 @@ impl SpawnCmd {
             "set_rotation_off" => Ok(SpawnCmd::SetGroupRotation(None)),
             "set_fadeout_on" => {
                 let color = if spawn_cmd.contains_key("color")? {
-                    let color = get_key::<rlua::Value>(&spawn_cmd, "color")?;
+                    let color = get_key::<rlua::Value>(spawn_cmd, "color")?;
                     from_lua_color(color)?
                 } else {
                     println!("asdf");
                     Color::new(1.0, 1.0, 1.0, 0.0)
                 };
-                let duration = get_key::<f64>(&spawn_cmd, "duration")?;
+                let duration = get_key::<f64>(spawn_cmd, "duration")?;
                 Ok(SpawnCmd::SetFadeOut(Some((color, Beats(duration)))))
             }
             "set_fadeout_off" => Ok(SpawnCmd::SetFadeOut(None)),
             "set_render_warmup" => {
-                let value = get_key::<bool>(&spawn_cmd, "value")?;
+                let value = get_key::<bool>(spawn_cmd, "value")?;
                 Ok(SpawnCmd::SetRenderWarmup(value))
             }
             "set_render" => {
-                let value = get_key::<bool>(&spawn_cmd, "value")?;
+                let value = get_key::<bool>(spawn_cmd, "value")?;
                 Ok(SpawnCmd::SetRender(value))
             }
             "set_hitbox" => {
-                let value = get_key::<bool>(&spawn_cmd, "value")?;
+                let value = get_key::<bool>(spawn_cmd, "value")?;
                 Ok(SpawnCmd::SetHitbox(value))
             }
             "clear_enemies" => Ok(SpawnCmd::ClearEnemies),
@@ -368,21 +409,26 @@ impl<'lua> FromLua<'lua> for Player {
     }
 }
 
-#[allow(dead_code)]
-fn dump_value(value: &rlua::Value) {
+fn dump_value(value: &rlua::Value) -> String {
     match value.clone() {
         rlua::Value::Table(table) => {
+            let mut table_str = String::new();
+
             for pair in table.clone().pairs() {
-                match pair {
+                let entry = match pair {
                     Ok((key, value)) => {
-                        dump_value(&key);
-                        dump_value(&value);
+                        format!("{}={}", dump_value(&key), dump_value(&value))
                     }
-                    Err(err) => println!("Err: {:?}", err),
-                }
+                    Err(err) => format!("Err: {:?}", err),
+                };
+                table_str.push_str(&entry);
             }
+            table_str
         }
-        value => println!("{:?}", value),
+        rlua::Value::String(string) => {
+            format!("{:?}", string.to_str())
+        }
+        value => format!("{:?}", value),
     }
 }
 
@@ -585,8 +631,8 @@ pub fn parse_midi<P: AsRef<Path>, T>(
     bpm: f64,
     func: impl Fn(&[TrackEvent], f64) -> T,
 ) -> anyhow::Result<T> {
-    let buffer = std::fs::read(path)?;
-    let smf = Smf::parse(&buffer)?;
+    let midi = std::fs::read(path)?;
+    let smf = Smf::parse(&midi)?;
     let ticks_per_beat = get_ticks_per_beat(&smf.header, bpm);
     Ok(func(&smf.tracks[0], ticks_per_beat))
 }
