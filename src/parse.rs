@@ -1,4 +1,3 @@
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use ggez::graphics::Color;
@@ -30,8 +29,6 @@ pub struct SongMap {
 
 impl SongMap {
     pub fn new_world<P: AsRef<Path>>(&self, base_folder: P) -> WorldState {
-        let mut audio_manager = AudioManager::new(AudioManagerSettings::default()).unwrap();
-
         fn try_read(
             audio_manager: &mut AudioManager,
             path: impl AsRef<Path>,
@@ -42,6 +39,7 @@ impl SongMap {
             Ok(song_handle)
         }
 
+        let mut audio_manager = AudioManager::new(AudioManagerSettings::default()).unwrap();
         let music = if let Some(path) = &self.music_path {
             let path = base_folder.as_ref().join(path);
             match try_read(&mut audio_manager, &path) {
@@ -284,7 +282,6 @@ impl SpawnCmd {
                     let color = get_key::<rlua::Value>(spawn_cmd, "color")?;
                     from_lua_color(color)?
                 } else {
-                    println!("asdf");
                     Color::new(1.0, 1.0, 1.0, 0.0)
                 };
                 let duration = get_key::<f64>(spawn_cmd, "duration")?;

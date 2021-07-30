@@ -171,6 +171,15 @@ impl WorldState {
 
         Ok(())
     }
+
+    fn reset(&mut self, map: &SongMap) {
+        self.player = map.player;
+        self.groups = {
+            let mut vec = Vec::with_capacity(8);
+            vec.resize_with(8, EnemyGroup::new);
+            vec
+        }
+    }
 }
 
 struct MainState {
@@ -221,7 +230,12 @@ impl MainState {
             Err(err) => log::warn!("Couldn't load map from path {:?}! {:?}", path, err),
         }
 
-        self.world = self.map.new_world(&path);
+        if ggez::input::keyboard::is_key_pressed(ctx, KeyCode::R) {
+            log::info!("Reloaded music files!");
+            self.world = self.map.new_world(&path);
+        } else {
+            self.world.reset(&self.map);
+        }
 
         // Simulate all events up to this point. We do this before the level
         // starts in order to reduce the amount of BeatActions the scheduler needs
@@ -420,10 +434,10 @@ impl event::EventHandler<GameError> for MainState {
                         Err(err) => log::error!("Error stopping music: {}", err),
                     }
                 }
-                println!("-- Stopped --");
+                log::info!("-- Stopped Game --");
             } else {
                 // Start the game. Also play the music.
-                println!("++ Started ++");
+                log::info!("++ Started Game ++");
                 self.reset(ctx);
 
                 let skip_amount = to_secs(self.map.skip_amount, self.map.bpm);
@@ -434,10 +448,7 @@ impl event::EventHandler<GameError> for MainState {
                             .volume(0.5)
                             .start_position(skip_amount.0),
                     ) {
-                        Ok(handle) => {
-                            println!("played music!");
-                            self.instance_handle = Some(handle)
-                        }
+                        Ok(handle) => self.instance_handle = Some(handle),
                         Err(err) => log::error!("Error starting music: {}", err),
                     }
                 } else {
@@ -507,17 +518,19 @@ pub fn main() {
         // Add the resources path so we can use it.
         let mut path = PathBuf::from(manifest_dir);
         path.push("resources");
-        println!("Adding path {:?}", path);
+        log::info!("Adding path {:?}", path);
         // We need this re-assignment alas, see
         // https://aturon.github.io/ownership/builders.html
         // under "Consuming builders"
         cb = cb.add_resource_path(path);
     } else {
-        println!("Not building from cargo");
+        log::warn!("Not building from cargo");
     }
 
+    // gfx_device_gl ends up spamming the log with Info messages.
     simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Warn)
+        .with_level(log::LevelFilter::Info)
+        .with_module_level("gfx_device_gl", log::LevelFilter::Warn)
         .init()
         .unwrap();
 
