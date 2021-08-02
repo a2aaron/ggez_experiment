@@ -1,9 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use ggez::graphics::Color;
-use kira::manager::{AudioManager, AudioManagerSettings};
-use kira::sound::handle::SoundHandle;
-use kira::sound::{Sound, SoundSettings};
 use midly::{Header, Smf, TrackEvent};
 use rlua::{FromLua, Lua, Table};
 
@@ -11,9 +8,9 @@ use crate::chart::{BeatAction, LiveWorldPos, SpawnCmd};
 use crate::ease::{Easing, EasingKind};
 use crate::enemy::{EnemyDurations, Laser};
 use crate::player::Player;
+use crate::time;
 use crate::time::Beats;
 use crate::world::WorldLen;
-use crate::{time, EnemyGroup, WorldState};
 
 /// This struct essentially acts as an interpreter for a song's file. All parsing
 /// occurs before the actual level is played, with the file format being line
@@ -28,49 +25,6 @@ pub struct SongMap {
 }
 
 impl SongMap {
-    pub fn new_world<P: AsRef<Path>>(&self, base_folder: P) -> WorldState {
-        fn try_read(
-            audio_manager: &mut AudioManager,
-            path: impl AsRef<Path>,
-        ) -> anyhow::Result<SoundHandle> {
-            let music_file = std::fs::read(path)?;
-            let sound = Sound::from_mp3_reader(music_file.as_slice(), SoundSettings::default())?;
-            let song_handle = audio_manager.add_sound(sound)?;
-            Ok(song_handle)
-        }
-
-        let mut audio_manager = AudioManager::new(AudioManagerSettings::default()).unwrap();
-        let music = if let Some(path) = &self.music_path {
-            let path = base_folder.as_ref().join(path);
-            match try_read(&mut audio_manager, &path) {
-                Ok(handle) => Some(handle),
-                Err(err) => {
-                    log::warn!("Couldn't read music file from path {:?}: {}", path, err);
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        WorldState {
-            player: self.player,
-            groups: {
-                let mut vec = Vec::with_capacity(8);
-                vec.resize_with(8, EnemyGroup::new);
-                vec
-            },
-            music,
-            audio_manager,
-        }
-    }
-
-    pub fn read_map<P: AsRef<Path>>(base_folder: P) -> anyhow::Result<SongMap> {
-        let base_folder = base_folder.as_ref();
-        let source = std::fs::read(base_folder.join("main.lua"))?;
-        let songmap = SongMap::run_lua(base_folder, &source)?;
-        Ok(songmap)
-    }
-
     pub fn run_lua<P: AsRef<Path>>(base_folder: P, source: &[u8]) -> Result<SongMap, rlua::Error> {
         let lua = Lua::new();
         let base_folder = base_folder.as_ref().to_owned();

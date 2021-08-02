@@ -5,14 +5,13 @@ use std::collections::binary_heap::PeekMut;
 use std::collections::BinaryHeap;
 
 use ggez::graphics::Color;
-use ggez::Context;
 
 use crate::ease::{BeatEasing, Easing};
 use crate::enemy::{Bullet, CircleBomb, EnemyDurations, Laser, BOMB_WARMUP};
 use crate::parse::{MarkedBeat, SongMap};
 use crate::time::Beats;
 use crate::world::{WorldLen, WorldPos};
-use crate::{EnemyGroup, WorldState};
+use crate::{EnemyGroup, InnerWorldState};
 
 /// This struct contains all the events that occur during a song. It will perform
 /// a set of events every time update is called.
@@ -22,7 +21,7 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    pub fn new(_ctx: &mut Context, song_map: &SongMap) -> Scheduler {
+    pub fn new(song_map: &SongMap) -> Scheduler {
         Scheduler {
             work_queue: BinaryHeap::from(song_map.actions.clone()),
         }
@@ -31,7 +30,7 @@ impl Scheduler {
     /// Preform the scheduled actions up to the new beat_time
     /// Note that this will execute every action since the last beat_time and
     /// current beat_time.
-    pub fn update(&mut self, time: Beats, world: &mut WorldState) {
+    pub fn update(&mut self, time: Beats, world: &mut InnerWorldState) {
         let rev_beat = Reverse(time);
         loop {
             match self.work_queue.peek_mut() {
@@ -248,7 +247,7 @@ pub enum SpawnCmd {
 }
 
 impl SpawnCmd {
-    fn preform(&self, group_number: usize, start_time: Beats, world: &mut WorldState) {
+    fn preform(&self, group_number: usize, start_time: Beats, world: &mut InnerWorldState) {
         let player_pos = world.player.pos;
 
         if group_number >= world.groups.len() {
